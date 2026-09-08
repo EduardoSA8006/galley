@@ -1,0 +1,24 @@
+name: galley
+description: "Motor de renderização de EPUB nativo para Flutter: rápido, leve e fácil de adotar."
+version: 0.0.1
+repository: https://github.com/EduardoSA8006/galley
+publish_to: none # até o primeiro release
+
+environment:
+  sdk: ^3.12.1
+  # Versão mínima fixada na Fase 0 (doc/11 §2). Revisar após os spikes.
+  flutter: ">=3.44.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  html: ^0.15.6
+  xml: ^6.6.1
+  meta: ^1.16.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:

@@ -1,0 +1,15 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    prefer_final_locals: true
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    unawaited_futures: true
+    avoid_print: false # spikes e tool/ imprimem
