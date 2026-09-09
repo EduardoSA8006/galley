@@ -265,12 +265,12 @@ exceção de fidelidade é `EpubUnsupportedException`, lançada na construção 
 | P3 | Nome do pacote | **`galley`**. Repositório `github.com/EduardoSA8006/galley` | 2026-09-07 |
 | P4 | Paginação em isolate vs. orçamento por frame | Orçamento por frame no isolate principal. S1 confirmou a negativa em `Isolate.run` e `Isolate.spawn`: `UI actions are only available on root isolate` (Flutter 3.44.1) | 2026-09-07 |
 | P5 | Separador de bloco | `\n` (U+000A) | 2026-09-07 |
+| P6 | Licença | **MIT** (`LICENSE` no repositório) | 2026-09-09 |
 
 ## Decisões pendentes
 
 | # | Assunto | Bloqueada por | Prazo |
 |---|---|---|---|
-| P6 | Licença: BSD-3-Clause ou MIT | — | Antes do primeiro release |
 | P7 | Inflate no web: implementação própria ou `archive` via import condicional | Tamanho do bundle, medido na Fase 1 | Fase 1 |
 | P8 | Hash da chave do cache: SHA-1 ou FNV-1a 64 | S6 mediu o SHA-1 próprio em ~16 µs/KB (JIT): 500 KB custam ~8 ms, no caminho da abertura com cache quente. Recomendação: SHA-1 só para a chave IDPF; FNV-1a 64 para o cache. Medir em AOT antes de fechar | Fase 1 |
 | P9 | Fixed-layout no núcleo ou em `galley_fixed_layout` | Corpus de fixed-layout | Antes da 1.1 |

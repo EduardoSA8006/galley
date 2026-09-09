@@ -148,7 +148,7 @@ galley/
 
 ## 5. Licença e nome
 
-Licença: **BSD-3-Clause** ou MIT, para não criar atrito de adoção comercial.
+Licença: **MIT** (P6, decidida em 2026-09-09), para não criar atrito de adoção comercial.
 Dicionários de hifenização (v1.2) têm licenças próprias (LPPL, MIT), listadas em
 `LICENSES/`.
 
