@@ -146,28 +146,30 @@ sem adicionar dependência.
 ### 4.1 Chave (Emenda 7)
 
 ```
-sha1(bytesDaSeção ‖ bytesDoCss[0] ‖ bytesDoCss[1] ‖ ...) + ":" + IR_SCHEMA_VERSION
+hex(fnv1a64(bytesDaSeção ‖ bytesDoCss[0] ‖ bytesDoCss[1] ‖ ...)) + ":" + IR_SCHEMA_VERSION
 ```
 
 Os CSS entram na ordem da cascata ([03](03-camada-a-ir.md) §6). Sem eles, dois
 EPUBs com o mesmo XHTML e CSS diferente colidiriam, e o segundo receberia a IR do
 primeiro (com `display: none` errado, marcadores de lista errados, etc.).
 
-Custo: o CSS de um livro tem tipicamente de 5 a 50 KB e é o mesmo para todas as
-seções; seu hash parcial é calculado uma vez por abertura e reaproveitado. O
-SHA-1 próprio custa **cerca de 16 µs/KB em JIT** (spike S6): 100 KB em 1,6 ms,
-500 KB em ~8 ms. Como a chave é calculada para consultar o cache, isso está no
-caminho da abertura com cache quente. Por isso P8 ([01](01-decisoes.md)) está
-aberta: um hash não criptográfico de 64 bits (FNV-1a 64) é cerca de 10× mais
-rápido e basta para chave de cache local, onde não há adversário. O SHA-1
-continua obrigatório para a chave de desofuscação IDPF
-([09](09-erros-diagnosticos.md) §4). Decidir com medição em AOT na Fase 1.
+Por que FNV-1a 64 e não SHA-1 (P8, decidida em 2026-09-09): o spike S6 mediu o
+SHA-1 próprio em **cerca de 16 µs/KB em JIT**, o que dá ~8 ms para uma seção de
+500 KB, e a chave é calculada justamente para consultar o cache, no caminho da
+abertura com cache quente. Um hash não criptográfico de 64 bits é cerca de 10×
+mais rápido e basta para chave de cache local: não há adversário, e a
+probabilidade de colisão entre as poucas centenas de seções de um livro é
+desprezível. O estado do FNV-1a é incremental, então o hash parcial do CSS
+(igual para todas as seções) é calculado uma vez por abertura e reaproveitado.
+O SHA-1 fica restrito à chave de desofuscação IDPF
+([09](09-erros-diagnosticos.md) §4), onde a especificação o exige. Confirmar em
+AOT na Fase 1 que a chave de uma seção de 500 KB fica abaixo de 1 ms.
 
 Bumpar `IR_SCHEMA_VERSION` invalida tudo automaticamente. **É a proteção para
 quando o parser mudar**, e é por isso que ela existe como constante pública
 interna e não como número mágico.
 
-Há também uma entrada por livro, chave `sha1(container.xml ‖ OPF ‖ NAV ‖ NCX)`,
+Há também uma entrada por livro, chave `fnv1a64(container.xml ‖ OPF ‖ NAV ‖ NCX)`,
 com a `EpubPublication` serializada (TOC, `page-list`, metadados, `totalChars`
 por seção). É o que faz a segunda abertura mostrar progresso global no primeiro
 frame sem tocar nenhuma seção.
@@ -208,7 +210,7 @@ economizados.
 - Buffer com `magic` ou `schemaVersion` errados, ou truncado, é tratado como
   miss e sobrescrito
 - O app controla o local e a eviction via `EpubCacheStore`. A chave começa com o
-  hash do livro (`sha1(OPF)` abreviado a 16 hex), para que `evict(prefix)` apague
+  hash do livro (`fnv1a64(OPF)` em 16 hex), para que `evict(prefix)` apague
   um livro inteiro
 
 ## 5. Caches em memória

@@ -10,13 +10,13 @@
 | `xml` | OPF, NAV, NCX, `container.xml`, `encryption.xml` | Padrão do ecossistema, estável |
 | `meta` | `@immutable`, `@visibleForTesting` | Já é dependência transitiva do Flutter |
 | — | ZIP | Leitor de central directory próprio, ~300 linhas, com ZIP64 |
-| — | Hash | Implementação própria (FNV-1a para chaves internas, SHA-1 para o cache; ~150 linhas) |
+| — | Hash | Implementação própria: FNV-1a 64 para chaves internas e de cache (~20 linhas); SHA-1 só para a chave IDPF de desofuscação (~95 linhas, validado no spike S6) |
 | — | Inflate | `dart:io` `ZLibDecoder` onde disponível; implementação própria no web (~400 linhas, ou `archive` só no web via import condicional, a decidir na Fase 1 pelo tamanho do bundle) |
 
 Zero plugins nativos. Zero dependências de UI. Zero rede.
 
-`crypto` (do time do Dart) seria aceitável para o SHA-1, mas são 150 linhas e
-evitar a dependência mantém a árvore trivial. Decisão da Fase 1.
+`crypto` (do time do Dart) seria aceitável para o SHA-1, mas são 95 linhas já
+escritas e validadas, e evitar a dependência mantém a árvore trivial (P8).
 
 ### 1.1 Por que não `epub_pro`
 

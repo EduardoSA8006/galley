@@ -128,8 +128,9 @@ folhas de estilo aplicáveis: `display: none` remove conteúdo, `list-style` e
 `text-transform` entram nos blocos e runs. Dois EPUBs com o mesmo XHTML e CSS
 diferente colidiriam no cache e o segundo receberia a IR do primeiro.
 
-**Emenda.** Chave = `sha1(bytes da seção ‖ bytes de cada CSS aplicável, na ordem
-da cascata) : IR_SCHEMA_VERSION`. Ver [08](08-concorrencia-cache.md) §4.1.
+**Emenda.** Chave = `hash(bytes da seção ‖ bytes de cada CSS aplicável, na ordem
+da cascata) : IR_SCHEMA_VERSION`. O hash é FNV-1a 64 desde a P8. Ver
+[08](08-concorrencia-cache.md) §4.1.
 
 **Status:** aceita (2026-09-07).
 
@@ -266,12 +267,12 @@ exceção de fidelidade é `EpubUnsupportedException`, lançada na construção 
 | P4 | Paginação em isolate vs. orçamento por frame | Orçamento por frame no isolate principal. S1 confirmou a negativa em `Isolate.run` e `Isolate.spawn`: `UI actions are only available on root isolate` (Flutter 3.44.1) | 2026-09-07 |
 | P5 | Separador de bloco | `\n` (U+000A) | 2026-09-07 |
 | P6 | Licença | **MIT** (`LICENSE` no repositório) | 2026-09-09 |
+| P8 | Hash da chave do cache | **FNV-1a 64** para chaves de cache e internas; SHA-1 próprio só para a chave IDPF. Motivo: S6 mediu SHA-1 em ~16 µs/KB, no caminho da abertura com cache quente. Confirmar em AOT na Fase 1 | 2026-09-09 |
 
 ## Decisões pendentes
 
 | # | Assunto | Bloqueada por | Prazo |
 |---|---|---|---|
 | P7 | Inflate no web: implementação própria ou `archive` via import condicional | Tamanho do bundle, medido na Fase 1 | Fase 1 |
-| P8 | Hash da chave do cache: SHA-1 ou FNV-1a 64 | S6 mediu o SHA-1 próprio em ~16 µs/KB (JIT): 500 KB custam ~8 ms, no caminho da abertura com cache quente. Recomendação: SHA-1 só para a chave IDPF; FNV-1a 64 para o cache. Medir em AOT antes de fechar | Fase 1 |
 | P9 | Fixed-layout no núcleo ou em `galley_fixed_layout` | Corpus de fixed-layout | Antes da 1.1 |
 | P10 | Web na 1.0 ou na 1.0.x | Spike S9 | Fase 0 |
