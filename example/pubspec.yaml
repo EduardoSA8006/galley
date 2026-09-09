@@ -1,0 +1,23 @@
+name: galley_example
+description: "App de exemplo e harness de integração do galley"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  galley:
+    path: ..
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
