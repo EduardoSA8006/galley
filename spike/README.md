@@ -16,8 +16,12 @@ Código descartável. Nada daqui vira produção; o que aprendemos vai para `doc
 
 ```sh
 flutter test test/spike                              # flutter_tester
-cd example && flutter test integration_test -d linux # engine real (Linux desktop)
+cd example && flutter test integration_test/spike_s1_isolate_paragraph_test.dart -d linux
 ```
+
+Na engine real, rode **um arquivo por invocação**: `flutter test integration_test
+-d linux` com mais de um arquivo falha no segundo com `Unable to start the app on
+the device` (Flutter 3.44.1).
 
 | Spike | Pergunta | Onde |
 |---|---|---|

@@ -1,0 +1,1 @@
+`&nbsp;` como entidade nomeada sem DTD (mal-formado em XML estrito, comum no acervo real), U+200B e U+00AD no fonte: o nbsp não colapsa, os outros dois são mantidos como intenção do autor. Origem: sintético.

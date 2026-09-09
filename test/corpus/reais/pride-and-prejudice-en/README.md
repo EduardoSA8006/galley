@@ -1,0 +1,1 @@
+Jane Austen, *Pride and Prejudice* (EPUB3, romance longo em inglês, com versos e notas). Origem: https://standardebooks.org/ebooks/jane-austen/pride-and-prejudice — domínio público (CC0 nos acréscimos da Standard Ebooks).
