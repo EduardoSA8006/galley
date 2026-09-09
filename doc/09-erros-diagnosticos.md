@@ -145,7 +145,7 @@ produz tela em branco sem explicação.
 
 | Cenário | Detecção | Tratamento na v1.0 |
 |---|---|---|
-| **Ofuscação de fonte** | `EncryptionMethod Algorithm` igual a `http://www.idpf.org/2008/embedding` ou `http://ns.adobe.com/pdf/enc#RC`, aplicado só a arquivos de fonte | Desofuscar: XOR dos primeiros 1040 bytes (IDPF) ou 1024 bytes (Adobe) com chave derivada do `dc:identifier` único (SHA-1 do identifier normalizado para IDPF; UUID em bytes para Adobe). **Suportado** |
+| **Ofuscação de fonte** | `EncryptionMethod Algorithm` igual a `http://www.idpf.org/2008/embedding` ou `http://ns.adobe.com/pdf/enc#RC`, aplicado só a arquivos de fonte | Desofuscar: XOR dos primeiros 1040 bytes (IDPF) ou 1024 bytes (Adobe) com chave derivada do identificador: IDPF usa o SHA-1 da **concatenação de todos os `unique-identifier`** com espaço, CR, LF e TAB removidos; Adobe usa os 16 bytes do UUID (sem `urn:uuid:` e hifens). Validado no spike S6 com ida e volta byte a byte sobre uma fonte real e carregamento via `FontLoader`. **Suportado** |
 | **DRM real** (LCP, ACS, proprietário) | Qualquer outro algoritmo, ou algoritmo de fonte aplicado a conteúdo | `EpubEncryptedException`, fatal, com o esquema identificado na mensagem (`lcp`, `adobe-adept`, `unknown:<uri>`) |
 | **Ofuscação desconhecida em fonte** | Algoritmo não reconhecido aplicado só a fontes | Fonte ignorada, diagnóstico `fontObfuscationUnknown`, texto renderiza com fallback. Não é fatal: fonte é Classe 3 |
 

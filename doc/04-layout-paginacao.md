@@ -27,11 +27,18 @@ final class ResolvedBlock {
 
 `ParagraphStyle` recebe `locale` do `lang` do bloco ou da seção e `textDirection`
 do `dir` do bloco, do `dir` do `<html>`, ou inferido do primeiro caractere forte
-do bloco, nessa ordem. Recebe também um `StrutStyle` derivado de `fontSize ×
-lineHeight`, para que linhas com `sup`, `sub` ou fallback de fonte não fiquem mais
-altas que as vizinhas. Sem strut, uma página com uma nota de rodapé em cada
+do bloco, nessa ordem. Recebe também `height` igual a `EpubStyle.lineHeight`,
+para que linhas com `sup`, `sub` ou fallback de fonte não fiquem mais altas que
+as vizinhas. Sem entrelinha fixa, uma página com uma nota de rodapé em cada
 parágrafo tem entrelinha irregular, e é o tipo de defeito que o leitor sente sem
 saber nomear.
+
+Por que `ParagraphStyle.height` e não `StrutStyle`: o spike S5 mostrou que, no
+Flutter 3.44.1, `StrutStyle(height: 2.0, forceStrutHeight: true)` **não altera**
+a altura da linha em `ui.Paragraph` (27.0 → 27.0), tanto em `flutter_tester`
+quanto na engine Linux, enquanto `ParagraphStyle.height` e `TextStyle.height`
+funcionam (27.0 → 40.0). Reexaminar strut na Fase 2; até lá, `height` é a
+ferramenta.
 
 ### 1.1 Texto exibido e `DisplayMap` (Emenda 6)
 
@@ -185,22 +192,37 @@ para trás acumulando linhas **de baixo para cima** até a coluna encher.
 |---|---|
 | Entrada na seção por `next()` ou pelo início | `(0, 0)` |
 | Entrada por locator (TOC, link, restauração ao abrir) | `(0, 0)`, e a página exibida é a que contém o offset (§6.1) |
-| Mudança de estilo ou viewport com o leitor aberto | A linha que contém o `charOffset` do locator atual |
+| Mudança de estilo ou viewport com o leitor aberto | A linha que contém o `charOffset` do locator atual, ajustada pelo snap |
 
-No terceiro caso, o usuário vê a linha que estava lendo no **topo** da página,
+**Snap do âncora.** Antes de paginar, o âncora é movido para a fronteira legal
+mais próxima **antes** da linha pedida. Sem isso, a costura entre a última página
+de trás e a página ancorada violaria as regras de §2.2: um âncora na segunda
+linha de um parágrafo deixaria uma órfã na página anterior, e um âncora na
+última linha começaria a página com viúva. O spike S8 mediu o deslocamento
+máximo em **2 linhas** (viúva e órfã encadeadas, ou heading seguido de uma
+linha). A linha pedida está sempre na página ancorada, no topo ou até duas
+linhas abaixo.
+
+No terceiro caso, o usuário vê a linha que estava lendo no topo da página,
 imediatamente, ao custo de shapear só os blocos vizinhos. As páginas anteriores
-são calculadas para trás sob demanda ou em background. A contagem total é a
-mesma da paginação a partir de `(0, 0)`, com diferença de no máximo uma página,
-e é exibida quando `complete`.
+são calculadas para trás sob demanda ou em background. A contagem total difere
+da paginação a partir de `(0, 0)` em **0 ou +1 página, nunca −1** (S8, 500 casos
+aleatórios: 0 em 47%, +1 em 53%), porque a costura só pode desperdiçar espaço,
+nunca ganhar. É exibida quando `complete`.
 
 Por que isso é aceitável: nenhum leitor comercial garante que "página 7" seja o
 mesmo trecho antes e depois de mudar a fonte. O que o usuário exige é não perder
 a linha. O `charOffset` é a identidade da posição; o número da página é
 derivado e efêmero.
 
-Regras de órfã e viúva valem nas duas direções. Na direção reversa, "viúva" é a
-última linha de um parágrafo isolada no fim da página acima, e é tratada
-puxando-a para a página atual.
+Regras de órfã e viúva valem nas duas direções. Implementação sugerida pelo S8:
+um único predicado `isLegalBreak(fronteira)` que decide se a fronteira entre
+duas linhas consecutivas é aceitável (órfã, viúva, heading no fim, heading mais
+uma linha, `breakBefore`, coluna com menos de 3 linhas). Paginar para frente
+preenche e **recua** a fronteira até ficar legal; para trás, preenche de baixo
+para cima e **avança** até ficar legal. As regras espelham por construção, não
+por duplicação. Custo medido: 150 mil linhas em 3,7 ms, irrelevante perto do
+shaping.
 
 ## 4. Um motor de fluxo, dois viewports
 
@@ -302,14 +324,28 @@ motor de texto está fora de questão.
    largas que a coluna são quebradas pelo `ui.Paragraph` em qualquer caractere,
    que é o comportamento padrão e aceitável.
 2. **v1.2:** hifenização por padrões Knuth-Liang, inserindo **U+00AD** no texto
-   exibido via `DisplayMap` (§1.1). O `ui.Paragraph` já trata soft hyphen: quebra
-   nele quando precisa e pinta o hífen só na quebra. Nenhum código de layout
-   novo, só um passo de transformação de texto e dicionários. Idioma vem de
+   exibido via `DisplayMap` (§1.1). O `ui.Paragraph` quebra a linha no soft
+   hyphen e ele tem largura zero quando não quebra, mas **não pinta o hífen na
+   quebra** (spike S5, Flutter 3.44.1: zero pixels escuros após a última letra
+   com Noto Serif e Liberation Serif, contra 30 com `-` literal). A pintura é do
+   motor: após `layout`, para cada linha cuja fronteira cai num U+00AD, um
+   `drawParagraph` de um `"-"` pré-shapeado em `(line.left + line.width,
+   baseline)`. O hífen invade a margem direita em cerca de 0.3em (*hanging
+   hyphen*, prática tipográfica aceita, invisível em `justify` porque a linha já
+   ocupa a coluna). Nenhum relayout; o `DisplayMap` não muda. Idioma vem de
    `Block.lang`/`Section.lang`, por isso a Emenda 4 é pré-requisito.
 
-O spike S5 deixa de ser exploratório e passa a validar: medir a diferença de
-rios entre `start`, `justify` e `justify + U+00AD` em coluna de 360 px, com o
-dicionário `hyph-pt` do TeX.
+   Alternativas rejeitadas: reservar a largura do hífen em todas as linhas (todas
+   perdem 0.3em, inclusive as não hifenizadas) e relayout com `-` literal (2 a 3
+   shapings por parágrafo e `DisplayMap` mais complexo).
+
+   Custo medido: um U+00AD a cada 6 letras num parágrafo de 2 mil caracteres
+   muda o tempo de shaping em 1.06× (165 → 175 µs).
+
+O spike S5 confirmou o resto: `TextAlign.justify` não justifica a última linha, e
+`ui.ParagraphStyle`/`ui.TextStyle` só têm `wordSpacing` e `letterSpacing` fixos,
+sem máximo nem por linha. Falta medir a diferença de rios entre `start`,
+`justify` e `justify + U+00AD` com o dicionário `hyph-pt`, o que fica para a 1.2.
 
 ## 9. Tabelas (P2, Emenda 12)
 

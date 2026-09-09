@@ -184,7 +184,7 @@ frames, senão o leitor de tela perde o foco a cada repaint. É o mesmo padrão 
 
 | Bloco | Semântica |
 |---|---|
-| `heading` | `SemanticsFlag.isHeader`, `headingLevel` |
+| `heading` | `SemanticsFlag.isHeader`, `headingLevel`. Atenção: em Flutter 3.44.1 `SemanticsConfiguration.headingLevel` é documentado como usado **só no web** e ignorado nas outras plataformas; TalkBack e VoiceOver recebem apenas `isHeader`. Verificar em S3 se o nível chega por outro caminho |
 | `paragraph`, `verse`, `code` | `label` = texto do fragmento, via `DisplayMap` de volta ao canônico (o leitor de tela lê o texto do autor, não o transformado) |
 | `InlineObject` com `alt` | Nó próprio com `label: alt`, `isImage: true` |
 | `InlineObject` sem `alt` | Nó com `label` genérico e `isImage: true`, mais diagnóstico |
@@ -272,7 +272,11 @@ O `EpubReader` é um `Focus` e recebe foco ao ser tocado. O app pode passar
 ## 6. Imagens
 
 - Decodificadas via `ui.instantiateImageCodec` com `targetWidth`/`targetHeight`
-  calculados do viewport e do `devicePixelRatio`, nunca em resolução original
+  calculados do viewport e do `devicePixelRatio`, nunca em resolução original.
+  Medido (spike S7): PNG de 2000×2000 decodificado para 360 px ocupa 31× menos
+  memória retida (0.49 MB contra 15.3 MB), com tempo de decode igual (19 contra
+  21 ms). O ganho é em retenção, não no pico transitório do decode, então
+  decodificar fora do caminho crítico continua necessário
 - Cache LRU **por bytes decodificados**, não por contagem
   ([08](08-concorrencia-cache.md) §5); `ui.Image.dispose()` na eviction
 - Enquanto decodifica, o espaço é reservado usando as dimensões intrínsecas do

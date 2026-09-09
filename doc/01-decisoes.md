@@ -179,7 +179,10 @@ orçamento de 200 ms de [10](10-testes.md) §4.1 é inatingível nesse caso.
 mudança de estilo ou viewport, o âncora passa a ser a linha que contém o
 `charOffset` do locator atual: a página exibida começa nela, as páginas seguintes
 são calculadas para frente e as anteriores para trás, preenchendo de baixo para
-cima. A contagem total continua em background. Ver [04](04-layout-paginacao.md)
+cima. O âncora é ajustado para a fronteira legal mais próxima antes da linha
+pedida (no máximo 2 linhas, spike S8), para que a costura respeite órfã, viúva e
+heading. A contagem total continua em background e difere da paginação a partir
+do início em 0 ou +1 página, nunca −1 (500 casos, S8). Ver [04](04-layout-paginacao.md)
 §3.1.
 
 **Status:** aceita (2026-09-07).
@@ -191,8 +194,10 @@ implementável** sobre `ui.Paragraph`: `TextAlign.justify` não expõe controle 
 espaçamento máximo nem permite alinhamento diferente por linha dentro do mesmo
 parágrafo. Restam as opções 1 e 2. Decisão: `textAlign` padrão é `start` na 1.0,
 com `justify` disponível e documentado como "melhor com hifenização". Na 1.2,
-hifenização Knuth-Liang inserindo **U+00AD (soft hyphen)** no texto exibido, que o
-`ui.Paragraph` já quebra e pinta corretamente. Isso é exatamente o caso de uso da
+hifenização Knuth-Liang inserindo **U+00AD (soft hyphen)** no texto exibido. O
+`ui.Paragraph` quebra a linha no soft hyphen, mas **não pinta o hífen** (spike S5,
+Flutter 3.44.1): a pintura é do motor, um `drawParagraph` de `"-"` pré-shapeado
+no fim de cada linha hifenizada, sem relayout. Isso é exatamente o caso de uso da
 Emenda 6. Ver [04](04-layout-paginacao.md) §8.
 
 **Status:** aceita (2026-09-07).
@@ -258,7 +263,7 @@ exceção de fidelidade é `EpubUnsupportedException`, lançada na construção 
 | P1 | Hifenização e justificação | `start` como padrão na 1.0; `justify` disponível; hifenização por U+00AD na 1.2 (Emenda 11). S5 valida | 2026-09-07 |
 | P2 | Layout de tabela | Auto-layout min/max content, escala até 0.8×, depois rolagem horizontal declarada (Emenda 12). S4 valida | 2026-09-07 |
 | P3 | Nome do pacote | **`galley`**. Repositório `github.com/EduardoSA8006/galley` | 2026-09-07 |
-| P4 | Paginação em isolate vs. orçamento por frame | Orçamento por frame no isolate principal. S1 tem teto de meio dia e só confirma a negativa | 2026-09-07 |
+| P4 | Paginação em isolate vs. orçamento por frame | Orçamento por frame no isolate principal. S1 confirmou a negativa em `Isolate.run` e `Isolate.spawn`: `UI actions are only available on root isolate` (Flutter 3.44.1) | 2026-09-07 |
 | P5 | Separador de bloco | `\n` (U+000A) | 2026-09-07 |
 
 ## Decisões pendentes
@@ -267,6 +272,6 @@ exceção de fidelidade é `EpubUnsupportedException`, lançada na construção 
 |---|---|---|---|
 | P6 | Licença: BSD-3-Clause ou MIT | — | Antes do primeiro release |
 | P7 | Inflate no web: implementação própria ou `archive` via import condicional | Tamanho do bundle, medido na Fase 1 | Fase 1 |
-| P8 | SHA-1: implementação própria ou `crypto` | — | Fase 1 |
+| P8 | Hash da chave do cache: SHA-1 ou FNV-1a 64 | S6 mediu o SHA-1 próprio em ~16 µs/KB (JIT): 500 KB custam ~8 ms, no caminho da abertura com cache quente. Recomendação: SHA-1 só para a chave IDPF; FNV-1a 64 para o cache. Medir em AOT antes de fechar | Fase 1 |
 | P9 | Fixed-layout no núcleo ou em `galley_fixed_layout` | Corpus de fixed-layout | Antes da 1.1 |
 | P10 | Web na 1.0 ou na 1.0.x | Spike S9 | Fase 0 |

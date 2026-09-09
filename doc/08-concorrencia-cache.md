@@ -155,7 +155,13 @@ primeiro (com `display: none` errado, marcadores de lista errados, etc.).
 
 Custo: o CSS de um livro tem tipicamente de 5 a 50 KB e é o mesmo para todas as
 seções; seu hash parcial é calculado uma vez por abertura e reaproveitado. O
-SHA-1 da seção (10 a 500 KB) custa menos de um milissegundo.
+SHA-1 próprio custa **cerca de 16 µs/KB em JIT** (spike S6): 100 KB em 1,6 ms,
+500 KB em ~8 ms. Como a chave é calculada para consultar o cache, isso está no
+caminho da abertura com cache quente. Por isso P8 ([01](01-decisoes.md)) está
+aberta: um hash não criptográfico de 64 bits (FNV-1a 64) é cerca de 10× mais
+rápido e basta para chave de cache local, onde não há adversário. O SHA-1
+continua obrigatório para a chave de desofuscação IDPF
+([09](09-erros-diagnosticos.md) §4). Decidir com medição em AOT na Fase 1.
 
 Bumpar `IR_SCHEMA_VERSION` invalida tudo automaticamente. **É a proteção para
 quando o parser mudar**, e é por isso que ela existe como constante pública

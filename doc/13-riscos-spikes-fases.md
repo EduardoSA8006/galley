@@ -6,17 +6,23 @@ Ordem de execução **antes** de escrever arquitetura definitiva.
 
 | # | Risco | Spike | Custo | Impacto se falhar |
 |---|---|---|---|---|
-| **S1** | `ui.Paragraph` em isolate de background | Construir e medir um `Paragraph` fora do isolate principal. **Presume-se negativo**; o spike só confirma na versão mínima do Flutter adotada | 0,5 dia, teto rígido | **Nenhum** — o orçamento por frame é o caminho ([08](08-concorrencia-cache.md) §2) |
+| **S1** | `ui.Paragraph` em isolate de background | **Fechado, negativo** (2026-09-09, Flutter 3.44.1, engine Linux): `ParagraphBuilder` em `Isolate.run` e em `Isolate.spawn` lança `UI actions are only available on root isolate`. Orçamento por frame confirmado ([08](08-concorrencia-cache.md) §2) | 0,5 dia | Nenhum |
 | **S2** | Seleção sobre `RenderObject` | Alças, arraste, extensão, multi-parágrafo, multi-página, `DisplayMap` com `text-transform` | 2 dias | **Alto** — é a parte mais subestimada do projeto |
 | **S3** | Acessibilidade | `assembleSemanticsNode` com nós cacheados por fragmento, testado com TalkBack e VoiceOver reais | 1 dia | **Alto** — bloqueia lançamento |
 | **S4** | Layout de tabela | Algoritmo da Emenda 12 com `colspan`, `rowspan`, conteúdo variável, largura maior que a página, cabeçalho repetido | 2 dias | **Médio** — tabela é conteúdo (Classe 1), não estética |
-| **S5** | Justificação e hifenização | Medir rios em `start`, `justify` e `justify + U+00AD` (dicionário `hyph-pt`) em coluna de 360 px; confirmar que `ui.Paragraph` quebra e pinta o soft hyphen corretamente na versão mínima | 1 dia | **Baixo** — P1 já tem decisão; o spike valida |
-| **S6** | Desofuscação de fonte | `encryption.xml` IDPF e Adobe, XOR com chave do identifier, carregamento via `FontLoader` | 0,5 dia | Baixo |
-| **S7** | Imagens e SVG | `instantiateImageCodec` com tamanho-alvo e orçamento por bytes; detecção de SVG-invólucro; `addPlaceholder` inline com baseline; repaginação quando a dimensão chega | 1 dia | **Médio** — capa em SVG é a maioria do acervo EPUB2 |
-| **S8** | Paginação ancorada | Paginar para trás a partir de uma linha arbitrária com órfã e viúva; medir diferença de contagem contra a paginação de `(0, 0)`; garantir Invariante 8 | 1 dia | **Médio** — sem ela, o orçamento de troca de fonte não vale em capítulos longos |
+| **S5** | Justificação e hifenização | **Fechado parcialmente** (2026-09-09): `ui.Paragraph` quebra no U+00AD, largura zero fora da quebra, mas **não pinta o hífen**; pintura pelo motor via hanging hyphen ([04](04-layout-paginacao.md) §8). `justify` sem controle de espaçamento. Cor não altera métricas. `StrutStyle` não altera altura de linha; usar `ParagraphStyle.height` ([04](04-layout-paginacao.md) §1). Pendente para a 1.2: medir rios com `hyph-pt` | 1 dia | Baixo |
+| **S6** | Desofuscação de fonte | **Fechado** (2026-09-09): IDPF e Adobe com ida e volta byte a byte sobre Noto Serif e carregamento via `FontLoader`; SHA-1 próprio em ~95 linhas validado em 6 vetores. Achado: SHA-1 custa ~16 µs/KB em JIT, o que reabre P8 ([08](08-concorrencia-cache.md) §4.1) | 0,5 dia | Baixo |
+| **S7** | Imagens e SVG | **Fechado parcialmente** (2026-09-09): `addPlaceholder(baseline)` ocupa um U+FFFC, `getBoxesForRange` sobre ele devolve a caixa, linha cresce de 10 para 43 px com placeholder de 40 px; `targetWidth` reduz memória retida 31× com tempo igual ([05](05-render-selecao-a11y.md) §6). `headingLevel` só no web. Pendente: SVG-invólucro e repaginação quando a dimensão chega | 1 dia | Médio |
+| **S8** | Paginação ancorada | **Fechado** (2026-09-09): protótipo com predicado único de fronteira; 500 casos aleatórios com cobertura exata, nenhuma fronteira ilegal, diferença de contagem em {0, +1}, snap do âncora ≤ 2 linhas; 150 mil linhas em 3,7 ms ([04](04-layout-paginacao.md) §3.1) | 1 dia | Nenhum |
 | **S9** | Worker cooperativo no web | Parse de seção de 500 KB como `sync*` fatiado a 4 ms sem jank; inflate próprio; medir tempo total contra o isolate | 1 dia | **Médio** — define se o web fica na 1.0 ou na 1.0.x |
 
 Total da Fase 0: cerca de 10 dias de spike, mais o corpus.
+
+**Estado em 2026-09-09:** S1, S6 e S8 fechados; S5 e S7 fechados no que
+dependia de `dart:ui`, com pendências que só fazem sentido na Fase 2 (rios com
+`hyph-pt`) e na Fase 1 (SVG-invólucro). Abertos: S2, S3, S4 e S9. Corpus: 57
+casos sintéticos e 8 EPUBs reais em `test/corpus/`, gerador em `tool/corpus/`.
+Resultados detalhados em `spike/RESULTADO-S*.md`.
 
 ### 1.1 Por que S2 é o mais perigoso
 

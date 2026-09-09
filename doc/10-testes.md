@@ -79,7 +79,11 @@ o cache em disco é válido.
 ### Invariante 8 — Paginação ancorada
 
 > A paginação a partir de qualquer âncora cobre a seção inteira (Invariante 1
-> vale) e o número total de páginas difere do da âncora `(0, 0)` em no máximo 1.
+> vale), a linha pedida está na página ancorada, e
+> `páginas(âncora) − páginas((0, 0)) ∈ {0, 1}`.
+
+O sinal importa: a costura só pode desperdiçar espaço, nunca ganhar, então −1
+é bug. Verificado no protótipo do spike S8 em 500 casos aleatórios.
 
 ### Invariante 9 — Ida e volta do cache
 

@@ -56,7 +56,7 @@ montar o corpus.
 
 | Item | Motivação | Critério de entrada |
 |---|---|---|
-| Padrões Knuth-Liang inserindo U+00AD via `DisplayMap` | Justificação sem hifenização produz rios brancos, especialmente em português e em coluna estreita. **Nenhum leitor Flutter hifeniza hoje** — é diferencial real. Custo de layout zero: o `ui.Paragraph` já trata soft hyphen | Emenda 6 e Emenda 11 implementadas |
+| Padrões Knuth-Liang inserindo U+00AD via `DisplayMap` | Justificação sem hifenização produz rios brancos, especialmente em português e em coluna estreita. **Nenhum leitor Flutter hifeniza hoje** — é diferencial real. Custo de shaping ~1× (medido no S5); um `drawParagraph` de `"-"` extra por linha hifenizada, porque o `ui.Paragraph` quebra no soft hyphen mas não pinta o hífen | Emenda 6 e Emenda 11 implementadas |
 | Dicionários pt, en, es, fr, de, it | Dicionários TeX são pequenos (20 a 100 KB) e permissivamente licenciados | Implementação do algoritmo |
 | Dicionários carregados sob demanda por `Section.lang` | Não inflar o tamanho do pacote; escolher o idioma certo por bloco | Emenda 4 (`lang` na IR) |
 | Pacote irmão `galley_hyphenation` com os dicionários | Núcleo sem dados de idioma | Empacotamento definido |

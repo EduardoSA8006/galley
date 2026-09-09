@@ -1,6 +1,6 @@
 # Motor de renderização de EPUB para Flutter — Documentação
 
-**Versão do documento:** v0.3
+**Versão do documento:** v0.4
 **Pacote:** `galley` — [github.com/EduardoSA8006/galley](https://github.com/EduardoSA8006/galley)
 
 Um pacote Flutter que renderiza EPUB de forma nativa, sem WebView, com três
@@ -40,6 +40,21 @@ Para planejar: 13, 12.
   [02](02-modelo-de-estilo.md).
 - "Offset" sem qualificador significa sempre índice em `canonicalText`
   ([03](03-camada-a-ir.md) §5).
+
+## Alterações da v0.3 para a v0.4
+
+Incorporação dos resultados dos spikes S1, S5, S6, S7 e S8 (2026-09-09):
+
+| Arquivo | O que mudou |
+|---|---|
+| 01 | Emenda 10 com snap do âncora; Emenda 11 com pintura do hífen pelo motor; P4 com o erro literal do S1; P8 reaberta (SHA-1 × FNV-1a 64) |
+| 04 | §1 entrelinha via `ParagraphStyle.height` (strut não funciona); §3.1 snap e diferença {0, +1}; §8 hanging hyphen com números |
+| 05 | `headingLevel` só no web; números do decode com `targetWidth` |
+| 08 | Custo real do SHA-1 e remissão a P8 |
+| 09 | Chave IDPF é a concatenação de todos os `unique-identifier` |
+| 10 | Invariante 8 reformulada como `∈ {0, 1}` |
+| 12 | Custo da hifenização corrigido |
+| 13 | S1, S5, S6, S7, S8 com resultados e estado da Fase 0 |
 
 ## Alterações da v0.2 para a v0.3
 
