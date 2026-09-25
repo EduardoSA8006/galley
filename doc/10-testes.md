@@ -215,7 +215,9 @@ absoluto do §4.1.
 **O gate.** `dart run tool/perf/compare.dart` compara `build/perf/result.json`
 com o baseline: razão atual ÷ razão do baseline acima de 1,20 falha o build;
 abaixo de 0,80 avisa que o baseline pode ser atualizado; caso novo avisa; caso
-que sumiu falha; Flutter diferente do baseline avisa em destaque.
+que sumiu falha; Flutter diferente do baseline avisa em destaque. CPU diferente
+do baseline também só avisa (não falha); cada `result.json` registra o modelo
+da CPU onde foi medido.
 
 **Onde nasce o baseline.** No runner do CI, nunca na máquina de quem
 desenvolve: o workflow manual `perf-baseline` roda o harness três vezes,

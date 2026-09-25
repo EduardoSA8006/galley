@@ -105,6 +105,7 @@ Da Fase 1 em diante, casos novos entram como novas entradas em
   "flutter": "3.47.0",
   "dart": "3.13.0",
   "os": "linux",
+  "cpu": "AMD EPYC 7763 64-Core Processor",
   "createdAt": "2026-09-25T12:00:00Z",
   "cases": {
     "html.parse.500kb": {
@@ -120,7 +121,9 @@ Da Fase 1 em diante, casos novos entram como novas entradas em
 A versão do Flutter vem de `FLUTTER_VERSION` quando definida (o CI define) e,
 senão, de `Process.run('flutter', ['--version', '--machine'])`; se o processo
 falhar, o campo vale `"unknown"` e o comparador avisa como versão diferente. A
-versão do Dart vem de `Platform.version`.
+versão do Dart vem de `Platform.version`. A CPU vem de `/proc/cpuinfo`
+(primeira linha `model name`); fora do Linux, ou se o arquivo não existir ou
+não tiver essa linha, o campo vale `"unknown"`.
 
 ## 3. Comparador e baseline
 
@@ -146,6 +149,7 @@ Dart puro, sem dependências novas.
 | Caso no resultado, ausente do baseline | Aviso: caso novo sem baseline |
 | Caso no baseline, ausente do resultado | **Falha**: caso sumiu sem atualizar o baseline |
 | Flutter do resultado ≠ Flutter do baseline | Compara e avisa em destaque |
+| CPU do resultado ≠ CPU do baseline | Compara e avisa |
 | Arquivo de baseline inexistente | Todos os casos viram "caso novo"; não falha |
 | JSON malformado ou `schema` desconhecido | **Falha** com mensagem que diz qual arquivo e qual campo |
 
