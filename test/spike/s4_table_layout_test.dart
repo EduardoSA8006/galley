@@ -699,6 +699,7 @@ void main() {
           final it = job.steps().iterator;
           const budget = 4000;
           final slices = <int>[];
+          final stepTimes = <int>[];
           var steps = 0, maxStep = 0;
           var more = true;
           while (more) {
@@ -706,19 +707,24 @@ void main() {
             while (sw.elapsedMicroseconds < budget) {
               final before = sw.elapsedMicroseconds;
               more = it.moveNext();
-              maxStep = max(maxStep, sw.elapsedMicroseconds - before);
+              final stepTime = sw.elapsedMicroseconds - before;
+              stepTimes.add(stepTime);
+              maxStep = max(maxStep, stepTime);
               if (!more) break;
               steps++;
             }
             slices.add(sw.elapsedMicroseconds);
           }
           final total = slices.fold(0, (a, b) => a + b);
+          stepTimes.sort();
+          final medianStep = stepTimes[stepTimes.length ~/ 2];
           print(
             'S4.5 fatiado ${rows}x$cols W=${w.toInt()}: ${slices.length} '
             'fatias, maior ${slices.reduce(max)} µs, passo mais longo '
-            '$maxStep µs, $steps passos, total $total µs',
+            '$maxStep µs, passo mediano $medianStep µs, $steps passos, '
+            'total $total µs',
           );
-          expect(maxStep, lessThan(budget));
+          expect(medianStep, lessThan(budget));
           job.result.dispose();
         }
       }

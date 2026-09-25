@@ -118,7 +118,7 @@ void main() {
         Process.run(
           'dart',
           ['run', 'tool/perf/compare.dart', ...args],
-          environment: {'GITHUB_STEP_SUMMARY': ?summary},
+          environment: {'GITHUB_STEP_SUMMARY': summary ?? ''},
         );
 
     String write(String name, PerfReport report) {

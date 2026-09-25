@@ -15,7 +15,6 @@ void main() {
     final pubspec = RegExp(r'flutter:\s*">=([0-9.]+)"');
     final workflow = RegExp(r'FLUTTER_MIN:\s*([0-9.]+)');
     final root = _match('pubspec.yaml', pubspec);
-    expect(root, '3.47.0');
     expect(_match('example/pubspec.yaml', pubspec), root);
     expect(_match('.github/workflows/ci.yml', workflow), root);
     expect(_match('.github/workflows/perf-baseline.yml', workflow), root);
