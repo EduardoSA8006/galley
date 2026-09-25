@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "flutter": "3.47.0",
+  "dart": "3.13.0",
+  "os": "linux",
+  "cpu": "Intel(R) Xeon(R) 6973P-C",
+  "createdAt": "2026-09-25T20:19:27.985Z",
+  "sourceCommit": "40c08bd3ae35da229e05afe1499032fa5b7f3cc1",
+  "runner": "ubuntu-24.04",
+  "runs": 3,
+  "cases": {
+    "html.parse.500kb": {
+      "ratio": 1.9756598600164488,
+      "medianUs": 8846.578,
+      "calibrationUs": 4555.956
+    },
+    "image.decode.target": {
+      "ratio": 1.9128792406017405,
+      "medianUs": 8652.251,
+      "calibrationUs": 4554.997
+    },
+    "paragraph.shape.1000": {
+      "ratio": 10.314138518942228,
+      "medianUs": 47706.413,
+      "calibrationUs": 4963.391
+    },
+    "zlib.inflate.1mb": {
+      "ratio": 1.0692599953659765,
+      "medianUs": 6546.034,
+      "calibrationUs": 5427.99
+    }
+  }
+}

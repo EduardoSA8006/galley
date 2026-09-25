@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "flutter": "3.47.0",
+  "dart": "3.13.0",
+  "os": "linux",
+  "cpu": "AMD EPYC 7763 64-Core Processor",
+  "createdAt": "2026-09-25T20:30:16.210116Z",
+  "sourceCommit": "40c08bd",
+  "runner": "ubuntu-24.04",
+  "runs": 3,
+  "cases": {
+    "html.parse.500kb": {
+      "ratio": 1.9017440678326154,
+      "medianUs": 12309.533,
+      "calibrationUs": 6389.561
+    },
+    "image.decode.target": {
+      "ratio": 1.7228645841998746,
+      "medianUs": 11378.523,
+      "calibrationUs": 6595.241
+    },
+    "paragraph.shape.1000": {
+      "ratio": 11.649111997819704,
+      "medianUs": 77301.954,
+      "calibrationUs": 6600.941
+    },
+    "zlib.inflate.1mb": {
+      "ratio": 0.9184798011362071,
+      "medianUs": 7335.514,
+      "calibrationUs": 6743.909
+    }
+  }
+}
