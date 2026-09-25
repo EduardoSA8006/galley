@@ -113,6 +113,10 @@ final class EpubDiagnosticCode {
 | `zipCrcMismatch` | warning | CRC-32 da entrada não bate (só verificado em `strict`) |
 | `indivisibleBlock` | warning | Bloco não divisível maior que a página |
 | `tableOverflow` | warning | Tabela mais larga que a página mesmo após escala; rolagem horizontal |
+| `truncatedColSpan` | info | `colspan` colidiria com um slot já ocupado da grade; truncado para não sobrepor células ([04](04-layout-paginacao.md) §9) |
+| `truncatedRowSpan` | info | `rowspan` passa do fim da tabela; truncado |
+| `fragmentedRowSpan` | info | Grupo de linhas ligadas por `rowspan` maior que a página; quebrado entre as linhas do grupo |
+| `headerNotRepeated` | info | Cabeçalho de tabela acima de 50% da altura da página; não repetido nas páginas seguintes |
 | `viewportTooSmall` | warning | Coluna com menos de 3 linhas; regras de órfã e viúva desligadas |
 | `fontObfuscationUnknown` | warning | Fonte com algoritmo de ofuscação não reconhecido; fonte ignorada |
 | `sectionTooLarge` | info | Seção acima de 2 MB de XHTML; parse fatiado com prioridade reduzida |

@@ -28,8 +28,44 @@ isso, **toda tarefa da Camada A é escrita como gerador síncrono (`sync*`) com 
 cooperativo, é drenado por fatias. É o mesmo mecanismo que dá cancelamento de
 graça.
 
-Nunca um isolate por seção: o custo de spawn é de 50 a 200 ms, o que anula o
-ganho em qualquer navegação normal.
+**Exceção: o parse do `html`** (spike S9, Flutter 3.47.5, Chromium 153). O
+`html.parse` é uma chamada única sobre a string inteira, sem onde pôr um
+`yield` sem reescrever o tokenizer, então o primeiro checkpoint da tarefa só
+existe **depois** dele. No isolate isso não importa. No cooperativo, é uma
+fatia única:
+
+| Parse atômico | Nativo AOT | dart2js `-O4` | dart2wasm `-O2` | DDC (`flutter test --platform chrome`) |
+|---|---|---|---|---|
+| 500 KB | 29–30 ms | 49–53 ms | 49–52 ms | 245 ms |
+| 3 MB | 192–207 ms | 269–278 ms | 381–396 ms | 1 480 ms |
+
+O custo é linear, ~0,1 ms/KB em dart2js release: dentro da tolerância de 8 ms
+de §2 até ~80 KB, o que cobre 96% das seções do corpus real (p99 de 132 KB), mas
+não a seção de 500 KB nem a Patologia (3,2 MB → ~270 ms). É o que deixa o web
+fora da 1.0 (P10, [01](01-decisoes.md)). O resto da tarefa, caminhada no DOM e
+construção da IR, fatia como previsto: mediana de fatia 4,00 ms em todos os
+alvos, acima de 8 ms em ~1% das fatias, em rodadas isoladas e com cara de GC.
+Em tempo de parede total, o web cooperativo em release leva ≈ 1,0–1,1×
+(dart2js) e 1,1–1,6× (dart2wasm) o do isolate nativo em AOT.
+
+Parse fatiável, pré-requisito do web, com três caminhos a medir na Fase 1:
+(a) um scanner leve divide o `<body>` em fronteiras de elemento de topo a cada
+~16 KB e cada pedaço vai a `parseFragment`, com um `yield` entre eles e fallback
+para o parse inteiro quando o scanner achar tag desbalanceada entre pedaços;
+(b) tokenizer e tree builder próprios com checkpoint a cada N KB, caro porque
+reimplementa a tolerância do HTML5 que motivou o `html` ([03](03-camada-a-ir.md)
+§8); (c) um Web Worker com entrypoint Dart compilado à parte, que tira o parse
+do thread principal ao custo de empacotamento. No web, `dart:isolate` compila
+(DDC e dart2wasm, Dart 3.13.4), mas falha em runtime; a escolha fica no import
+condicional do `EpubWorker`.
+
+Nunca um isolate por seção. O número que justificava isso, 50 a 200 ms de
+spawn, não se confirmou no desktop: o S9 mediu `Isolate.run(() => 0)` em
+0,07–0,24 ms (JIT e AOT), e o `Isolate.run` com o trabalho de 500 KB custa
+1,0–1,1× o trabalho direto em AOT, incluindo a cópia dos 4 861 blocos de volta.
+A vantagem do isolate é não bloquear a UI, não o tempo. O isolate de vida longa
+continua a escolha, mas o custo de spawn precisa ser medido em AOT num Android
+real antes de virar argumento, para um lado ou para o outro.
 
 Roda lá: leitura do ZIP, inflate, parse de XHTML, cascata de CSS, construção da
 IR, serialização e desserialização do cache, busca linear (`findAll`). **Tudo CPU
@@ -97,13 +133,34 @@ frame pendente e cede quando há.
 Funciona sempre, nunca engasga, e é como editores de texto fazem layout
 incremental.
 
+**Cessão no web.** No navegador, cada cessão por `Timer` de zero custa **~4,2
+ms**: é o clamp do HTML para `setTimeout` aninhado mais de 5 níveis (spike S9;
+0,02–0,2 ms na VM, 4,1–4,9 ms no Chrome sempre que há mais que ~5 fatias
+seguidas). `scheduleTask` não escapa disso: no Flutter 3.47.5 ele agenda com
+`Timer.run(_runTasks)` por dentro (`_ensureEventLoopCallback` em
+`scheduler/binding.dart`). Com fatias de 4 ms, o trabalho fatiado roda a ~50% de
+ciclo útil: a caminhada de 3 MB leva 1,8× (dart2js) a 2,2× (dart2wasm) o tempo
+direto. No web, o agendador e o `CooperativeEpubWorker` cedem por
+`MessageChannel` (`postMessage` não sofre o clamp) ou `scheduler.postTask` onde
+existir. Pré-requisito do web (P10), não medido no S9.
+
 Unidade de trabalho: uma linha de `LineBox`. Na prática, um `Paragraph.layout`
 inteiro é atômico (não dá para parar no meio), então a unidade real é **um
 bloco**; blocos gigantes (um `pre` de 5 mil linhas) podem estourar uma fatia, e
-isso é medido no teste de jank e tolerado até 8 ms.
+isso é medido no teste de jank e tolerado até 8 ms. Tabela não é um bloco para o
+agendador: é medida **uma célula por etapa** ([04](04-layout-paginacao.md) §9;
+S4: passo típico de 15 a 70 µs, 200 × 8 em 13 fatias de 4 ms). Como bloco
+atômico custaria 50 a 100 ms.
 
-O mesmo agendador serve o `CooperativeEpubWorker` (§1) e a decodificação de
-imagens fora do caminho crítico.
+Na Camada A, o bloco gigante caro não é o `pre`: um `pre` de 1 MB é um único nó
+de texto e custa < 1 ms em todos os alvos (S9). Caro é o mesmo 1 MB num `p`,
+pelo colapso de whitespace com `replaceAll(RegExp(r'\s+'))`: 5–10 ms no Chrome e
+~52 ms no nativo (JIT e AOT), porque o `RegExp` da VM é várias vezes mais lento
+que o do V8. Sugestão do S9: checkpoint a cada 64 KB de texto dentro de um bloco
+(§3) e colapso de whitespace escrito à mão, sem `RegExp`.
+
+O mesmo agendador serve o `CooperativeEpubWorker` (§1), a medição de tabelas e a
+decodificação de imagens fora do caminho crítico.
 
 ## 3. Cancelamento
 
@@ -128,9 +185,10 @@ Checkpoints obrigatórios (cada um é um `yield` no gerador da tarefa):
 | Etapa | Checkpoint |
 |---|---|
 | Inflate de entrada | A cada 64 KB de saída |
-| Parse de seção | A cada bloco emitido |
+| Parse do XHTML (`html.parse`) | Nenhum dentro da chamada, que é atômica (§1). No web, a cada pedaço de ~16 KB quando o parse fatiável existir (P10) |
+| Caminhada no DOM e construção da IR | A cada bloco emitido e a cada 64 KB de texto dentro de um bloco |
 | Cascata de CSS | A cada regra |
-| Paginação | A cada bloco (ver §2) |
+| Paginação | A cada bloco (ver §2); em tabela, a cada célula medida |
 | Serialização do cache | A cada seção |
 | Busca linear | A cada bloco |
 

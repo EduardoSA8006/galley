@@ -1,6 +1,6 @@
 # Motor de renderização de EPUB para Flutter — Documentação
 
-**Versão do documento:** v0.4
+**Versão do documento:** v0.5
 **Pacote:** `galley` — [github.com/EduardoSA8006/galley](https://github.com/EduardoSA8006/galley)
 
 Um pacote Flutter que renderiza EPUB de forma nativa, sem WebView, com três
@@ -40,6 +40,23 @@ Para planejar: 13, 12.
   [02](02-modelo-de-estilo.md).
 - "Offset" sem qualificador significa sempre índice em `canonicalText`
   ([03](03-camada-a-ir.md) §5).
+
+## Alterações da v0.4 para a v0.5
+
+Incorporação dos resultados dos spikes S2, S4 e S9 (2026-09-25, Flutter 3.47.5):
+
+| Arquivo | O que mudou |
+|---|---|
+| 01 | P10 fechada: web na 1.0.x, com critério objetivo de entrada; Emenda 9 com o parse atômico do `html`; Emenda 12 e P2 com as correções do S4 |
+| 03 | §8 parse atômico e armadilha O(n²) de `Element.children` |
+| 04 | §1.1 semântica de inserção e SpecialCasing próprio (`ß → SS`); §2.1 clip horizontal da seleção; §2.3 exceção da tabela grande; §8 min-content com U+00AD; §9 medição por `layout(∞)`, `colSpan` por déficit, escala por `canvas.scale`, regras de paginação, custo e fatiamento por célula |
+| 05 | §1 alças fora do `paint`; §3.1 e §3.2 saída dupla caret × caractere, clip de coluna, toque fora de fragmento nos dois eixos, custo; §3.3 reconhecedor acima do carrossel; §3.5 alças como widgets com `DragStartBehavior.down` |
+| 08 | §1 parse atômico com números, caminhos do parse fatiável, custo de spawn medido; §2 clamp de ~4,2 ms na cessão do web, tabela por célula, bloco gigante da Camada A; §3 checkpoints revistos |
+| 09 | Diagnósticos de tabela: `truncatedColSpan`, `truncatedRowSpan`, `fragmentedRowSpan`, `headerNotRepeated` |
+| 10 | Invariante 7 verificada no S2; §4.4 desempenho no web exige build de release |
+| 11 | §2 web na 1.0.x |
+| 12 | v1.0 nas cinco plataformas nativas; seção v1.0.x (web) |
+| 13 | S2, S4 e S9 com resultados; estado da Fase 0; §1.1 com o que o S2 respondeu e a estimativa da Fase 4; Fase 6 sem o web |
 
 ## Alterações da v0.3 para a v0.4
 

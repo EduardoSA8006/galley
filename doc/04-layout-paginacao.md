@@ -72,10 +72,27 @@ Regras:
 - O mapa é **monotônico**. `toCanonical` de um offset dentro de um trecho
   expandido (o segundo `S` de `SS`) devolve o offset do caractere canônico de
   origem (`ß`)
+- Inserção (U+00AD da hifenização): `toCanonical` de um offset dentro dela
+  devolve o offset canônico **seguinte**, e `toDisplay` de um caractere
+  precedido por inserção cai depois dela. Por isso o toque sobre o hífen
+  pendurado de §8 resolve para a letra seguinte sem código extra (spike S2)
+- **`ß → SS` não vem de `String.toUpperCase`.** Na VM, `'straße'.toUpperCase()`
+  devolve `STRAßE`, `ﬁ` e `ŉ` não mudam e `'İ'.toLowerCase()` devolve `i` com uma
+  unidade; o `toUpperCase` do JS faz `ß → SS` (S2, Flutter 3.47.5). Usar a função
+  da plataforma faria o texto exibido, a paginação e o mapa **divergirem entre
+  web e nativo**. A Camada B usa uma tabela própria gerada de `SpecialCasing.txt`
+  (cerca de 100 entradas para maiúsculas, mais as sensíveis a locale: `tr`, `az`,
+  `lt`), igual em todas as plataformas. Custo estimado: 1 dia na Fase 2
 - **Toda** conversão entre posição visual e offset canônico passa por aqui:
   seleção, destaques, âncoras, semântica, locator. O caminho de
-  [05](05-render-selecao-a11y.md) §3.2 é `getPositionForOffset → map.toCanonical
-  → + block.textStart`
+  [05](05-render-selecao-a11y.md) §3.2 é `getPositionForOffset` (caret) ou
+  `getClosestGlyphInfoForOffset` (caractere) `→ map.toCanonical →
+  + block.textStart`
+
+O protótipo do S2 validou a forma: identidade sem cópia (a mesma instância de
+`String`), pontos de mudança em `Uint32List` com busca binária, e 300 casos
+aleatórios com `ß`, `ﬁ` e U+00AD satisfazendo a Invariante 7
+([10](10-testes.md) §2).
 
 Isso é o que permite a Camada A ignorar completamente como o texto será exibido.
 
@@ -125,6 +142,16 @@ diferentes em cada página. Nada é re-shapeado.
 Um parágrafo de 40 linhas atravessando três páginas custa **um** shaping, não
 três.
 
+Esse `clipRect` é vertical: esconde as linhas do mesmo `Paragraph` que estão em
+outra página. Os retângulos de seleção e de destaque, que vêm de
+`getBoxesForRange`, precisam de clip também **horizontal**, à coluna do
+fragmento: o spike S2 mediu a caixa do espaço final de uma linha cheia de 0 a
+210 px numa coluna de 200 px, e sem o clip o realce invade a margem direita.
+Esse espaço fica sem retângulo visível, que é o comportamento certo. Com os dois
+clips, um range que atravessa a quebra de página tem cada caractere com
+retângulo em exatamente uma página, e cada página pinta só os seus
+([05](05-render-selecao-a11y.md) §3.2).
+
 Consequência de produto: o defeito de "bloco maior que a tela vira página que
 rola internamente" desaparece por construção. Nenhum leitor comercial faz aquilo,
 e nós também não vamos.
@@ -152,6 +179,13 @@ dois ou três parágrafos, não o capítulo.
 Essa é a diferença estrutural em relação a medir a altura de todos os blocos
 antes de paginar, que é o que os leitores nativos existentes fazem e é o teto de
 desempenho deles.
+
+**Exceção: seção que começa com tabela grande.** A largura das colunas depende
+de **todas** as linhas (§9), então a primeira linha só aparece depois de medir a
+tabela inteira. O spike S4 mediu isso para 200 × 8: as 1 600 células custam
+~25 ms de medição, mais os layouts finais da primeira página (JIT). Opções, a
+decidir na Fase 2: aceitar e declarar a exceção, ou medir as primeiras N linhas,
+mostrar e repaginar quando as demais chegarem.
 
 ### 2.4 Ciclo de vida do `ui.Paragraph`
 
@@ -342,6 +376,11 @@ motor de texto está fora de questão.
    Custo medido: um U+00AD a cada 6 letras num parágrafo de 2 mil caracteres
    muda o tempo de shaping em 1.06× (165 → 175 µs).
 
+   Em tabela, `minIntrinsicWidth` trata a palavra com U+00AD como inquebrável,
+   embora o `ui.Paragraph` quebre nela (spike S4). Com hifenização, o
+   min-content de célula hifenizada terá de ser calculado pelo motor, senão
+   empurra tabelas para a escala (§9).
+
 O spike S5 confirmou o resto: `TextAlign.justify` não justifica a última linha, e
 `ui.ParagraphStyle`/`ui.TextStyle` só têm `wordSpacing` e `letterSpacing` fixos,
 sem máximo nem por linha. Falta medir a diferença de rios entre `start`,
@@ -352,34 +391,104 @@ sem máximo nem por linha. Falta medir a diferença de rios entre `start`,
 Cada célula folha é um `ui.Paragraph`; uma célula com `children` é um
 sub-fluxo. O algoritmo é o layout automático de CSS simplificado:
 
-1. **Medir.** Para cada célula: `minWidth` = `maxIntrinsicWidth` após `layout`
-   com largura 0 (a palavra mais longa); `maxWidth` = `longestLine` após `layout`
-   com largura infinita. Células com `colSpan > 1` distribuem seus valores
-   igualmente entre as colunas cobertas.
-2. **Colunas.** `colMin[i]` e `colMax[i]` são os máximos das células da coluna.
+1. **Medir.** Para cada célula, **um** `layout(double.infinity)` e duas
+   leituras: `minWidth` = `minIntrinsicWidth` (a palavra mais longa) e
+   `maxWidth` = `longestLine` (o max-content; o `maxIntrinsicWidth` do mesmo
+   layout também serve, mas inclui o espaço final). Valores degenerados são
+   zerados: `longestLine` de célula vazia é −FLT_MAX, e `minIntrinsicWidth` de
+   célula só com espaço é FLT_MIN. A célula vazia mede só o padding e tem a
+   altura de uma linha vazia.
+   Os valores seguem a grade do HTML: cada célula vai para o primeiro slot livre
+   da linha, pulando os ocupados por `rowSpan` de cima. Span que sai da grade é
+   truncado (`truncatedRowSpan`, `truncatedColSpan`) em vez de sobrepor células,
+   e `rowSpan=0` vai até o fim da tabela, como no HTML.
+2. **Colunas.** `colMin[i]` e `colMax[i]` são os máximos das células de span 1
+   da coluna. Depois, em ordem crescente de span, cada célula com `colSpan > 1`
+   reparte igualmente entre as colunas cobertas **só o déficit** entre a sua
+   largura e a soma delas, como no CSS.
 3. **Distribuir.** Largura disponível `W` (coluna de texto menos padding):
    - `ΣcolMax ≤ W`: cada coluna recebe `colMax`; sobra vai para margem
    - `ΣcolMin ≤ W < ΣcolMax`: cada coluna recebe `colMin + (W − ΣcolMin) ×
      (colMax − colMin) / Σ(colMax − colMin)`
-   - `ΣcolMin > W`: escala a tabela inteira (fonte e padding) por `W / ΣcolMin`,
-     com piso **0.8×**. Se ainda não couber, a tabela é laid out em `ΣcolMin ×
-     0.8` e o bloco ganha **rolagem horizontal própria** dentro da página, com
-     diagnóstico `tableOverflow`. É a única exceção à regra "nada rola dentro da
-     página", e é declarada.
-4. **Linhas.** Altura da linha = máximo das alturas das células. `rowSpan` é
-   resolvido depois, esticando a célula sobre as linhas cobertas; se a célula com
-   `rowSpan` for mais alta que a soma, a última linha coberta cresce.
+   - `ΣcolMin > W`: escala a tabela inteira (fonte e padding) por `s = W /
+     ΣcolMin`, com piso **0.8×**. A escala é uma **transformação de pintura**: o
+     layout é feito em tamanho normal, com as colunas em `colMin` (largura `W /
+     s`), e pintado com `canvas.scale(s)`. Não se reconstroem os parágrafos com
+     `fontSize × s`. Se ainda não couber, a tabela é pintada a 0.8× com largura
+     `ΣcolMin × 0.8` e o bloco ganha **rolagem horizontal própria** dentro da
+     página, com diagnóstico `tableOverflow`. É a única exceção à regra "nada
+     rola dentro da página", e é declarada. Hit-test e seleção passam pela mesma
+     transformação: o ponto do toque pela inversa, os retângulos pela direta
+     ([05](05-render-selecao-a11y.md) §3.2).
+4. **Linhas.** Altura da linha = máximo das alturas das células de `rowSpan` 1.
+   Os `rowSpan` são resolvidos depois, em ordem crescente de span, esticando a
+   célula sobre as linhas cobertas; se a célula com `rowSpan` for mais alta que
+   a soma, a última linha coberta cresce.
 5. **Paginar.** A linha de tabela é a unidade de quebra. A primeira linha com
    `isHeaderCell` em todas as células é **repetida** no topo de cada página em
-   que a tabela continua, como fazem processadores de texto. Linha mais alta que
-   a página: página própria, célula clipada, diagnóstico `indivisibleBlock`.
+   que a tabela continua, como fazem processadores de texto. Regras propostas
+   pelo spike S4 e validadas no protótipo:
+   - Linhas ligadas por `rowSpan` formam um grupo que fica na mesma página
+     **enquanto couber numa página vazia**. Se não couber, quebra entre as
+     linhas do grupo, e a célula com `rowSpan` é fragmentada como um parágrafo
+     (`fragmentedRowSpan`), sem perder linha
+   - Linha isolada mais alta que a página: página própria **com** o cabeçalho
+     repetido, célula clipada, diagnóstico `indivisibleBlock`
+   - O cabeçalho só é repetido se o seu grupo ocupar no máximo **50% da
+     altura da página**; acima disso, `headerNotRepeated`. A progressão é
+     garantida mesmo sem a regra (cada página leva pelo menos uma linha); a
+     regra evita desperdício
+   - Não tratados no protótipo: `rowSpan` que sai do cabeçalho para o corpo e
+     tabela que começa no meio de uma página
 
 Bordas: uma linha fina na cor do texto a 30% de opacidade entre linhas, sem
 bordas verticais. O CSS de borda do publisher é ignorado (Classe 3 de fato).
 
-Custo: a medição faz dois layouts por célula. Para uma tabela de 20 × 5 são 200
-shapings pequenos, dentro de uma fatia de orçamento. Tabelas gigantes (centenas
-de linhas) pagam o preço uma vez e ficam no cache de paginação.
+Por que `layout(double.infinity)` e não `layout(0)` (spike S4, Flutter 3.47.5):
+com largura 0 o `ui.Paragraph` quebra por caractere, um glifo por linha. O
+`minIntrinsicWidth` passa a ser a largura de um glifo, e o `maxIntrinsicWidth`
+vira o max-content e ainda soma as quebras duras (`x\ny long` dá 80 em vez de
+60). Além disso, `minIntrinsicWidth` depende da largura do último `layout` e só é
+a palavra mais longa com largura ≥ ela, isto é, com `∞`. `layout(0)` é também o
+layout mais caro (71 ms contra 16 ms em 1000 parágrafos de 40 palavras). A regra
+da v0.4 (`maxIntrinsicWidth` após `layout(0)`) dava colMin = colMax e mandava
+para escala e overflow uma tabela que cabia sem escala (célula de 44 caracteres
+em 200 px).
+
+Por que só o déficit no `colSpan`: a divisão igual acerta o retângulo, mas infla
+colunas estreitas. No S4, uma coluna de conteúdo de 18 px foi a 99 px e a tabela
+ficou 81 px mais larga que o necessário.
+
+Por que transformação de pintura na escala: reconstruir o parágrafo com fonte
+menor refaz o shaping, que é o que custa (98 ms contra 53 ms em 200 × 8), e
+arredonda o avanço em tamanho fracionário num sentido que a fonte real não
+garante. O layout em tamanho normal na largura exata do min-content elimina as
+duas coisas.
+
+Correção medida no protótipo: 200 tabelas aleatórias (13 900 células, spans
+esporádicos, larguras de 150 a 1500 px) sem sobreposição, com todos os
+retângulos dentro da caixa, Σ = `W` exato nos regimes proporcional e de escala,
+e **nenhuma** quebra por caractere no layout final. A paginação de 60 linhas com
+`thead` cobre cada linha uma vez, com o cabeçalho no topo das páginas 2 a 9.
+
+Custo: **dois layouts por célula**, a medição e o final. O shaping acontece no
+primeiro; re-layouts no mesmo parágrafo custam 4 a 6 µs. Medido em JIT no
+`flutter_tester`, textos novos a cada execução:
+
+| Tabela | Sem escala | Com escala (`canvas.scale`) |
+|---|---|---|
+| 20 × 5 | 2,9 ms (29,6 µs/célula) | 4,6 ms |
+| 200 × 8 | 50 ms | 53 ms |
+
+A de 20 × 5 cabe numa fatia só sem escala. As maiores não cabem, então **a
+tabela é medida em fatias, uma célula por etapa** do agendador de
+[08](08-concorrencia-cache.md) §2: medir é independente por célula, e a
+distribuição é O(células) e barata. Fatiada a 4 ms, a de 200 × 8 sem escala
+leva 13 fatias, com passo típico de 15 a 70 µs. Tratada como bloco atômico,
+estouraria a tolerância de 8 ms por uma ordem de grandeza. A tabela só pode ser
+paginada depois de medida inteira (§2.3). Tabelas gigantes pagam o preço uma
+vez e ficam no cache de paginação. Release AOT deve ser mais rápido; a proporção
+entre as variantes, dominada por shaping, deve se manter.
 
 ## 10. Imagens no fluxo
 

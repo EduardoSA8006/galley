@@ -162,8 +162,13 @@ O desenho da Camada A "em isolate" contradiz a promessa de web de
 `Priority.idle` e um `Stopwatch` de orçamento, com fallback para `Timer.run`
 entre fatias quando não há frame pendente. (b) A Camada A roda atrás de um
 `EpubWorker` abstrato com duas implementações: `IsolateEpubWorker` e
-`CooperativeEpubWorker`, esta última fatiando o parse por bloco no isolate
-principal com o mesmo orçamento. O web usa a segunda. Ver
+`CooperativeEpubWorker`, esta última fatiando a Camada A por bloco no isolate
+principal com o mesmo orçamento. O web usa a segunda. O spike S9 (Flutter
+3.47.5) mostrou que o fatiamento vale para a caminhada no DOM e a construção da
+IR, mas **não para o parse do `html`**, que é uma chamada atômica (~50 ms para
+500 KB em release no Chrome): o primeiro checkpoint só existe depois dele. No
+web, o parse precisa ser feito em pedaços ou fora do thread principal, e a
+cessão entre fatias não pode ser por `Timer` (P10). Ver
 [08](08-concorrencia-cache.md) §1 e §2.
 
 **Status:** aceita (2026-09-07).
@@ -206,13 +211,15 @@ Emenda 6. Ver [04](04-layout-paginacao.md) §8.
 ### Emenda 12 — decisão de P2 (algoritmo de tabela)
 
 **Emenda.** Layout automático simplificado: para cada célula, mede-se largura
-mínima (layout em largura zero → `maxIntrinsicWidth` da palavra mais longa) e
-máxima (layout em largura infinita → `longestLine`); as colunas recebem a máxima
-quando cabe, senão distribuem o excedente proporcionalmente acima da mínima. Se a
-soma das mínimas excede a página, a tabela é escalada até o piso de 0.8× e, se
-ainda não couber, o bloco ganha **rolagem horizontal própria** com diagnóstico
-`tableOverflow`. A linha é a unidade de quebra entre páginas. Ver
-[04](04-layout-paginacao.md) §9.
+mínima (`minIntrinsicWidth`) e máxima (`longestLine`) com **um** layout em
+largura infinita; as colunas recebem a máxima quando cabe, senão distribuem o
+excedente proporcionalmente acima da mínima. Se a soma das mínimas excede a
+página, a tabela é escalada até o piso de 0.8× e, se ainda não couber, o bloco
+ganha **rolagem horizontal própria** com diagnóstico `tableOverflow`. A linha é
+a unidade de quebra entre páginas. O spike S4 (Flutter 3.47.5) corrigiu a
+medição: o layout em largura zero quebra por glifo e não dá a palavra mais
+longa. Corrigiu também o `colSpan`, que reparte só o déficit, e a escala, que é
+uma transformação de pintura. Ver [04](04-layout-paginacao.md) §9.
 
 **Status:** aceita (2026-09-07).
 
@@ -262,12 +269,13 @@ exceção de fidelidade é `EpubUnsupportedException`, lançada na construção 
 | # | Assunto | Decisão | Data |
 |---|---|---|---|
 | P1 | Hifenização e justificação | `start` como padrão na 1.0; `justify` disponível; hifenização por U+00AD na 1.2 (Emenda 11). S5 valida | 2026-09-07 |
-| P2 | Layout de tabela | Auto-layout min/max content, escala até 0.8×, depois rolagem horizontal declarada (Emenda 12). S4 valida | 2026-09-07 |
+| P2 | Layout de tabela | Auto-layout min/max content, escala até 0.8×, depois rolagem horizontal declarada (Emenda 12). S4 validou (Flutter 3.47.5) com correções na medição (`layout(∞)` único), no `colSpan` (só o déficit) e na escala (`canvas.scale`) | 2026-09-07 |
 | P3 | Nome do pacote | **`galley`**. Repositório `github.com/EduardoSA8006/galley` | 2026-09-07 |
 | P4 | Paginação em isolate vs. orçamento por frame | Orçamento por frame no isolate principal. S1 confirmou a negativa em `Isolate.run` e `Isolate.spawn`: `UI actions are only available on root isolate` (Flutter 3.44.1) | 2026-09-07 |
 | P5 | Separador de bloco | `\n` (U+000A) | 2026-09-07 |
 | P6 | Licença | **MIT** (`LICENSE` no repositório) | 2026-09-09 |
 | P8 | Hash da chave do cache | **FNV-1a 64** para chaves de cache e internas; SHA-1 próprio só para a chave IDPF. Motivo: S6 mediu SHA-1 em ~16 µs/KB, no caminho da abertura com cache quente. Confirmar em AOT na Fase 1 | 2026-09-09 |
+| P10 | Web na 1.0 ou na 1.0.x | **Web na 1.0.x.** S9 (Flutter 3.47.5, Chromium 153): o parse do `html` é atômico e trava ~50 ms numa seção de 500 KB em release no Chrome; o resto fatia a 4 ms e custa ≈ 1,0–1,6× o isolate nativo. **Critério de entrada:** seção de 500 KB, parse incluído, build de release no Chrome (dart2js `-O4` e dart2wasm `-O2`), nenhuma fatia acima de 16 ms e p99 das fatias ≤ 8 ms. Falta: parse fatiável (três caminhos a medir na Fase 1: `parseFragment` em pedaços, tokenizer próprio ou Web Worker) e cessão por `MessageChannel` em vez de `Timer`. Ver [08](08-concorrencia-cache.md) §1 e §2 | 2026-09-25 |
 
 ## Decisões pendentes
 
@@ -275,4 +283,3 @@ exceção de fidelidade é `EpubUnsupportedException`, lançada na construção 
 |---|---|---|---|
 | P7 | Inflate no web: implementação própria ou `archive` via import condicional | Tamanho do bundle, medido na Fase 1 | Fase 1 |
 | P9 | Fixed-layout no núcleo ou em `galley_fixed_layout` | Corpus de fixed-layout | Antes da 1.1 |
-| P10 | Web na 1.0 ou na 1.0.x | Spike S9 | Fase 0 |

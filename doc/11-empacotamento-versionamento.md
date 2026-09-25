@@ -53,7 +53,10 @@ poucas linhas.
 
 ## 2. Plataformas
 
-Todas as seis: Android, iOS, macOS, Windows, Linux, web.
+Todas as seis: Android, iOS, macOS, Windows, Linux, web. As cinco nativas na
+1.0; o web na **1.0.x** (P10, [01](01-decisoes.md)), porque o parse do `html` é
+atômico e trava ~50 ms numa seção de 500 KB no Chrome
+([08](08-concorrencia-cache.md) §1).
 
 Sendo Dart e Flutter puros, sem plugin nativo, isso sai de graça. Pontos de
 atenção:
