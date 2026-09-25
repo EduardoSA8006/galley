@@ -6,6 +6,9 @@ name: Baseline de desempenho
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   # Mínimo declarado em pubspec.yaml; test/tool/ci_config_test.dart confere.
   FLUTTER_MIN: 3.47.0
@@ -13,6 +16,7 @@ env:
 jobs:
   baseline:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - id: flutter
@@ -26,7 +30,7 @@ jobs:
           FLUTTER_VERSION: ${{ steps.flutter.outputs.VERSION }}
         run: |
           for i in 1 2 3; do
-            flutter test --tags perf --run-skipped test/perf
+            flutter test --tags perf --run-skipped --concurrency=1 test/perf
             cp build/perf/result.json "build/perf/result-$i.json"
           done
       - name: Combinar
