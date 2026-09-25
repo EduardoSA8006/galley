@@ -42,7 +42,7 @@ e uma PR sem regressão não fica vermelha por ruído do runner.
 
 | Caminho | Papel |
 |---|---|
-| `test/perf/support/perf_harness.dart` | `PerfCase`, calibração, `runPerf`, escrita do JSON |
+| `test/perf/support/perf_harness.dart` | `PerfCase`, calibração, `measureCase`, escrita do JSON |
 | `test/perf/support/perf_inputs.dart` | Entradas determinísticas dos casos (XHTML, deflate, PNG) |
 | `test/perf/perf_test.dart` | Declara os casos; tag `perf` |
 | `dart_test.yaml` | Declara a tag `perf` com `skip`, para a execução padrão pulá-la |
@@ -72,7 +72,7 @@ vez de `run`; exatamente um dos dois é obrigatório.
 ### 2.3 Normalização
 
 - **Calibração:** carga fixa em Dart puro, ~5 ms no desktop de
-  desenvolvimento: FNV-1a 64 sobre 64 KB, construção de `String` com
+  desenvolvimento: FNV-1a 32 sobre 64 KB, construção de `String` com
   `StringBuffer`, inserções e buscas num `Map<String, int>` e `List.sort` de
   inteiros com semente fixa. O resultado é consumido (acumulado num campo) para
   o compilador não eliminar o trabalho.
@@ -131,7 +131,7 @@ versão do Dart vem de `Platform.version`.
 | `tool/perf/lib/perf_report.dart` | Modelo do JSON, leitura e validação |
 | `tool/perf/lib/compare.dart` | Regras de comparação, tabela Markdown |
 | `tool/perf/compare.dart` | CLI: `dart run tool/perf/compare.dart [--result R] [--baseline B]` |
-| `tool/perf/update_baseline.dart` | CLI: mediana por caso de 1 ou mais `result.json` → `baseline.json` |
+| `tool/perf/update_baseline.dart` | CLI: mediana por caso de 1 ou mais `result.json` → `baseline.json`; padrão de `--out`: `build/perf/baseline.json` |
 | `test/perf/baseline.json` | Baseline versionado |
 | `test/tool/perf_compare_test.dart` | Testes do comparador, na suíte normal |
 
@@ -172,25 +172,32 @@ combinadas).
 
 ### 4.1 `.github/workflows/ci.yml`
 
-Gatilhos: `push` em `main` e `pull_request`. `concurrency` por branch com
-`cancel-in-progress: true`. Instalação por `subosito/flutter-action@v2` com
-`cache: true`. Variável única no topo: `FLUTTER_MIN: 3.47.0`.
+Gatilhos: `push` em `main` e `pull_request`. `permissions: contents: read` no
+topo. `concurrency` por branch com `cancel-in-progress` só quando o evento é
+`pull_request` (execuções da `main` nunca são canceladas). Instalação por
+`subosito/flutter-action@v2` com `cache: true`. Variável única no topo:
+`FLUTTER_MIN: 3.47.0`. Todo job tem `timeout-minutes`.
 
-| Job | Flutter | Passos |
-|---|---|---|
-| `analyze` | `FLUTTER_MIN` | `flutter pub get`; `dart format --output=none --set-exit-if-changed lib test tool example`; `flutter analyze`; `cd example && flutter analyze` |
-| `test` | matriz `FLUTTER_MIN` e canal `stable` | `flutter test` (sem `perf`) |
-| `engine-linux` | `FLUTTER_MIN` | `apt-get install clang cmake ninja-build pkg-config libgtk-3-dev xvfb`; para cada arquivo de `example/integration_test/`: `xvfb-run -a flutter test <arquivo> -d linux`, **um arquivo por invocação** |
-| `perf` | `FLUTTER_MIN` | `flutter test --tags perf --run-skipped test/perf`; `dart run tool/perf/compare.dart`; `result.json` como artefato |
+| Job | Flutter | Timeout | Passos |
+|---|---|---|---|
+| `analyze` | `FLUTTER_MIN` | 15 | `flutter pub get`; `dart format --output=none --set-exit-if-changed lib test tool example/lib example/integration_test`; `flutter analyze`; `cd example && flutter analyze` |
+| `test` | matriz `FLUTTER_MIN` e canal `stable` | 30 | `flutter test` (sem `perf`) |
+| `engine-linux` | `FLUTTER_MIN` | 30 | `apt-get install clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev xvfb fonts-noto-core fonts-liberation`; para cada arquivo de `example/integration_test/`: `xvfb-run -a flutter test <arquivo> -d linux`, **um arquivo por invocação**. As fontes Noto Serif e Liberation Serif atendem o S5.7: sem elas o fontconfig troca a fonte em silêncio |
+| `perf` | `FLUTTER_MIN` | 30 | `flutter test --tags perf --run-skipped --concurrency=1 test/perf`; `dart run tool/perf/compare.dart`; `result.json` como artefato |
+
+`--concurrency=1` no harness de `perf` evita que o `perf_harness_test.dart`
+compita por CPU com a própria medição.
 
 Uma falha só no `stable` deixa a PR vermelha: sinaliza incompatibilidade real
 com o Flutter que os usuários vão instalar.
 
 ### 4.2 `.github/workflows/perf-baseline.yml`
 
-Gatilho: `workflow_dispatch`. Mesmo runner e `FLUTTER_MIN` do job `perf`. Roda
-o harness 3 vezes, copiando cada `result.json` para um nome distinto, chama
-`update_baseline.dart` e publica o candidato como artefato `perf-baseline`.
+Gatilho: `workflow_dispatch`. `permissions: contents: read` no topo.
+`timeout-minutes: 45` no job `baseline`. Mesmo runner e `FLUTTER_MIN` do job
+`perf`. Roda o harness 3 vezes (`--concurrency=1`, mesmo motivo do job `perf`),
+copiando cada `result.json` para um nome distinto, chama `update_baseline.dart`
+e publica o candidato como artefato `perf-baseline`.
 
 ### 4.3 Primeira execução
 

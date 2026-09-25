@@ -22,6 +22,9 @@ aponta para ela e diz **quando** voltar ao assunto.
 | O workflow `perf-baseline` não publica o candidato quando a conferência final falha (sem `if: always()` no upload); decidir se deve publicar para inspeção | Implementação do harness (2026-09-25) | Na primeira vez que o baseline for regenerado |
 | `combineBaseline` confere Flutter e casos entre execuções, mas não `dart`/`os`; herda do primeiro | Implementação do harness (2026-09-25) | Se o baseline passar a combinar runners diferentes |
 | A CLI `update_baseline.dart` não tem teste automatizado próprio (só a lógica em `test/tool/perf_baseline_test.dart`) | Implementação do harness (2026-09-25) | Fase 1, junto com os primeiros casos do motor |
+| Medir a variação entre VMs antes de commitar o baseline: disparar o `perf-baseline` 2–3 vezes (em momentos diferentes) e comparar os candidatos entre si com `compare.dart`; se passar de ~10%, adotar repetição (reprovar só se duas execuções regredirem) ou tolerância. Registrar o modelo da CPU (`/proc/cpuinfo`) no `result.json` e no resumo | Revisão final do harness (2026-09-25) | Antes da T10 (baseline inicial) |
+| Proteção de branch na `main` exigindo os checks `analyze`, `test (min)`, `test (stable)`, `engine-linux` e `perf` — sem ela o gate é só consultivo | Revisão final do harness (2026-09-25) | Depois do primeiro CI verde (ação do dono do repositório) |
+| Versão do pacote `html` não travada para o perf (`/pubspec.lock` é ignorado): registrar as versões resolvidas dos pacotes medidos no `result.json` e avisar quando divergirem do baseline | Revisão final do harness (2026-09-25) | Fase 1 |
 
 ### Fase 1
 
