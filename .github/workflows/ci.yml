@@ -65,11 +65,13 @@ jobs:
       - name: Testes na engine real (um arquivo por invocação)
         working-directory: example
         run: |
+          status=0
           for f in integration_test/*_test.dart; do
             echo "::group::$f"
-            xvfb-run -a flutter test "$f" -d linux
+            xvfb-run -a flutter test "$f" -d linux || status=1
             echo "::endgroup::"
           done
+          exit "$status"
 
   perf:
     runs-on: ubuntu-24.04
