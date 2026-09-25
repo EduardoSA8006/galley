@@ -1,0 +1,22 @@
+# Atualizações de dependências. As PRs passam pelo CI inteiro, inclusive o
+# gate de desempenho; mudança de versão do pacote `html` pode mexer no caso
+# html.parse.500kb (doc/14).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies, ci]
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pub
+    directories: [/, /example]
+    schedule:
+      interval: weekly
+    labels: [dependencies]
+    groups:
+      pub-minor-patch:
+        update-types: [minor, patch]
