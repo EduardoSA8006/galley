@@ -12,10 +12,11 @@ import 'lib/perf_report.dart';
 
 const _usage =
     'uso: dart run tool/perf/update_baseline.dart [--out F] [--commit SHA] '
-    '[--runner NOME] result1.json [result2.json ...]';
+    '[--runner NOME] result1.json [result2.json ...]\n'
+    '  --out padrão: build/perf/baseline.json';
 
 void main(List<String> args) {
-  var out = 'test/perf/baseline.json';
+  var out = 'build/perf/baseline.json';
   String? commit;
   String? runner;
   final inputs = <String>[];
