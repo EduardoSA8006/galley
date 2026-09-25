@@ -195,9 +195,18 @@ de médio porte (Android de 2022, classe Pixel 6a), com `--profile`:
 
 ### 4.2 Baseline
 
-Registrado na Fase 0 e versionado em `test/perf/baseline.json`. Atualizar o
-baseline é um commit deliberado, revisado, com justificativa — nunca
-automático.
+Registrado na Fase 0 e versionado em `test/perf/baselines/`, **um arquivo por
+modelo de CPU** (nome estável derivado do modelo, `baselineFileName` em
+`tool/perf/lib/baseline.dart`). Atualizar um baseline é um commit deliberado,
+revisado, com justificativa — nunca automático.
+
+**Por que um baseline por CPU.** Medido em 2026-09-25, com 6 execuções do
+`perf-baseline` no commit `40c08bd`: entre três VMs do mesmo modelo (EPYC
+7763, `ubuntu-24.04`), a razão de cada caso varia no máximo 8,3%; entre
+modelos de CPU diferentes (EPYC 7763, EPYC 9V45, Xeon 6973P-C, Xeon 8370C)
+varia até 30% (zlib), 22% (html) e 21% (paragraph). Um baseline único daria
+falso vermelho em quase todo caso; um por CPU evita isso sem precisar de
+tolerância mais larga.
 
 **Como se mede.** O harness (`test/perf/support/perf_harness.dart`) roda no
 `flutter_tester`, em JIT, com `flutter test --tags perf --run-skipped
@@ -207,22 +216,26 @@ caso tem 3 amostras de aquecimento e 15 medidas, e cada amostra mede uma
 **carga de calibração** fixa em Dart puro e, em seguida, o caso. A métrica é a
 mediana das razões caso ÷ calibração: comparar razões, em vez de
 milissegundos, cancela a variação de frequência e de carga **dentro da mesma
-máquina**. A diferença entre VMs de microarquitetura distinta ainda não foi
-medida e é pré-requisito do baseline ([14](14-pendencias.md)). Por ser JIT no
-`flutter_tester`, o número detecta regressão, mas não verifica o orçamento
-absoluto do §4.1.
+máquina**. Por ser JIT no `flutter_tester`, o número detecta regressão, mas
+não verifica o orçamento absoluto do §4.1.
 
 **O gate.** `dart run tool/perf/compare.dart` compara `build/perf/result.json`
-com o baseline: razão atual ÷ razão do baseline acima de 1,20 falha o build;
-abaixo de 0,80 avisa que o baseline pode ser atualizado; caso novo avisa; caso
-que sumiu falha; Flutter diferente do baseline avisa em destaque. CPU diferente
-do baseline também só avisa (não falha); cada `result.json` registra o modelo
-da CPU onde foi medido.
+com o baseline da CPU atual, escolhido em `test/perf/baselines/`: razão atual
+÷ razão do baseline acima de 1,20 falha o build; abaixo de 0,80 avisa que o
+baseline pode ser atualizado; caso novo avisa; caso que sumiu falha; Flutter
+diferente do baseline avisa em destaque. CPU diferente do baseline (colisão de
+nome) também só avisa (não falha); cada `result.json` registra o modelo da CPU
+onde foi medido. **Um runner numa CPU sem baseline não falha**: todos os casos
+viram "caso novo" e a mensagem lista as CPUs que já têm baseline.
 
 **Onde nasce o baseline.** No runner do CI, nunca na máquina de quem
 desenvolve: o workflow manual `perf-baseline` roda o harness três vezes,
-combina as medianas com `tool/perf/update_baseline.dart` e publica o candidato
-como artefato, que é baixado e commitado.
+combina as medianas com `tool/perf/update_baseline.dart --out-dir
+build/perf/baselines` (um arquivo, nomeado pela CPU do runner) e publica o
+diretório como artefato, que é baixado e copiado para `test/perf/baselines/`.
+Como o `perf-baseline` roda no runner hospedado que o GitHub sortear, a
+cobertura de CPUs cresce a cada disparo: uma CPU nova ganha um arquivo novo;
+uma já coberta tem o arquivo substituído.
 
 **Ruído medido** (Fase 0, desktop Linux de desenvolvimento — Intel Core
 i5-11400H, Linux 7.2.6, 2026-09-25, 15 amostras e 4 rodadas de calibração

@@ -133,9 +133,9 @@ não tiver essa linha, o campo vale `"unknown"`.
 |---|---|
 | `tool/perf/lib/perf_report.dart` | Modelo do JSON, leitura e validação |
 | `tool/perf/lib/compare.dart` | Regras de comparação, tabela Markdown |
-| `tool/perf/compare.dart` | CLI: `dart run tool/perf/compare.dart [--result R] [--baseline B]` |
-| `tool/perf/update_baseline.dart` | CLI: mediana por caso de 1 ou mais `result.json` → `baseline.json`; padrão de `--out`: `build/perf/baseline.json` |
-| `test/perf/baseline.json` | Baseline versionado |
+| `tool/perf/compare.dart` | CLI: `dart run tool/perf/compare.dart [--result R] [--baseline B] [--baselines DIR]` |
+| `tool/perf/update_baseline.dart` | CLI: mediana por caso de 1 ou mais `result.json` → baseline; padrão: `--out-dir build/perf/baselines`, um arquivo por CPU |
+| `test/perf/baselines/<cpu>.json` | Baselines versionados, um por modelo de CPU (`baselineFileName`, `tool/perf/lib/baseline.dart`) |
 | `test/tool/perf_compare_test.dart` | Testes do comparador, na suíte normal |
 
 Dart puro, sem dependências novas.
@@ -151,6 +151,7 @@ Dart puro, sem dependências novas.
 | Flutter do resultado ≠ Flutter do baseline | Compara e avisa em destaque |
 | CPU do resultado ≠ CPU do baseline | Compara e avisa |
 | Arquivo de baseline inexistente | Todos os casos viram "caso novo"; não falha |
+| Runner numa CPU sem baseline (nenhum arquivo em `test/perf/baselines/` para o modelo) | Todos os casos viram "caso novo"; não falha; a mensagem lista as CPUs com baseline existente |
 | JSON malformado ou `schema` desconhecido | **Falha** com mensagem que diz qual arquivo e qual campo |
 
 Os limites 1,20 e 0,80 são constantes nomeadas no código. A saída é uma tabela
@@ -163,14 +164,16 @@ houver falha, 0 caso contrário.
 Commit deliberado, nunca automático ([10](../10-testes.md) §4.2):
 
 1. O workflow manual `perf-baseline.yml` roda o harness 3 vezes no mesmo runner,
-   chama `update_baseline.dart` sobre os três resultados e publica o
-   `baseline.json` candidato como artefato.
-2. O mantenedor baixa o artefato, substitui `test/perf/baseline.json` e commita
-   com a justificativa na mensagem.
+   chama `update_baseline.dart --out-dir build/perf/baselines` sobre os três
+   resultados e publica o diretório com o baseline candidato (um arquivo,
+   nomeado pelo modelo da CPU do runner) como artefato.
+2. O mantenedor baixa o artefato e copia o arquivo para
+   `test/perf/baselines/`, commitando com a justificativa na mensagem. Uma CPU
+   nova ganha um arquivo novo; uma CPU já coberta tem o arquivo substituído.
 
-O `baseline.json` tem o formato de `result.json` sem `samples` e com
-`sourceCommit`, `runner` (ex.: `ubuntu-24.04`) e `runs` (número de execuções
-combinadas).
+Cada arquivo de `test/perf/baselines/` tem o formato de `result.json` sem
+`samples` e com `sourceCommit`, `runner` (ex.: `ubuntu-24.04`) e `runs`
+(número de execuções combinadas).
 
 ## 4. CI
 
@@ -200,14 +203,18 @@ com o Flutter que os usuários vão instalar.
 Gatilho: `workflow_dispatch`. `permissions: contents: read` no topo.
 `timeout-minutes: 45` no job `baseline`. Mesmo runner e `FLUTTER_MIN` do job
 `perf`. Roda o harness 3 vezes (`--concurrency=1`, mesmo motivo do job `perf`),
-copiando cada `result.json` para um nome distinto, chama `update_baseline.dart`
-e publica o candidato como artefato `perf-baseline`.
+copiando cada `result.json` para um nome distinto, chama
+`update_baseline.dart --out-dir build/perf/baselines` e publica o diretório
+como artefato `perf-baseline`.
 
 ### 4.3 Primeira execução
 
-O baseline inicial é gerado pelo `perf-baseline.yml` logo depois do merge desta
-entrega e entra num commit próprio. Até lá, o job `perf` roda sem baseline e só
-avisa (§3.2).
+O baseline inicial foi gerado pelo `perf-baseline.yml` e entrou num commit
+próprio: um arquivo por modelo de CPU observado no runner `ubuntu-24.04`
+([14](../14-pendencias.md)). Uma CPU sem arquivo em `test/perf/baselines/`
+não falha o job `perf`: todos os casos viram "caso novo" e a mensagem lista as
+CPUs já cobertas (§3.2). A cobertura cresce a cada disparo do
+`perf-baseline` numa CPU nova.
 
 ## 5. Versão mínima e limpeza
 

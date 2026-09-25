@@ -21,8 +21,7 @@ aponta para ela e diz **quando** voltar ao assunto.
 | Job de CI no web (`flutter test --platform chrome`, corretude no DDC) e medição de P10 em build de release no Chrome | Brainstorming do CI (2026-09-25); [10](10-testes.md) §4.4 | Quando começar o trabalho da 1.0.x |
 | O workflow `perf-baseline` não publica o candidato quando a conferência final falha (sem `if: always()` no upload); decidir se deve publicar para inspeção | Implementação do harness (2026-09-25) | Na primeira vez que o baseline for regenerado |
 | `combineBaseline` confere Flutter e casos entre execuções, mas não `dart`/`os`; herda do primeiro | Implementação do harness (2026-09-25) | Se o baseline passar a combinar runners diferentes |
-| A CLI `update_baseline.dart` não tem teste automatizado próprio (só a lógica em `test/tool/perf_baseline_test.dart`) | Implementação do harness (2026-09-25) | Fase 1, junto com os primeiros casos do motor |
-| Medir a variação entre VMs antes de commitar o baseline: disparar o `perf-baseline` 2–3 vezes (em momentos diferentes) e comparar os candidatos entre si com `compare.dart`; se passar de ~10%, adotar repetição (reprovar só se duas execuções regredirem) ou tolerância. Resultado já medido: html 2%, image 6%, paragraph 8%, zlib 23% entre três VMs do `ubuntu-24.04` (2026-09-25). Modelo da CPU registrado no `result.json` (PR `perf/cpu-no-resultado`); falta correlacionar a variação com o modelo e decidir baseline por CPU | Revisão final do harness (2026-09-25) | Antes da T10 (baseline inicial) |
+| Cobrir o EPYC 9V74 e outros modelos que aparecerem com baseline próprio (disparar o `perf-baseline` até cair neles) | Sub-tarefa 10b — baseline por modelo de CPU (2026-09-25) | Contínuo |
 | Proteção de branch na `main` exigindo os checks `analyze`, `test (min)`, `test (stable)`, `engine-linux` e `perf` — sem ela o gate é só consultivo | Revisão final do harness (2026-09-25) | Depois do primeiro CI verde (ação do dono do repositório) |
 | Versão do pacote `html` não travada para o perf (`/pubspec.lock` é ignorado): registrar as versões resolvidas dos pacotes medidos no `result.json` e avisar quando divergirem do baseline | Revisão final do harness (2026-09-25) | Fase 1 |
 
@@ -68,3 +67,5 @@ aponta para ela e diz **quando** voltar ao assunto.
 | Item | Data | Commit |
 |---|---|---|
 | Reformatar os spikes S5–S8 no formatter do Dart 3.13 | 2026-09-25 | c6d312a |
+| Medir a variação entre VMs antes de commitar o baseline e decidir baseline por CPU. Resultado: dentro do mesmo modelo (EPYC 7763, 3 VMs) a razão varia no máximo 8,3%; entre quatro modelos (EPYC 7763, EPYC 9V45, Xeon 6973P-C, Xeon 8370C) varia até 30% (zlib), 22% (html) e 21% (paragraph). Decisão: baseline por modelo de CPU, um arquivo por modelo em `test/perf/baselines/`; CPU sem baseline só avisa | 2026-09-25 | 28f10e8, db3a518 |
+| A CLI `update_baseline.dart` não tinha teste automatizado próprio; ganhou `test/tool/perf_update_baseline_test.dart` ao adicionar `--out-dir` por TDD | 2026-09-25 | 28f10e8 |
