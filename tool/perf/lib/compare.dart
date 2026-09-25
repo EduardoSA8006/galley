@@ -39,6 +39,7 @@ final class PerfComparison {
     this.baselineFlutter,
     this.currentCpu,
     this.baselineCpu,
+    this.availableCpus = const [],
   });
 
   final List<CaseComparison> cases;
@@ -53,6 +54,10 @@ final class PerfComparison {
   /// Modelo da CPU do baseline; `null` quando não há baseline ou é
   /// desconhecida.
   final String? baselineCpu;
+
+  /// Modelos de CPU com baseline existente no diretório consultado; usado só
+  /// quando `!hasBaseline`, para apontar o que já existe.
+  final List<String> availableCpus;
 
   bool get hasBaseline => baselineFlutter != null;
 
@@ -73,9 +78,14 @@ final class PerfComparison {
     }
     out.writeln('\n');
     if (!hasBaseline) {
+      final cpusList = availableCpus.isEmpty
+          ? 'nenhum'
+          : availableCpus.join(', ');
       out.writeln(
-        '> **Sem baseline** (`test/perf/baseline.json`): todos os casos são '
-        'novos e nada falha. Gere o baseline pelo workflow `perf-baseline`.\n',
+        '> **Sem baseline para esta CPU** (`${currentCpu ?? "desconhecida"}`)'
+        ': todos os casos são novos e nada falha.\n'
+        '> Baselines existentes: $cpusList. Gere o desta CPU pelo workflow '
+        '`perf-baseline`.\n',
       );
     } else if (flutterMismatch) {
       out.writeln(
@@ -115,6 +125,7 @@ final class PerfComparison {
 PerfComparison comparePerf({
   required PerfReport current,
   PerfReport? baseline,
+  List<String> availableCpus = const [],
 }) {
   final ids = {...current.cases.keys, ...?baseline?.cases.keys}.toList()
     ..sort();
@@ -123,6 +134,7 @@ PerfComparison comparePerf({
     baselineFlutter: baseline?.flutter,
     currentCpu: current.cpu,
     baselineCpu: baseline?.cpu,
+    availableCpus: availableCpus,
     cases: [
       for (final id in ids)
         _compareCase(id, baseline?.cases[id]?.ratio, current.cases[id]?.ratio),

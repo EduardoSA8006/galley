@@ -1,5 +1,6 @@
 /// Modelo do JSON do harness de desempenho: `build/perf/result.json` e
-/// `test/perf/baseline.json` (doc/specs/2026-09-25-harness-ci-design.md §2.5).
+/// `test/perf/baselines/<cpu>.json` (doc/specs/2026-09-25-harness-ci-design.md
+/// §2.5).
 library;
 
 import 'dart:convert';

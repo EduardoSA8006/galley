@@ -5,6 +5,23 @@ library;
 import 'perf_report.dart';
 import 'stats.dart';
 
+/// Diretório padrão dos baselines, um arquivo por modelo de CPU.
+const String defaultBaselinesDir = 'test/perf/baselines';
+
+/// Nome de arquivo estável para o baseline de [cpu] (spec §3.1): minúsculas,
+/// toda sequência de caracteres fora de `[a-z0-9]` vira um único `-`, sem `-`
+/// nas pontas, mais `.json`. `cpu` vazio ou `"unknown"` lança.
+String baselineFileName(String cpu) {
+  if (cpu.isEmpty || cpu == 'unknown') {
+    throw ArgumentError.value(cpu, 'cpu', 'modelo de CPU desconhecido');
+  }
+  final slug = cpu
+      .toLowerCase()
+      .replaceAll(RegExp('[^a-z0-9]+'), '-')
+      .replaceAll(RegExp(r'^-+|-+$'), '');
+  return '$slug.json';
+}
+
 /// Mediana, caso a caso, de [runs]. Execuções de Flutter diferente ou com
 /// conjuntos de casos diferentes não se combinam.
 PerfReport combineBaseline(

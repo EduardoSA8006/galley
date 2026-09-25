@@ -1,22 +1,26 @@
 // Combina um ou mais result.json num baseline candidato.
 //
-//   dart run tool/perf/update_baseline.dart [--out F] [--commit SHA]
-//       [--runner NOME] result1.json [result2.json ...]
+//   dart run tool/perf/update_baseline.dart [--out F | --out-dir D]
+//       [--commit SHA] [--runner NOME] result1.json [result2.json ...]
 //
-// Atualizar test/perf/baseline.json é commit deliberado (doc/10 §4.2); o CI
-// gera o candidato pelo workflow perf-baseline.
+// Sem --out nem --out-dir, escreve em build/perf/baselines/
+// <baselineFileName(cpu)>. Atualizar test/perf/baselines/ é commit deliberado
+// (doc/10 §4.2); o CI gera o candidato pelo workflow perf-baseline.
 import 'dart:io';
 
 import 'lib/baseline.dart';
 import 'lib/perf_report.dart';
 
+const _defaultOutDir = 'build/perf/baselines';
+
 const _usage =
-    'uso: dart run tool/perf/update_baseline.dart [--out F] [--commit SHA] '
-    '[--runner NOME] result1.json [result2.json ...]\n'
-    '  --out padrão: build/perf/baseline.json';
+    'uso: dart run tool/perf/update_baseline.dart [--out F | --out-dir D] '
+    '[--commit SHA] [--runner NOME] result1.json [result2.json ...]\n'
+    '  --out e --out-dir são exclusivos; padrão: --out-dir $_defaultOutDir';
 
 void main(List<String> args) {
-  var out = 'build/perf/baseline.json';
+  String? out;
+  String? outDir;
   String? commit;
   String? runner;
   final inputs = <String>[];
@@ -25,6 +29,8 @@ void main(List<String> args) {
     switch (args[i]) {
       case '--out' when hasValue:
         out = args[++i];
+      case '--out-dir' when hasValue:
+        outDir = args[++i];
       case '--commit' when hasValue:
         commit = args[++i];
       case '--runner' when hasValue:
@@ -37,7 +43,7 @@ void main(List<String> args) {
         inputs.add(path);
     }
   }
-  if (inputs.isEmpty) {
+  if (inputs.isEmpty || (out != null && outDir != null)) {
     stderr.writeln(_usage);
     exitCode = 64;
     return;
@@ -53,12 +59,15 @@ void main(List<String> args) {
       sourceCommit: commit,
       runner: runner,
     );
-    File(out)
+    final path =
+        out ??
+        '${outDir ?? _defaultOutDir}/${baselineFileName(baseline.cpu ?? '')}';
+    File(path)
       ..parent.createSync(recursive: true)
       ..writeAsStringSync(baseline.encode(includeSamples: false));
     stdout.writeln(
       'baseline com ${baseline.cases.length} casos de ${runs.length} '
-      'execuções escrito em $out',
+      'execuções escrito em $path',
     );
   } on PerfFormatException catch (e) {
     stderr.writeln(e);
