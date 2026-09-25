@@ -162,5 +162,59 @@ void main() {
       expect(back.os, Platform.operatingSystem);
       expect(back.cases['c']!.samples, [2]);
     });
+
+    test('grava cpu lido do arquivo temporário', () async {
+      final path = '${dir.path}/perf/result.json';
+      final cpuinfo = File('${dir.path}/cpuinfo')
+        ..writeAsStringSync(
+          'processor\t: 0\n'
+          'model name\t: AMD EPYC 7763 64-Core Processor\n',
+        );
+      await writeResultIfAny(
+        const {
+          'c': PerfCaseResult(ratio: 2, medianUs: 200, calibrationUs: 100),
+        },
+        path: path,
+        environment: {'FLUTTER_VERSION': '3.47.0'},
+        cpuinfoPath: cpuinfo.path,
+      );
+      final back = PerfReport.parse(
+        File(path).readAsStringSync(),
+        source: path,
+      );
+      expect(back.cpu, 'AMD EPYC 7763 64-Core Processor');
+    });
+  });
+
+  group('detectCpuModel', () {
+    late Directory dir;
+
+    setUp(() => dir = Directory.systemTemp.createTempSync('perf_cpuinfo_'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('duas CPUs devolve o nome da primeira', () {
+      final path = '${dir.path}/cpuinfo';
+      File(path).writeAsStringSync(
+        'processor\t: 0\n'
+        'model name\t: AMD EPYC 7763 64-Core Processor\n'
+        'cache size\t: 512 KB\n'
+        'processor\t: 1\n'
+        'model name\t: AMD EPYC 7763 64-Core Processor\n',
+      );
+      expect(
+        detectCpuModel(cpuinfoPath: path),
+        'AMD EPYC 7763 64-Core Processor',
+      );
+    });
+
+    test('arquivo sem model name devolve unknown', () {
+      final path = '${dir.path}/cpuinfo';
+      File(path).writeAsStringSync('processor\t: 0\ncache size\t: 512 KB\n');
+      expect(detectCpuModel(cpuinfoPath: path), 'unknown');
+    });
+
+    test('caminho inexistente devolve unknown', () {
+      expect(detectCpuModel(cpuinfoPath: '${dir.path}/nao-existe'), 'unknown');
+    });
   });
 }

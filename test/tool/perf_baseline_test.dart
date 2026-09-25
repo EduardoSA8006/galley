@@ -5,22 +5,26 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../tool/perf/lib/baseline.dart';
 import '../../tool/perf/lib/perf_report.dart';
 
-PerfReport _run(Map<String, double> ratios, {String flutter = '3.47.0'}) =>
-    PerfReport(
-      flutter: flutter,
-      dart: '3.13.0',
-      os: 'linux',
-      createdAt: DateTime.utc(2026, 9, 25),
-      cases: {
-        for (final MapEntry(:key, :value) in ratios.entries)
-          key: PerfCaseResult(
-            ratio: value,
-            medianUs: value * 100,
-            calibrationUs: 100,
-            samples: [value],
-          ),
-      },
-    );
+PerfReport _run(
+  Map<String, double> ratios, {
+  String flutter = '3.47.0',
+  String? cpu,
+}) => PerfReport(
+  flutter: flutter,
+  dart: '3.13.0',
+  os: 'linux',
+  createdAt: DateTime.utc(2026, 9, 25),
+  cpu: cpu,
+  cases: {
+    for (final MapEntry(:key, :value) in ratios.entries)
+      key: PerfCaseResult(
+        ratio: value,
+        medianUs: value * 100,
+        calibrationUs: 100,
+        samples: [value],
+      ),
+  },
+);
 
 void main() {
   test('mediana por caso, sem amostras, com metadados', () {
@@ -88,5 +92,32 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('CPU diferente entre execuções lança e nomeia as duas', () {
+    expect(
+      () => combineBaseline([
+        _run({'a': 1}, cpu: 'Intel Core i5-11400H'),
+        _run({'a': 1}, cpu: 'AMD EPYC 7763 64-Core Processor'),
+      ]),
+      throwsA(
+        isA<ArgumentError>().having(
+          (e) => '${e.message}',
+          'message',
+          allOf(
+            contains('Intel Core i5-11400H'),
+            contains('AMD EPYC 7763 64-Core Processor'),
+          ),
+        ),
+      ),
+    );
+  });
+
+  test('CPU igual propaga para o baseline', () {
+    final base = combineBaseline([
+      _run({'a': 1}, cpu: 'Intel Core i5-11400H'),
+      _run({'a': 2}, cpu: 'Intel Core i5-11400H'),
+    ]);
+    expect(base.cpu, 'Intel Core i5-11400H');
   });
 }

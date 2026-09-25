@@ -24,6 +24,11 @@ PerfReport combineBaseline(
         'execuções com Flutter diferente: ${first.flutter} e ${r.flutter}',
       );
     }
+    if (r.cpu != first.cpu) {
+      throw ArgumentError(
+        'execuções com CPU diferente: ${first.cpu} e ${r.cpu}',
+      );
+    }
     final other = r.cases.keys.toSet();
     final diff = ids.difference(other).union(other.difference(ids));
     if (diff.isNotEmpty) {
@@ -38,6 +43,7 @@ PerfReport combineBaseline(
     flutter: first.flutter,
     dart: first.dart,
     os: first.os,
+    cpu: first.cpu,
     createdAt: (createdAt ?? DateTime.now()).toUtc(),
     sourceCommit: sourceCommit,
     runner: runner,
