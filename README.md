@@ -1,5 +1,7 @@
 # galley
 
+[![CI](https://github.com/EduardoSA8006/galley/actions/workflows/ci.yml/badge.svg)](https://github.com/EduardoSA8006/galley/actions/workflows/ci.yml)
+
 Motor de renderização de EPUB para Flutter, nativo, sem WebView.
 
 Três propriedades como razão de existir: **rápido** (primeira página em menos de
@@ -8,7 +10,13 @@ de UI) e **fácil de adotar** (um leitor funcional em dez linhas).
 
 ## Estado
 
-Fase 0: spikes e corpus. Nenhuma API pública ainda.
+Fase 0 concluída (exceto o spike S3, de acessibilidade, que depende de aparelho
+físico): spikes, corpus de 65 EPUBs, harness de desempenho com baseline por
+modelo de CPU e CI. Próximo passo: Fase 1 (contêiner, OPF/NAV/NCX e Camada A).
+Nenhuma API pública ainda. Flutter mínimo: 3.47.0.
+
+O que ficou para depois está em [`doc/14-pendencias.md`](doc/14-pendencias.md).
+Para contribuir, veja [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Documentação
 

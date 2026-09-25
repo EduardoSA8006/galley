@@ -1,0 +1,33 @@
+name: EPUB que quebra
+description: Um EPUB real que trava, renderiza errado ou perde conteúdo.
+labels: [epub-real, bug]
+body:
+  - type: textarea
+    id: o-que
+    attributes:
+      label: O que acontece
+      description: O que você esperava ver e o que aparece.
+    validations:
+      required: true
+  - type: textarea
+    id: arquivo
+    attributes:
+      label: Arquivo
+      description: >
+        Anexe o EPUB ou um trecho reduzido que reproduza o problema (texto
+        trocado por lorem ipsum, se tiver direitos autorais). Diga a origem
+        (Gutenberg, Standard Ebooks, editora…).
+    validations:
+      required: true
+  - type: input
+    id: versoes
+    attributes:
+      label: Versões
+      description: galley, Flutter e plataforma.
+      placeholder: "galley main@abc1234, Flutter 3.47.0, Android 14"
+  - type: textarea
+    id: diagnosticos
+    attributes:
+      label: Diagnósticos
+      description: Saída de diagnósticos ou exceção, se houver.
+      render: text
