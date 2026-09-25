@@ -13,7 +13,7 @@ dependencies:
   flutter:
     sdk: flutter
   html: ^0.15.6
-  xml: ^6.6.1
+  xml: ^7.0.1
   meta: ^1.16.0
 
 dev_dependencies:
