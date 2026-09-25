@@ -7,17 +7,21 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../tool/perf/lib/compare.dart';
 import '../../tool/perf/lib/perf_report.dart';
 
-PerfReport _report(Map<String, double> ratios, {String flutter = '3.47.0'}) =>
-    PerfReport(
-      flutter: flutter,
-      dart: '3.13.0',
-      os: 'linux',
-      createdAt: DateTime.utc(2026, 9, 25),
-      cases: {
-        for (final MapEntry(:key, :value) in ratios.entries)
-          key: PerfCaseResult(ratio: value, medianUs: 1, calibrationUs: 1),
-      },
-    );
+PerfReport _report(
+  Map<String, double> ratios, {
+  String flutter = '3.47.0',
+  String? cpu,
+}) => PerfReport(
+  flutter: flutter,
+  dart: '3.13.0',
+  os: 'linux',
+  cpu: cpu,
+  createdAt: DateTime.utc(2026, 9, 25),
+  cases: {
+    for (final MapEntry(:key, :value) in ratios.entries)
+      key: PerfCaseResult(ratio: value, medianUs: 1, calibrationUs: 1),
+  },
+);
 
 CaseStatus _status(double base, double current) => comparePerf(
   current: _report({'c': current}),
@@ -105,6 +109,66 @@ void main() {
       expect(md, contains('+25,0%'));
       expect(md.indexOf('`a`'), lessThan(md.indexOf('`b`')));
       expect(md, contains('Resultado: falhou'));
+    });
+
+    test('linha CPU presente sem baseline', () {
+      final cmp = comparePerf(
+        current: _report({'a': 1}, cpu: 'Intel Core i5-11400H'),
+      );
+      expect(cmp.currentCpu, 'Intel Core i5-11400H');
+      expect(cmp.baselineCpu, isNull);
+      expect(cmp.toMarkdown(), contains('CPU: Intel Core i5-11400H'));
+    });
+
+    test('linha CPU presente com baseline', () {
+      final cmp = comparePerf(
+        current: _report({'a': 1}, cpu: 'Intel Core i5-11400H'),
+        baseline: _report({'a': 1}, cpu: 'Intel Core i5-11400H'),
+      );
+      final md = cmp.toMarkdown();
+      expect(md, contains('CPU: Intel Core i5-11400H'));
+      expect(md, contains('baseline: Intel Core i5-11400H'));
+    });
+
+    test('cpuMismatch verdadeiro e aviso quando CPU difere', () {
+      final cmp = comparePerf(
+        current: _report({'a': 1}, cpu: 'Intel Core i5-11400H'),
+        baseline: _report({'a': 1}, cpu: 'AMD EPYC 7763 64-Core Processor'),
+      );
+      expect(cmp.cpuMismatch, isTrue);
+      expect(cmp.failed, isFalse);
+      final md = cmp.toMarkdown();
+      expect(md, contains('AVISO: CPU diferente do baseline'));
+      expect(md, contains('doc/14'));
+    });
+
+    test('cpuMismatch falso quando CPU igual', () {
+      final cmp = comparePerf(
+        current: _report({'a': 1}, cpu: 'Intel Core i5-11400H'),
+        baseline: _report({'a': 1}, cpu: 'Intel Core i5-11400H'),
+      );
+      expect(cmp.cpuMismatch, isFalse);
+      expect(
+        cmp.toMarkdown(),
+        isNot(contains('AVISO: CPU diferente do baseline')),
+      );
+    });
+
+    test('baseline sem cpu conta como diferente', () {
+      final cmp = comparePerf(
+        current: _report({'a': 1}, cpu: 'Intel Core i5-11400H'),
+        baseline: _report({'a': 1}),
+      );
+      expect(cmp.cpuMismatch, isTrue);
+    });
+
+    test('CPU diferente com regressão continua falhando', () {
+      final cmp = comparePerf(
+        current: _report({'c': 1.25}, cpu: 'Intel Core i5-11400H'),
+        baseline: _report({'c': 1}, cpu: 'AMD EPYC 7763 64-Core Processor'),
+      );
+      expect(cmp.cpuMismatch, isTrue);
+      expect(cmp.failed, isTrue);
     });
   });
 

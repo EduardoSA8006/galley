@@ -53,6 +53,7 @@ final class PerfReport {
     this.sourceCommit,
     this.runner,
     this.runs,
+    this.cpu,
   });
 
   factory PerfReport.parse(String text, {required String source}) {
@@ -99,6 +100,7 @@ final class PerfReport {
       sourceCommit: r.optionalString(top, 'sourceCommit'),
       runner: r.optionalString(top, 'runner'),
       runs: r.optionalInteger(top, 'runs'),
+      cpu: r.optionalString(top, 'cpu'),
     );
   }
 
@@ -117,6 +119,9 @@ final class PerfReport {
   /// Número de execuções combinadas. Só no baseline.
   final int? runs;
 
+  /// Modelo da CPU onde foi medido; `null` em relatórios antigos.
+  final String? cpu;
+
   /// JSON indentado, casos em ordem de id, com `\n` final.
   String encode({bool includeSamples = true}) {
     final ids = cases.keys.toList()..sort();
@@ -125,6 +130,7 @@ final class PerfReport {
       'flutter': flutter,
       'dart': dart,
       'os': os,
+      if (cpu != null) 'cpu': cpu,
       'createdAt': createdAt.toUtc().toIso8601String(),
       if (sourceCommit != null) 'sourceCommit': sourceCommit,
       if (runner != null) 'runner': runner,

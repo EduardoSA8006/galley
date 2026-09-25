@@ -37,6 +37,8 @@ final class PerfComparison {
     required this.cases,
     required this.currentFlutter,
     this.baselineFlutter,
+    this.currentCpu,
+    this.baselineCpu,
   });
 
   final List<CaseComparison> cases;
@@ -45,9 +47,19 @@ final class PerfComparison {
   /// `null` quando não há baseline.
   final String? baselineFlutter;
 
+  /// Modelo da CPU do resultado atual; `null` quando desconhecida.
+  final String? currentCpu;
+
+  /// Modelo da CPU do baseline; `null` quando não há baseline ou é
+  /// desconhecida.
+  final String? baselineCpu;
+
   bool get hasBaseline => baselineFlutter != null;
 
   bool get flutterMismatch => hasBaseline && baselineFlutter != currentFlutter;
+
+  /// Baseline sem `cpu` conta como diferente.
+  bool get cpuMismatch => hasBaseline && baselineCpu != currentCpu;
 
   bool get failed => cases.any(
     (c) => c.status == CaseStatus.regression || c.status == CaseStatus.missing,
@@ -55,6 +67,11 @@ final class PerfComparison {
 
   String toMarkdown() {
     final out = StringBuffer('## Desempenho\n\n');
+    out.write('CPU: ${currentCpu ?? "desconhecida"}');
+    if (hasBaseline) {
+      out.write(' · baseline: ${baselineCpu ?? "desconhecida"}');
+    }
+    out.writeln('\n');
     if (!hasBaseline) {
       out.writeln(
         '> **Sem baseline** (`test/perf/baseline.json`): todos os casos são '
@@ -65,6 +82,13 @@ final class PerfComparison {
         '> **AVISO: Flutter diferente.** Resultado em $currentFlutter, '
         'baseline em $baselineFlutter. A comparação vale pouco até o baseline '
         'ser regenerado nesta versão.\n',
+      );
+    }
+    if (cpuMismatch) {
+      out.writeln(
+        '> **AVISO: CPU diferente do baseline.** Entre VMs do runner a razão '
+        'já variou até 23% (zlib); uma regressão aqui pode ser a máquina, não '
+        'o código (doc/14).\n',
       );
     }
     out
@@ -97,6 +121,8 @@ PerfComparison comparePerf({
   return PerfComparison(
     currentFlutter: current.flutter,
     baselineFlutter: baseline?.flutter,
+    currentCpu: current.cpu,
+    baselineCpu: baseline?.cpu,
     cases: [
       for (final id in ids)
         _compareCase(id, baseline?.cases[id]?.ratio, current.cases[id]?.ratio),

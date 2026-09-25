@@ -169,12 +169,32 @@ Future<String> detectFlutterVersion({
   return 'unknown';
 }
 
+/// Modelo da CPU a partir de `/proc/cpuinfo`: valor (depois do primeiro `:`,
+/// com `trim()`) da primeira linha que começa com `model name`. Arquivo
+/// inexistente, ilegível ou sem a linha devolve `'unknown'`.
+String detectCpuModel({String cpuinfoPath = '/proc/cpuinfo'}) {
+  try {
+    final lines = File(cpuinfoPath).readAsLinesSync();
+    for (final line in lines) {
+      if (line.startsWith('model name')) {
+        final i = line.indexOf(':');
+        if (i < 0) continue;
+        return line.substring(i + 1).trim();
+      }
+    }
+  } on Object {
+    // Arquivo inexistente ou ilegível: modelo desconhecido.
+  }
+  return 'unknown';
+}
+
 /// Escreve o `result.json` se houver ao menos um caso medido. A suíte normal
 /// pula os casos `perf`, e um relatório vazio não pode sobrescrever o último.
 Future<bool> writeResultIfAny(
   Map<String, PerfCaseResult> cases, {
   String path = defaultResultPath,
   Map<String, String>? environment,
+  String? cpuinfoPath,
 }) async {
   if (cases.isEmpty) return false;
   final report = PerfReport(
@@ -183,6 +203,9 @@ Future<bool> writeResultIfAny(
     os: Platform.operatingSystem,
     createdAt: DateTime.now().toUtc(),
     cases: cases,
+    cpu: cpuinfoPath == null
+        ? detectCpuModel()
+        : detectCpuModel(cpuinfoPath: cpuinfoPath),
   );
   File(path)
     ..parent.createSync(recursive: true)

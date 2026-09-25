@@ -77,6 +77,47 @@ void main() {
       expect(back.runs, 3);
     });
 
+    test('cpu faz ida e volta', () {
+      final report = PerfReport(
+        flutter: '3.47.0',
+        dart: '3.13.0',
+        os: 'linux',
+        createdAt: DateTime.utc(2026, 9, 25),
+        cases: const {},
+        cpu: 'AMD EPYC 7763 64-Core Processor',
+      );
+      final back = PerfReport.parse(report.encode(), source: 'mem');
+      expect(back.cpu, 'AMD EPYC 7763 64-Core Processor');
+    });
+
+    test('JSON sem cpu dá null', () {
+      final report = PerfReport(
+        flutter: '3.47.0',
+        dart: '3.13.0',
+        os: 'linux',
+        createdAt: DateTime.utc(2026, 9, 25),
+        cases: const {},
+      );
+      final back = PerfReport.parse(report.encode(), source: 'mem');
+      expect(back.cpu, isNull);
+    });
+
+    test('cpu não-texto nomeia o campo', () {
+      const text =
+          '{"schema":1,"flutter":"x","dart":"y","os":"linux","cpu":1,'
+          '"createdAt":"2026-09-25T00:00:00.000Z","cases":{}}';
+      expect(
+        () => PerfReport.parse(text, source: 'mem'),
+        throwsA(
+          isA<PerfFormatException>().having(
+            (e) => e.message,
+            'message',
+            contains("'cpu'"),
+          ),
+        ),
+      );
+    });
+
     test('números inteiros no JSON são aceitos', () {
       const text =
           '{"schema":1,"flutter":"x","dart":"y","os":"linux",'
