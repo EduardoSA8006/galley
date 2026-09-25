@@ -15,22 +15,35 @@ void main() {
     final text = sb.toString();
 
     List<ui.LineMetrics> layout(ui.Color color, ui.Color bg, ui.Color deco) {
-      final b = ui.ParagraphBuilder(ui.ParagraphStyle(fontSize: 12, fontFamily: 'FlutterTest'))
-        ..pushStyle(ui.TextStyle(
-          fontSize: 12,
-          fontFamily: 'FlutterTest',
-          color: color,
-          background: ui.Paint()..color = bg,
-          decoration: ui.TextDecoration.underline,
-          decorationColor: deco,
-        ))
-        ..addText(text);
+      final b =
+          ui.ParagraphBuilder(
+              ui.ParagraphStyle(fontSize: 12, fontFamily: 'FlutterTest'),
+            )
+            ..pushStyle(
+              ui.TextStyle(
+                fontSize: 12,
+                fontFamily: 'FlutterTest',
+                color: color,
+                background: ui.Paint()..color = bg,
+                decoration: ui.TextDecoration.underline,
+                decorationColor: deco,
+              ),
+            )
+            ..addText(text);
       final p = b.build()..layout(const ui.ParagraphConstraints(width: 200));
       return p.computeLineMetrics();
     }
 
-    final a = layout(const ui.Color(0xFF000000), const ui.Color(0xFFFFFFFF), const ui.Color(0xFF000000));
-    final b = layout(const ui.Color(0xFFEEEEEE), const ui.Color(0xFF202020), const ui.Color(0xFFFF0000));
+    final a = layout(
+      const ui.Color(0xFF000000),
+      const ui.Color(0xFFFFFFFF),
+      const ui.Color(0xFF000000),
+    );
+    final b = layout(
+      const ui.Color(0xFFEEEEEE),
+      const ui.Color(0xFF202020),
+      const ui.Color(0xFFFF0000),
+    );
     print('S5.6 linhas: ${a.length}');
     expect(a.length, b.length);
     for (var i = 0; i < a.length; i++) {

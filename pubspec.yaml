@@ -5,9 +5,9 @@ repository: https://github.com/EduardoSA8006/galley
 publish_to: none # até o primeiro release
 
 environment:
-  sdk: ^3.12.1
-  # Versão mínima fixada na Fase 0 (doc/11 §2). Revisar após os spikes.
-  flutter: ">=3.44.0"
+  sdk: ^3.13.0
+  # Mínimo testado no CI (FLUTTER_MIN dos workflows); ver doc/11 §2.
+  flutter: ">=3.47.0"
 
 dependencies:
   flutter:

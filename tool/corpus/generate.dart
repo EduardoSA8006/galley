@@ -22,7 +22,8 @@ void main(List<String> args) {
   final toolDir = File.fromUri(Platform.script).parent;
   final repoRoot = toolDir.parent.parent;
   final corpusRoot = Directory('${repoRoot.path}/test/corpus');
-  final font = File('${toolDir.path}/assets/NotoSansOgham-Regular.ttf').readAsBytesSync();
+  final font = File('${toolDir.path}/assets/NotoSansOgham-Regular.ttf')
+      .readAsBytesSync();
 
   final all = <CorpusCase>[
     ...regressoesCases(),
@@ -53,9 +54,13 @@ void main(List<String> args) {
     c.writeTo(corpusRoot);
     final size = File('${c.dirIn(corpusRoot).path}/book.epub').lengthSync();
     bytes += size;
-    stdout.writeln('${c.group}/${c.slug}  ${(size / 1024).toStringAsFixed(1)} KB');
+    stdout.writeln(
+      '${c.group}/${c.slug}  ${(size / 1024).toStringAsFixed(1)} KB',
+    );
   }
-  stdout.writeln('${selected.length} casos, ${(bytes / 1024 / 1024).toStringAsFixed(2)} MB, ${sw.elapsedMilliseconds} ms');
+  stdout.writeln(
+    '${selected.length} casos, ${(bytes / 1024 / 1024).toStringAsFixed(2)} MB, ${sw.elapsedMilliseconds} ms',
+  );
 }
 
 String? _flag(List<String> args, String name) {

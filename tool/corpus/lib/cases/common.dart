@@ -10,7 +10,8 @@ int seedFor(String slug) {
   return h;
 }
 
-Prose proseFor(String slug, {String lang = 'pt'}) => Prose(lang: lang, seed: seedFor(slug));
+Prose proseFor(String slug, {String lang = 'pt'}) =>
+    Prose(lang: lang, seed: seedFor(slug));
 
 /// Livro comum: N capítulos com `<h1>` e prosa, spine e TOC coerentes.
 EpubBuilder standardBook(
@@ -28,7 +29,8 @@ EpubBuilder standardBook(
       xhtml(
         title: 'Capítulo $i',
         lang: lang,
-        body: '<h1 id="c$i">Capítulo $i</h1>\n${prose.paragraphsForWords(wordsPerChapter)}',
+        body:
+            '<h1 id="c$i">Capítulo $i</h1>\n${prose.paragraphsForWords(wordsPerChapter)}',
       ),
     );
     b.chapterInSpineAndToc(r, 'Capítulo $i');
