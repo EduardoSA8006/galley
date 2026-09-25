@@ -50,22 +50,13 @@ final class PendingResource {
     required this.path,
     required this.size,
     required int method,
-    required Uint8List data,
+    required this._data,
     required int crc32,
-    required DiagnosticSink sink,
-    InflaterFactory inflaterFactory = createInflater,
+    required DiagnosticSink this._sink,
+    this._inflaterFactory = createInflater,
   }) : assert(method == 0 || method == 8, 'método $method'),
        _method = method,
-       // Ignora prefer_initializing_formals: os campos são privados, mas o
-       // contrato do brief exige parâmetros públicos (`data`, `sink`,
-       // `inflaterFactory`), então não dá para usar `this._data` etc.
-       // ignore: prefer_initializing_formals
-       _data = data,
-       _crc = crc32,
-       // ignore: prefer_initializing_formals
-       _sink = sink,
-       // ignore: prefer_initializing_formals
-       _inflaterFactory = inflaterFactory;
+       _crc = crc32;
 
   /// Bytes já prontos (provider): um passo, sem CRC.
   PendingResource.ready({required this.path, required Uint8List bytes})
