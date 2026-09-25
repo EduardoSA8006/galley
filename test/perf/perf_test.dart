@@ -31,7 +31,7 @@ List<PerfCase> _phase0Cases() {
     PerfCase(
       id: 'html.parse.500kb',
       setUp: () async => xhtml = xhtmlOfLength(500 * 1024),
-      run: () => _sink ^= html.parse(xhtml).body!.nodes.length,
+      run: () => _sink += html.parse(xhtml).body!.nodes.length,
     ),
     PerfCase(
       id: 'paragraph.shape.1000',
@@ -48,7 +48,7 @@ List<PerfCase> _phase0Cases() {
                 ..addText(text);
           final p = builder.build()
             ..layout(const ui.ParagraphConstraints(width: 320));
-          _sink ^= p.height.toInt();
+          _sink += p.height.toInt();
           p.dispose();
         }
       },
@@ -56,7 +56,8 @@ List<PerfCase> _phase0Cases() {
     PerfCase(
       id: 'zlib.inflate.1mb',
       setUp: () async => deflated = deflateRaw(proseBytes(1024 * 1024)),
-      run: () => _sink ^= ZLibDecoder(raw: true).convert(deflated).length,
+      run: () => _sink += ZLibDecoder(raw: true).convert(deflated).length,
+      innerIterations: 6, // ≈ 5 ms por amostra, como a calibração
     ),
     PerfCase(
       id: 'image.decode.target',
@@ -67,7 +68,7 @@ List<PerfCase> _phase0Cases() {
           targetWidth: 300,
         );
         final frame = await codec.getNextFrame();
-        _sink ^= frame.image.width;
+        _sink += frame.image.width;
         frame.image.dispose();
         codec.dispose();
       },
