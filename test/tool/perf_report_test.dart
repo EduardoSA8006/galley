@@ -1,4 +1,5 @@
 // Modelo do JSON do harness de desempenho (spec §2.5 e §3.3).
+// ignore_for_file: avoid_relative_lib_imports — tool/ não é pacote; importar por caminho é intencional.
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/perf/lib/perf_report.dart';

@@ -15,4 +15,3 @@ linter:
     prefer_const_declarations: true
     unawaited_futures: true
     avoid_print: false # spikes e tool/ imprimem
-    avoid_relative_lib_imports: false # test/tool/ importa de tool/perf/lib via relative path
