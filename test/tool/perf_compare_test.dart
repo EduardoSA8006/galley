@@ -254,22 +254,25 @@ void main() {
       expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
     });
 
-    test('--baselines escolhe o arquivo da CPU atual (regressão sai 1)', () async {
-      const cpu = 'AMD EPYC 7763 64-Core Processor';
-      writeIn(
-        'baselines',
-        baselineFileName(cpu),
-        _report({'c': 1}, cpu: cpu),
-      );
-      final r = await run([
-        '--result',
-        write('r.json', _report({'c': 2}, cpu: cpu)),
-        '--baselines',
-        '${dir.path}/baselines',
-      ]);
-      expect(r.exitCode, 1, reason: '${r.stdout}\n${r.stderr}');
-      expect(r.stdout as String, contains('regressão'));
-    });
+    test(
+      '--baselines escolhe o arquivo da CPU atual (regressão sai 1)',
+      () async {
+        const cpu = 'AMD EPYC 7763 64-Core Processor';
+        writeIn(
+          'baselines',
+          baselineFileName(cpu),
+          _report({'c': 1}, cpu: cpu),
+        );
+        final r = await run([
+          '--result',
+          write('r.json', _report({'c': 2}, cpu: cpu)),
+          '--baselines',
+          '${dir.path}/baselines',
+        ]);
+        expect(r.exitCode, 1, reason: '${r.stdout}\n${r.stderr}');
+        expect(r.stdout as String, contains('regressão'));
+      },
+    );
 
     test(
       'CPU sem arquivo correspondente: sai 0 e lista as CPUs existentes',
@@ -293,17 +296,20 @@ void main() {
       },
     );
 
-    test('diretório de baselines inexistente conta como vazio: sai 0', () async {
-      const atual = 'AMD EPYC 9V45 96-Core Processor';
-      final r = await run([
-        '--result',
-        write('r.json', _report({'c': 1}, cpu: atual)),
-        '--baselines',
-        '${dir.path}/nao-existe',
-      ]);
-      expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
-      expect(r.stdout as String, contains('Sem baseline para esta CPU'));
-    });
+    test(
+      'diretório de baselines inexistente conta como vazio: sai 0',
+      () async {
+        const atual = 'AMD EPYC 9V45 96-Core Processor';
+        final r = await run([
+          '--result',
+          write('r.json', _report({'c': 1}, cpu: atual)),
+          '--baselines',
+          '${dir.path}/nao-existe',
+        ]);
+        expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
+        expect(r.stdout as String, contains('Sem baseline para esta CPU'));
+      },
+    );
 
     test(
       '--baseline explícito continua funcionando mesmo com --baselines',
@@ -321,28 +327,20 @@ void main() {
       },
     );
 
-    test(
-      'arquivo malformado em --baselines falha com a mensagem de '
-      'PerfFormatException',
-      () async {
-        const cpu = 'AMD EPYC 7763 64-Core Processor';
-        writeIn(
-          'baselines',
-          baselineFileName(cpu),
-          _report({'c': 1}, cpu: cpu),
-        );
-        File(
-          '${dir.path}/baselines/garbage.json',
-        ).writeAsStringSync('{ not valid json');
-        final r = await run([
-          '--result',
-          write('r.json', _report({'c': 1}, cpu: cpu)),
-          '--baselines',
-          '${dir.path}/baselines',
-        ]);
-        expect(r.exitCode, 1, reason: '${r.stdout}\n${r.stderr}');
-        expect(r.stderr as String, contains('garbage.json'));
-      },
-    );
+    test('arquivo malformado em --baselines falha com a mensagem de '
+        'PerfFormatException', () async {
+      const cpu = 'AMD EPYC 7763 64-Core Processor';
+      writeIn('baselines', baselineFileName(cpu), _report({'c': 1}, cpu: cpu));
+      File('${dir.path}/baselines/garbage.json')
+          .writeAsStringSync('{ not valid json');
+      final r = await run([
+        '--result',
+        write('r.json', _report({'c': 1}, cpu: cpu)),
+        '--baselines',
+        '${dir.path}/baselines',
+      ]);
+      expect(r.exitCode, 1, reason: '${r.stdout}\n${r.stderr}');
+      expect(r.stderr as String, contains('garbage.json'));
+    });
   });
 }
