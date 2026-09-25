@@ -24,6 +24,7 @@ propriedades como razão de existir: rápido, leve e fácil de adotar.
 | [11-empacotamento-versionamento.md](11-empacotamento-versionamento.md) | Dependências, plataformas, política de semver, extensibilidade de tipos |
 | [12-roadmap.md](12-roadmap.md) | Roadmap versionado com critérios de entrada |
 | [13-riscos-spikes-fases.md](13-riscos-spikes-fases.md) | Riscos abertos, spikes, fases de implementação |
+| [14-pendencias.md](14-pendencias.md) | Lista viva do que ficou para depois, com origem e quando voltar |
 
 ## Como ler
 

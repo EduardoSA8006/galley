@@ -23,10 +23,12 @@ interação para a Fase 4 (§1.1); S5, S7 e S9 fechados parcialmente, com
 pendências que só fazem sentido na Fase 2 (rios com `hyph-pt`) e na Fase 1
 (SVG-invólucro; parse fatiável e cessão sem clamp no web). Aberto: S3, que
 depende de aparelho físico. P10 decidida: web na 1.0.x. S1 e S5–S8 rodaram em
-Flutter 3.44.1; S2, S4 e S9 em 3.47.5, sem mudar o mínimo declarado no
-`pubspec.yaml` (3.44). Corpus: 57 casos sintéticos e 8 EPUBs reais em
-`test/corpus/`, gerador em `tool/corpus/`. Resultados detalhados em
-`spike/RESULTADO-S*.md`.
+Flutter 3.44.1; S2, S4 e S9 em 3.47.5, e o mínimo foi fixado em 3.47.0, a
+versão testada no CI ([11](11-empacotamento-versionamento.md) §2). Corpus: 57
+casos sintéticos e 8 EPUBs reais em `test/corpus/`, gerador em `tool/corpus/`.
+Resultados detalhados em `spike/RESULTADO-S*.md`. Harness de medição, baseline
+e CI em `test/perf/`, `tool/perf/` e `.github/workflows/`
+([10](10-testes.md) §4.2). Com isso a Fase 0 está concluída, exceto o S3.
 
 ### 1.1 Por que S2 é o mais perigoso
 

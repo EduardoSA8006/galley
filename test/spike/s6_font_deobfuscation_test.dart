@@ -45,26 +45,36 @@ File? _systemFont() {
 void main() {
   group('SHA-1 próprio', () {
     test('vetores conhecidos', () {
-      expect(sha1Hex(_ascii('abc')),
-          'a9993e364706816aba3e25717850c26c9cd0d89d');
-      expect(sha1Hex(Uint8List(0)),
-          'da39a3ee5e6b4b0d3255bfef95601890afd80709');
-      expect(sha1Hex(_ascii('The quick brown fox jumps over the lazy dog')),
-          '2fd4e1c67a2d28fced849ee1bb76e7391b93eb12');
+      expect(
+        sha1Hex(_ascii('abc')),
+        'a9993e364706816aba3e25717850c26c9cd0d89d',
+      );
+      expect(sha1Hex(Uint8List(0)), 'da39a3ee5e6b4b0d3255bfef95601890afd80709');
+      expect(
+        sha1Hex(_ascii('The quick brown fox jumps over the lazy dog')),
+        '2fd4e1c67a2d28fced849ee1bb76e7391b93eb12',
+      );
       // Fronteiras do padding: 55, 56 e 64 bytes.
-      expect(sha1Hex(_ascii('a' * 55)),
-          'c1c8bbdc22796e28c0e15163d20899b65621d65a');
-      expect(sha1Hex(_ascii('a' * 56)),
-          'c2db330f6083854c99d4b5bfb6e8f29f201be699');
-      expect(sha1Hex(_ascii('a' * 64)),
-          '0098ba824b5c16427bd7a1122a5a442a25ec644d');
+      expect(
+        sha1Hex(_ascii('a' * 55)),
+        'c1c8bbdc22796e28c0e15163d20899b65621d65a',
+      );
+      expect(
+        sha1Hex(_ascii('a' * 56)),
+        'c2db330f6083854c99d4b5bfb6e8f29f201be699',
+      );
+      expect(
+        sha1Hex(_ascii('a' * 64)),
+        '0098ba824b5c16427bd7a1122a5a442a25ec644d',
+      );
     });
 
     test('tempo sobre 100 KB e 1 MB (mediana de 5)', () {
       final rnd = Random(7);
       for (final size in [100 * 1024, 1024 * 1024]) {
         final data = Uint8List.fromList(
-            List.generate(size, (_) => rnd.nextInt(256)));
+          List.generate(size, (_) => rnd.nextInt(256)),
+        );
         sha1(data); // aquecimento
         final samples = <int>[];
         for (var i = 0; i < 5; i++) {
@@ -74,8 +84,10 @@ void main() {
           samples.add(sw.elapsedMicroseconds);
         }
         samples.sort();
-        print('S6 SHA-1 ${size ~/ 1024} KB: mediana ${samples[2]} µs '
-            '(min ${samples.first}, max ${samples.last})');
+        print(
+          'S6 SHA-1 ${size ~/ 1024} KB: mediana ${samples[2]} µs '
+          '(min ${samples.first}, max ${samples.last})',
+        );
       }
     });
   });
@@ -107,7 +119,8 @@ void main() {
         print('S6 fonte: ${file.path} (${font.length} bytes)');
       } else {
         font = Uint8List.fromList(
-            List.generate(4096, (i) => Random(1).nextInt(256)));
+          List.generate(4096, (i) => Random(1).nextInt(256)),
+        );
         print('S6 fonte: nenhuma TTF do sistema; usando 4 KB aleatórios');
       }
 
@@ -115,47 +128,58 @@ void main() {
       final idpf = idpfObfuscate(font, ids);
       expect(idpf.length, font.length);
       expect(idpf.sublist(0, 1040), isNot(font.sublist(0, 1040)));
-      expect(idpf.sublist(1040), font.sublist(1040),
-          reason: 'IDPF só toca os primeiros 1040 bytes');
+      expect(
+        idpf.sublist(1040),
+        font.sublist(1040),
+        reason: 'IDPF só toca os primeiros 1040 bytes',
+      );
       expect(idpfDeobfuscate(idpf, ids), font);
 
       final adobe = adobeObfuscate(font, identifier);
       expect(adobe.sublist(0, 1024), isNot(font.sublist(0, 1024)));
-      expect(adobe.sublist(1024), font.sublist(1024),
-          reason: 'Adobe só toca os primeiros 1024 bytes');
+      expect(
+        adobe.sublist(1024),
+        font.sublist(1024),
+        reason: 'Adobe só toca os primeiros 1024 bytes',
+      );
       expect(adobeDeobfuscate(adobe, identifier), font);
 
       // Chave errada não devolve a fonte.
       expect(idpfDeobfuscate(idpf, ['urn:uuid:outro']), isNot(font));
     });
 
-    testWidgets('fonte desofuscada carrega no motor e faz layout',
-        (tester) async {
+    testWidgets('fonte desofuscada carrega no motor e faz layout', (
+      tester,
+    ) async {
       final file = _systemFont();
       if (file == null) {
         markTestSkipped('sem fonte TTF do sistema');
         return;
       }
       final font = file.readAsBytesSync();
-      final restored =
-          idpfDeobfuscate(idpfObfuscate(font, [identifier]), [identifier]);
+      final restored = idpfDeobfuscate(idpfObfuscate(font, [identifier]), [
+        identifier,
+      ]);
 
       final loader = FontLoader('SpikeS6')
         ..addFont(Future.value(ByteData.sublistView(restored)));
       await loader.load();
 
-      final builder = ui.ParagraphBuilder(
-        ui.ParagraphStyle(fontFamily: 'SpikeS6', fontSize: 16),
-      )
-        ..pushStyle(ui.TextStyle(fontFamily: 'SpikeS6', fontSize: 16))
-        ..addText('Fonte desofuscada em layout.');
+      final builder =
+          ui.ParagraphBuilder(
+              ui.ParagraphStyle(fontFamily: 'SpikeS6', fontSize: 16),
+            )
+            ..pushStyle(ui.TextStyle(fontFamily: 'SpikeS6', fontSize: 16))
+            ..addText('Fonte desofuscada em layout.');
       final paragraph = builder.build()
         ..layout(const ui.ParagraphConstraints(width: 300));
       final metrics = paragraph.computeLineMetrics();
       expect(metrics, isNotEmpty);
       expect(paragraph.longestLine, greaterThan(0));
-      print('S6 layout com fonte carregada: ${metrics.length} linha(s), '
-          'largura ${paragraph.longestLine.toStringAsFixed(1)} px');
+      print(
+        'S6 layout com fonte carregada: ${metrics.length} linha(s), '
+        'largura ${paragraph.longestLine.toStringAsFixed(1)} px',
+      );
       paragraph.dispose();
     });
   });

@@ -40,7 +40,11 @@ void main() {
   testWidgets('S1.2 Isolate.run', (tester) async {
     final r = await Isolate.run(_tryShape);
     print('S1.2 Isolate.run: $r');
-    expect(r, startsWith('ERRO'), reason: 'presume-se negativo (doc/08 §2); se passar, a doc muda');
+    expect(
+      r,
+      startsWith('ERRO'),
+      reason: 'presume-se negativo (doc/08 §2); se passar, a doc muda',
+    );
   });
 
   testWidgets('S1.3 Isolate.spawn', (tester) async {

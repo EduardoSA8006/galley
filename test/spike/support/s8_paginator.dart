@@ -73,10 +73,10 @@ class SpikePagination {
 
 class SpikePaginator {
   SpikePaginator(this.blocks, {required this.pageHeight, this.spacing = 12.0})
-      : _lineBlock = <int>[],
-        _lineIndex = <int>[],
-        _lineHeight = <double>[],
-        _blockStart = List<int>.filled(blocks.length + 1, 0) {
+    : _lineBlock = <int>[],
+      _lineIndex = <int>[],
+      _lineHeight = <double>[],
+      _blockStart = List<int>.filled(blocks.length + 1, 0) {
     var g = 0;
     for (var b = 0; b < blocks.length; b++) {
       _blockStart[b] = g;
@@ -128,7 +128,10 @@ class SpikePaginator {
 
   /// Quebra forçada antes da linha [t] (`break-before: page`, Classe 1).
   bool isForcedBreak(int t) =>
-      t > 0 && t < totalLines && _isBlockStart(t) && blocks[_lineBlock[t]].breakBefore;
+      t > 0 &&
+      t < totalLines &&
+      _isBlockStart(t) &&
+      blocks[_lineBlock[t]].breakBefore;
 
   /// A fronteira entre a linha t-1 (fim de uma página) e a linha t (início da
   /// seguinte) é aceitável?

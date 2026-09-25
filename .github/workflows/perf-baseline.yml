@@ -1,0 +1,49 @@
+name: Baseline de desempenho
+
+# Gera um baseline candidato no runner do CI. Atualizar
+# test/perf/baseline.json é commit deliberado (doc/10 §4.2): baixe o
+# artefato perf-baseline e commite com a justificativa.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Mínimo declarado em pubspec.yaml; test/tool/ci_config_test.dart confere.
+  FLUTTER_MIN: 3.47.0
+
+jobs:
+  baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - id: flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_MIN }}
+          cache: true
+      - name: Harness, três execuções
+        env:
+          FLUTTER_VERSION: ${{ steps.flutter.outputs.VERSION }}
+        run: |
+          for i in 1 2 3; do
+            flutter test --tags perf --run-skipped --concurrency=1 test/perf
+            cp build/perf/result.json "build/perf/result-$i.json"
+          done
+      - name: Combinar
+        run: >
+          dart run tool/perf/update_baseline.dart
+          --out build/perf/baseline.json
+          --commit "$GITHUB_SHA"
+          --runner ubuntu-24.04
+          build/perf/result-1.json build/perf/result-2.json build/perf/result-3.json
+      - name: Conferir o candidato contra a última execução
+        run: dart run tool/perf/compare.dart --result build/perf/result-3.json --baseline build/perf/baseline.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: perf-baseline
+          path: build/perf/baseline.json
+          if-no-files-found: error

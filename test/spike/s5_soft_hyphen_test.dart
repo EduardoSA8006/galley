@@ -16,11 +16,18 @@ ui.Paragraph _build(
   ui.TextAlign align = ui.TextAlign.start,
   ui.TextStyle? style,
 }) {
-  final builder = ui.ParagraphBuilder(
-    ui.ParagraphStyle(fontSize: _fs, textAlign: align, fontFamily: 'FlutterTest'),
-  )
-    ..pushStyle(style ?? ui.TextStyle(fontSize: _fs, fontFamily: 'FlutterTest'))
-    ..addText(text);
+  final builder =
+      ui.ParagraphBuilder(
+          ui.ParagraphStyle(
+            fontSize: _fs,
+            textAlign: align,
+            fontFamily: 'FlutterTest',
+          ),
+        )
+        ..pushStyle(
+          style ?? ui.TextStyle(fontSize: _fs, fontFamily: 'FlutterTest'),
+        )
+        ..addText(text);
   final p = builder.build()..layout(ui.ParagraphConstraints(width: width));
   return p;
 }
@@ -45,21 +52,29 @@ void main() {
       print('S5.1 largura de "$first" sozinho: ${firstAlone.longestLine}');
       print('S5.1 largura de "$first-": ${firstWithDash.longestLine}');
       // Range de texto da 1ª linha: até onde vai?
-      final boundary = withShy.getLineBoundary(const ui.TextPosition(offset: 0));
-      print('S5.1 range da 1ª linha: [${boundary.start}, ${boundary.end}) '
-          '(SHY está no índice ${first.length})');
+      final boundary = withShy.getLineBoundary(
+        const ui.TextPosition(offset: 0),
+      );
+      print(
+        'S5.1 range da 1ª linha: [${boundary.start}, ${boundary.end}) '
+        '(SHY está no índice ${first.length})',
+      );
 
       expect(linesShy.length, 2, reason: 'deve quebrar em duas linhas');
       // A quebra é exatamente no soft hyphen: a 1ª linha termina depois dele.
       expect(boundary.end, first.length + 1);
       // Sem quebra em qualquer caractere: a segunda linha começa em "pipedo".
-      final second2 = withShy.getLineBoundary(const ui.TextPosition(offset: first.length + 1));
+      final second2 = withShy.getLineBoundary(
+        const ui.TextPosition(offset: first.length + 1),
+      );
       expect(second2.start, first.length + 1);
 
       // Sem o SHY, a mesma palavra em 85 px quebra em qualquer caractere.
       final noShy = _build('$first$second', width: width);
       final b2 = noShy.getLineBoundary(const ui.TextPosition(offset: 0));
-      print('S5.1 sem SHY, 1ª linha termina em ${b2.end} (quebra por caractere)');
+      print(
+        'S5.1 sem SHY, 1ª linha termina em ${b2.end} (quebra por caractere)',
+      );
       expect(b2.end, isNot(first.length + 1));
     });
 
@@ -71,12 +86,20 @@ void main() {
       final dash = _build('$first-', width: 1000).longestLine;
       // Caixa do próprio U+00AD na posição de quebra.
       final shyBoxes = withShy.getBoxesForRange(first.length, first.length + 1);
-      final shyWidth = shyBoxes.isEmpty ? 0.0 : shyBoxes.first.right - shyBoxes.first.left;
-      print('S5.2 largura 1ª linha=${line.width} | "$first"=$alone | "$first-"=$dash '
-          '| caixa do SHY na quebra=$shyWidth');
+      final shyWidth = shyBoxes.isEmpty
+          ? 0.0
+          : shyBoxes.first.right - shyBoxes.first.left;
+      print(
+        'S5.2 largura 1ª linha=${line.width} | "$first"=$alone | "$first-"=$dash '
+        '| caixa do SHY na quebra=$shyWidth',
+      );
       // Registro do fato (a asserção documenta o comportamento observado; se um
       // dia o motor passar a pintar o hífen, este teste falha e a doc muda).
-      expect(line.width, alone, reason: 'largura igual à metade sozinha: nenhum hífen ocupa espaço');
+      expect(
+        line.width,
+        alone,
+        reason: 'largura igual à metade sozinha: nenhum hífen ocupa espaço',
+      );
       expect(shyWidth, 0.0);
     });
   });
@@ -87,26 +110,39 @@ void main() {
     final boxes = p.getBoxesForRange(8, 9);
     final w = boxes.isEmpty ? 0.0 : boxes.first.right - boxes.first.left;
     final noShy = _build('Paralelepipedo', width: 1000);
-    print('S5.3 caixa do SHY sem quebra: ${boxes.length} caixa(s), largura=$w; '
-        'longestLine com SHY=${p.longestLine}, sem SHY=${noShy.longestLine}');
+    print(
+      'S5.3 caixa do SHY sem quebra: ${boxes.length} caixa(s), largura=$w; '
+      'longestLine com SHY=${p.longestLine}, sem SHY=${noShy.longestLine}',
+    );
     expect(w, 0.0);
     expect(p.longestLine, noShy.longestLine);
     expect(p.computeLineMetrics().length, 1);
   });
 
   test('S5.4 justify: última linha não é justificada', () {
-    const text = 'aa bb cc dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr ss tt uu vv x';
+    const text =
+        'aa bb cc dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr ss tt uu vv x';
     const width = 125.0; // ~12 glifos por linha
     final p = _build(text, width: width, align: ui.TextAlign.justify);
     final lines = p.computeLineMetrics();
     for (final l in lines) {
-      print('S5.4 linha ${l.lineNumber}: width=${l.width} hardBreak=${l.hardBreak}');
+      print(
+        'S5.4 linha ${l.lineNumber}: width=${l.width} hardBreak=${l.hardBreak}',
+      );
     }
     expect(lines.length, greaterThan(2));
     for (final l in lines.take(lines.length - 1)) {
-      expect(l.width, closeTo(width, 0.01), reason: 'linhas internas ocupam a coluna');
+      expect(
+        l.width,
+        closeTo(width, 0.01),
+        reason: 'linhas internas ocupam a coluna',
+      );
     }
-    expect(lines.last.width, lessThan(width), reason: 'última linha não justificada');
+    expect(
+      lines.last.width,
+      lessThan(width),
+      reason: 'última linha não justificada',
+    );
     // Inventário: o que ParagraphStyle e TextStyle oferecem para espaçamento.
     // ParagraphStyle: textAlign, textDirection, maxLines, fontFamily, fontSize,
     //   height, textHeightBehavior, fontWeight, fontStyle, strutStyle, ellipsis,
@@ -159,9 +195,11 @@ void main() {
     }
     a.sort();
     b.sort();
-    print('S5.5 2000 chars @360px, 200 layouts, mediana de 3: '
-        'sem SHY=${a[1].toStringAsFixed(0)} µs, com $shyCount SHY='
-        '${b[1].toStringAsFixed(0)} µs, razão=${(b[1] / a[1]).toStringAsFixed(2)}');
+    print(
+      'S5.5 2000 chars @360px, 200 layouts, mediana de 3: '
+      'sem SHY=${a[1].toStringAsFixed(0)} µs, com $shyCount SHY='
+      '${b[1].toStringAsFixed(0)} µs, razão=${(b[1] / a[1]).toStringAsFixed(2)}',
+    );
     expect(b[1] / a[1], lessThan(1.5));
   });
 }

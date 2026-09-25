@@ -33,7 +33,8 @@ class CorpusCase {
   void writeTo(Directory corpusRoot) {
     final dir = dirIn(corpusRoot)..createSync(recursive: true);
     File('${dir.path}/book.epub').writeAsBytesSync(build());
-    File('${dir.path}/README.md').writeAsStringSync('$readme Origem: sintético.\n');
+    File('${dir.path}/README.md')
+        .writeAsStringSync('$readme Origem: sintético.\n');
     final diag = File('${dir.path}/diagnostics.expected');
     if (diagnostics.isNotEmpty) {
       diag.writeAsStringSync('${([...diagnostics]..sort()).join('\n')}\n');

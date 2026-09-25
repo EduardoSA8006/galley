@@ -21,9 +21,7 @@ const adobeAlgorithm = 'http://ns.adobe.com/pdf/enc#RC';
 
 /// Chave IDPF a partir dos identifiers únicos do OPF.
 Uint8List idpfKey(Iterable<String> uniqueIdentifiers) {
-  final joined = uniqueIdentifiers
-      .join()
-      .replaceAll(RegExp(r'[ \t\r\n]'), '');
+  final joined = uniqueIdentifiers.join().replaceAll(RegExp(r'[ \t\r\n]'), '');
   return sha1(Uint8List.fromList(utf8.encode(joined)));
 }
 

@@ -21,7 +21,8 @@ cd example && flutter test integration_test/spike_s1_isolate_paragraph_test.dart
 
 Na engine real, rode **um arquivo por invocação**: `flutter test integration_test
 -d linux` com mais de um arquivo falha no segundo com `Unable to start the app on
-the device` (Flutter 3.44.1).
+the device` (Flutter 3.44.1). O job `engine-linux` do CI segue a mesma regra,
+com um `flutter test` por arquivo sob `xvfb-run`.
 
 O S9 roda também no Chrome. `--platform chrome` compila com DDC e `--wasm` com
 dart2wasm `-O0`, então os números servem para comparar alvos, não como

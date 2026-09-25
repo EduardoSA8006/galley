@@ -37,17 +37,17 @@ class EpubResource {
       path.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_');
 
   EpubResource copyWithProperties(List<String> properties) => EpubResource(
-        path: path,
-        bytes: bytes,
-        mediaType: mediaType,
-        id: id,
-        properties: properties,
-        manifestHrefOverride: manifestHrefOverride,
-        inManifest: inManifest,
-        inZip: inZip,
-        compress: compress,
-        crcOverride: crcOverride,
-      );
+    path: path,
+    bytes: bytes,
+    mediaType: mediaType,
+    id: id,
+    properties: properties,
+    manifestHrefOverride: manifestHrefOverride,
+    inManifest: inManifest,
+    inZip: inZip,
+    compress: compress,
+    crcOverride: crcOverride,
+  );
 }
 
 class SpineRef {
@@ -126,7 +126,10 @@ class EpubBuilder {
   Uint8List get adobeKey {
     final h = identifier.substring('urn:uuid:'.length).replaceAll('-', '');
     return Uint8List.fromList(
-      List.generate(16, (i) => int.parse(h.substring(i * 2, i * 2 + 2), radix: 16)),
+      List.generate(
+        16,
+        (i) => int.parse(h.substring(i * 2, i * 2 + 2), radix: 16),
+      ),
     );
   }
 
@@ -150,31 +153,53 @@ class EpubBuilder {
     return r;
   }
 
-  EpubResource addImage(String name, List<int> bytes, {String? id, String mediaType = 'image/png'}) {
-    final r = EpubResource(path: '$opfDir/Images/$name', bytes: bytes, mediaType: mediaType, id: id);
+  EpubResource addImage(
+    String name,
+    List<int> bytes, {
+    String? id,
+    String mediaType = 'image/png',
+  }) {
+    final r = EpubResource(
+      path: '$opfDir/Images/$name',
+      bytes: bytes,
+      mediaType: mediaType,
+      id: id,
+    );
     resources.add(r);
     return r;
   }
 
   EpubResource addCss(String name, String css) {
-    final r = EpubResource(path: '$opfDir/Styles/$name', bytes: utf8.encode(css), mediaType: 'text/css');
+    final r = EpubResource(
+      path: '$opfDir/Styles/$name',
+      bytes: utf8.encode(css),
+      mediaType: 'text/css',
+    );
     resources.add(r);
     return r;
   }
 
   /// href de um recurso relativo ao OPF, como aparece no manifest e no NAV.
-  String hrefOf(EpubResource r) => r.manifestHrefOverride ?? relativeHref(opfDir, r.path);
+  String hrefOf(EpubResource r) =>
+      r.manifestHrefOverride ?? relativeHref(opfDir, r.path);
 
   /// Acrescenta ao spine e ao TOC de uma vez.
-  void chapterInSpineAndToc(EpubResource r, String title, {bool linear = true}) {
+  void chapterInSpineAndToc(
+    EpubResource r,
+    String title, {
+    bool linear = true,
+  }) {
     spine.add(SpineRef(r.id, linear: linear));
     toc.add(TocEntry(title, hrefOf(r)));
   }
 
   Uint8List build() {
     final zip = ZipWriter(forceZip64: forceZip64);
-    void mimetype() => zip.add('mimetype', ascii.encode('application/epub+zip'),
-        compress: mimetypeCompressed);
+    void mimetype() => zip.add(
+      'mimetype',
+      ascii.encode('application/epub+zip'),
+      compress: mimetypeCompressed,
+    );
 
     if (mimetypeFirst) mimetype();
     zip.add('META-INF/container.xml', utf8.encode(_containerXml()));
@@ -186,14 +211,20 @@ class EpubBuilder {
     if (includeNcx) zip.add(ncxPath, utf8.encode(_ncx()));
     for (final r in resources) {
       if (r.inZip) {
-        zip.add(r.path, r.bytes, compress: r.compress, crcOverride: r.crcOverride);
+        zip.add(
+          r.path,
+          r.bytes,
+          compress: r.compress,
+          crcOverride: r.crcOverride,
+        );
       }
     }
     if (!mimetypeFirst) mimetype();
     return zip.build();
   }
 
-  String _containerXml() => '''
+  String _containerXml() =>
+      '''
 <?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
@@ -205,17 +236,25 @@ class EpubBuilder {
   String _opf() {
     final items = StringBuffer();
     if (includeNav) {
-      items.writeln('    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>');
+      items.writeln(
+        '    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
+      );
     }
     if (includeNcx) {
-      items.writeln('    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>');
+      items.writeln(
+        '    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>',
+      );
     }
     for (final r in resources.where((r) => r.inManifest)) {
       final href = r.manifestHrefOverride ?? relativeHref(opfDir, r.path);
       final props = <String>[...r.properties];
-      if (r.id == coverId && !props.contains('cover-image')) props.add('cover-image');
+      if (r.id == coverId && !props.contains('cover-image')) {
+        props.add('cover-image');
+      }
       final propAttr = props.isEmpty ? '' : ' properties="${props.join(' ')}"';
-      items.writeln('    <item id="${r.id}" href="${escapeAttr(href)}" media-type="${r.mediaType}"$propAttr/>');
+      items.writeln(
+        '    <item id="${r.id}" href="${escapeAttr(href)}" media-type="${r.mediaType}"$propAttr/>',
+      );
     }
     final refs = StringBuffer();
     for (final s in spine) {
@@ -227,9 +266,13 @@ class EpubBuilder {
       meta.writeln('    <meta name="cover" content="$coverId"/>');
     }
     for (final e in extraMeta.entries) {
-      meta.writeln('    <meta property="${e.key}">${escapeText(e.value)}</meta>');
+      meta.writeln(
+        '    <meta property="${e.key}">${escapeText(e.value)}</meta>',
+      );
     }
-    final dir = direction == null ? '' : ' page-progression-direction="$direction"';
+    final dir = direction == null
+        ? ''
+        : ' page-progression-direction="$direction"';
     final ncxAttr = includeNcx ? ' toc="ncx"' : '';
     return '''
 <?xml version="1.0" encoding="UTF-8"?>
@@ -255,9 +298,11 @@ $refs  </spine>
       final b = StringBuffer('<ol>');
       for (final e in entries) {
         b.write('<li>');
-        b.write(e.href == null
-            ? '<span>${escapeText(e.title)}</span>'
-            : '<a href="${escapeAttr(e.href!)}">${escapeText(e.title)}</a>');
+        b.write(
+          e.href == null
+              ? '<span>${escapeText(e.title)}</span>'
+              : '<a href="${escapeAttr(e.href!)}">${escapeText(e.title)}</a>',
+        );
         b.write(ol(e.children));
         b.write('</li>');
       }
@@ -291,8 +336,12 @@ $landmarks
       final b = StringBuffer();
       for (final e in entries) {
         play++;
-        b.write('<navPoint id="np$play" playOrder="$play"><navLabel><text>${escapeText(e.title)}</text></navLabel>');
-        b.write('<content src="${escapeAttr(e.href ?? _hrefOfId(spine.first.idref)!)}"/>');
+        b.write(
+          '<navPoint id="np$play" playOrder="$play"><navLabel><text>${escapeText(e.title)}</text></navLabel>',
+        );
+        b.write(
+          '<content src="${escapeAttr(e.href ?? _hrefOfId(spine.first.idref)!)}"/>',
+        );
         b.write(navPoints(e.children));
         b.write('</navPoint>');
       }
@@ -321,7 +370,9 @@ $landmarks
 
   String? _hrefOfId(String id) {
     for (final r in resources) {
-      if (r.id == id) return r.manifestHrefOverride ?? relativeHref(opfDir, r.path);
+      if (r.id == id) {
+        return r.manifestHrefOverride ?? relativeHref(opfDir, r.path);
+      }
     }
     return null;
   }
@@ -337,7 +388,9 @@ String relativeHref(String fromDir, String toPath) {
   final from = fromDir.split('/').where((s) => s.isNotEmpty).toList();
   final to = toPath.split('/');
   var common = 0;
-  while (common < from.length && common < to.length - 1 && from[common] == to[common]) {
+  while (common < from.length &&
+      common < to.length - 1 &&
+      from[common] == to[common]) {
     common++;
   }
   final ups = List.filled(from.length - common, '..');
@@ -366,7 +419,10 @@ String xhtml({
       ? '<?xml version="1.0" encoding="$xmlEncoding"?>\n'
       : '';
   final links = cssHrefs
-      .map((h) => '<link rel="stylesheet" type="text/css" href="${escapeAttr(h)}"/>')
+      .map(
+        (h) =>
+            '<link rel="stylesheet" type="text/css" href="${escapeAttr(h)}"/>',
+      )
       .join('\n');
   final style = css == null ? '' : '<style type="text/css">\n$css\n</style>';
   final dirAttr = dir == null ? '' : ' dir="$dir"';

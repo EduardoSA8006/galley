@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Mínimo declarado em pubspec.yaml; test/tool/ci_config_test.dart confere.
+  FLUTTER_MIN: 3.47.0
+
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_MIN }}
+          cache: true
+      - run: flutter pub get
+      - name: Formatação
+        run: dart format --output=none --set-exit-if-changed lib test tool example/lib example/integration_test
+      - run: flutter analyze
+      - name: Analyze do exemplo
+        run: flutter analyze
+        working-directory: example
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        flutter: [min, stable]
+    name: test (${{ matrix.flutter }})
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # Vazio = último release do canal.
+          flutter-version: ${{ matrix.flutter == 'min' && env.FLUTTER_MIN || '' }}
+          cache: true
+      - run: flutter --version
+      - run: flutter test
+
+  engine-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_MIN }}
+          cache: true
+      - name: Dependências do desktop Linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev xvfb fonts-noto-core fonts-liberation
+      - name: Testes na engine real (um arquivo por invocação)
+        working-directory: example
+        run: |
+          status=0
+          for f in integration_test/*_test.dart; do
+            echo "::group::$f"
+            xvfb-run -a flutter test "$f" -d linux || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
+
+  perf:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - id: flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_MIN }}
+          cache: true
+      - name: Harness
+        run: flutter test --tags perf --run-skipped --concurrency=1 test/perf
+        env:
+          FLUTTER_VERSION: ${{ steps.flutter.outputs.VERSION }}
+      - name: Comparar com o baseline
+        run: dart run tool/perf/compare.dart
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: perf-result
+          path: build/perf/result.json
+          if-no-files-found: warn
