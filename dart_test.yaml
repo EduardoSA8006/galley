@@ -1,0 +1,6 @@
+# Casos de desempenho ficam fora da suíte normal. Verificado no Flutter
+# 3.47.5: exclude_tags conflita com --tags; skip por tag com --run-skipped
+# funciona (doc/specs/2026-09-25-harness-ci-design.md §2.1).
+tags:
+  perf:
+    skip: "harness de desempenho: flutter test --tags perf --run-skipped test/perf"
