@@ -4,6 +4,8 @@ O galley está na Fase 0 → Fase 1: a arquitetura está em [`doc/`](doc/README.
 e a API pública ainda não existe. Antes de propor mudança de comportamento, leia
 o documento da camada que ela toca e [`doc/01-decisoes.md`](doc/01-decisoes.md).
 
+Ao participar, você concorda com o [Código de Conduta](CODE_OF_CONDUCT.md).
+
 ## EPUB que quebra
 
 É a contribuição mais valiosa. Abra uma issue com o modelo **EPUB que quebra**
