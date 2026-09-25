@@ -195,8 +195,35 @@ de médio porte (Android de 2022, classe Pixel 6a), com `--profile`:
 
 ### 4.2 Baseline
 
-Registrado na Fase 0 e versionado no repositório. Atualizar o baseline é um
-commit deliberado, revisado, com justificativa — nunca automático.
+Registrado na Fase 0 e versionado em `test/perf/baseline.json`. Atualizar o
+baseline é um commit deliberado, revisado, com justificativa — nunca
+automático.
+
+**Como se mede.** O harness (`test/perf/support/perf_harness.dart`) roda no
+`flutter_tester`, em JIT, com `flutter test --tags perf --run-skipped
+test/perf`; a suíte normal pula os casos. Cada caso tem 3 amostras de
+aquecimento e 15 medidas, e cada amostra mede uma **carga de calibração** fixa
+em Dart puro e, em seguida, o caso. A métrica é a mediana das razões caso ÷
+calibração: comparar razões, e não milissegundos, cancela a maior parte da
+diferença entre runners. Por ser JIT no `flutter_tester`, o número detecta
+regressão, mas não verifica o orçamento absoluto do §4.1.
+
+**O gate.** `dart run tool/perf/compare.dart` compara `build/perf/result.json`
+com o baseline: razão atual ÷ razão do baseline acima de 1,20 falha o build;
+abaixo de 0,80 avisa que o baseline pode ser atualizado; caso novo avisa; caso
+que sumiu falha; Flutter diferente do baseline avisa em destaque.
+
+**Onde nasce o baseline.** No runner do CI, nunca na máquina de quem
+desenvolve: o workflow manual `perf-baseline` roda o harness três vezes,
+combina as medianas com `tool/perf/update_baseline.dart` e publica o candidato
+como artefato, que é baixado e commitado.
+
+**Ruído medido** (Fase 0, desktop Linux de desenvolvimento — Intel Core
+i5-11400H, Linux 7.2.6 —, 2026-09-25, 15 amostras e 4 rodadas de calibração
+~5 ms): variação máxima de 4,7% entre execuções locais, no caso
+`image.decode.target` (as demais: -4,4% em `html.parse.500kb`, +4,6% em
+`paragraph.shape.1000`, +2,0% em `zlib.inflate.1mb`), abaixo do limite de
+20%.
 
 ### 4.3 Frame budget
 

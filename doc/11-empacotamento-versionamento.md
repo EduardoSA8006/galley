@@ -58,6 +58,11 @@ Todas as seis: Android, iOS, macOS, Windows, Linux, web. As cinco nativas na
 atômico e trava ~50 ms numa seção de 500 KB no Chrome
 ([08](08-concorrencia-cache.md) §1).
 
+Versão mínima: **Flutter 3.47.0** (Dart 3.13.0). É a versão que o CI testa,
+junto com o `stable` mais recente. Subir o mínimo é commit deliberado: muda
+`pubspec.yaml`, `example/pubspec.yaml` e o `FLUTTER_MIN` dos dois workflows,
+que `test/tool/ci_config_test.dart` mantém iguais.
+
 Sendo Dart e Flutter puros, sem plugin nativo, isso sai de graça. Pontos de
 atenção:
 

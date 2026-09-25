@@ -1,7 +1,7 @@
 # Harness de desempenho e CI da Fase 0 — design
 
-**Data:** 2026-09-25. **Estado:** aprovado em conversa, aguardando revisão da
-spec escrita. **Branch:** `fase0/harness-ci`.
+**Data:** 2026-09-25. **Estado:** aprovada e implementada (plano em
+`doc/plans/2026-09-25-harness-ci.md`). **Branch:** `fase0/harness-ci`.
 
 ## 1. Objetivo
 

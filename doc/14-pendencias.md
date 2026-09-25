@@ -19,7 +19,9 @@ aponta para ela e diz **quando** voltar ao assunto.
 | Métrica de memória (pico e memória nativa de `ui.Paragraph`/`ui.Image`) no harness | [10](10-testes.md) §4.1 | Fase 2 |
 | Jobs de CI em macOS e Windows (diferenças de caminho e de fonte) | Brainstorming do CI (2026-09-25) | Antes da Fase 6 |
 | Job de CI no web (`flutter test --platform chrome`, corretude no DDC) e medição de P10 em build de release no Chrome | Brainstorming do CI (2026-09-25); [10](10-testes.md) §4.4 | Quando começar o trabalho da 1.0.x |
-| Reformatar os spikes S5–S8 no formatter do Dart 3.13 (7 arquivos de `test/spike/` divergem do `dart format`) | Consolidação dos spikes (2026-09-25) | Junto com o CI da Fase 0 |
+| O workflow `perf-baseline` não publica o candidato quando a conferência final falha (sem `if: always()` no upload); decidir se deve publicar para inspeção | Implementação do harness (2026-09-25) | Na primeira vez que o baseline for regenerado |
+| `combineBaseline` confere Flutter e casos entre execuções, mas não `dart`/`os`; herda do primeiro | Implementação do harness (2026-09-25) | Se o baseline passar a combinar runners diferentes |
+| A CLI `update_baseline.dart` não tem teste automatizado próprio (só a lógica em `test/tool/perf_baseline_test.dart`) | Implementação do harness (2026-09-25) | Fase 1, junto com os primeiros casos do motor |
 
 ### Fase 1
 
@@ -62,3 +64,4 @@ aponta para ela e diz **quando** voltar ao assunto.
 
 | Item | Data | Commit |
 |---|---|---|
+| Reformatar os spikes S5–S8 no formatter do Dart 3.13 | 2026-09-25 | c6d312a |
