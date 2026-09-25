@@ -120,4 +120,39 @@ void main() {
     ]);
     expect(base.cpu, 'Intel Core i5-11400H');
   });
+
+  group('baselineFileName', () {
+    test('modelo simples com espaços', () {
+      expect(
+        baselineFileName('AMD EPYC 7763 64-Core Processor'),
+        'amd-epyc-7763-64-core-processor.json',
+      );
+    });
+
+    test('parênteses, arroba e ponto viram um único hífen', () {
+      expect(
+        baselineFileName('Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz'),
+        'intel-r-xeon-r-platinum-8370c-cpu-2-80ghz.json',
+      );
+    });
+
+    test('espaços duplos e pontuação nas pontas não deixam hífen sobrando', () {
+      expect(
+        baselineFileName('  --AMD  EPYC   9V45!!--  '),
+        'amd-epyc-9v45.json',
+      );
+    });
+
+    test('string vazia lança', () {
+      expect(() => baselineFileName(''), throwsArgumentError);
+    });
+
+    test('"unknown" lança', () {
+      expect(() => baselineFileName('unknown'), throwsArgumentError);
+    });
+  });
+
+  test('defaultBaselinesDir aponta para test/perf/baselines', () {
+    expect(defaultBaselinesDir, 'test/perf/baselines');
+  });
 }

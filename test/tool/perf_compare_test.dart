@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../tool/perf/lib/baseline.dart';
 import '../../tool/perf/lib/compare.dart';
 import '../../tool/perf/lib/perf_report.dart';
 
@@ -170,6 +171,33 @@ void main() {
       expect(cmp.cpuMismatch, isTrue);
       expect(cmp.failed, isTrue);
     });
+
+    test('sem baseline: markdown lista as CPUs existentes', () {
+      final cmp = comparePerf(
+        current: _report({'a': 1}, cpu: 'Intel Core i5-11400H'),
+        availableCpus: const [
+          'AMD EPYC 7763 64-Core Processor',
+          'Intel(R) Xeon(R) 6973P-C',
+        ],
+      );
+      final md = cmp.toMarkdown();
+      expect(md, contains('Sem baseline para esta CPU'));
+      expect(md, contains('`Intel Core i5-11400H`'));
+      expect(
+        md,
+        contains(
+          'Baselines existentes: AMD EPYC 7763 64-Core Processor, '
+          'Intel(R) Xeon(R) 6973P-C',
+        ),
+      );
+    });
+
+    test('sem baseline e sem CPUs conhecidas: markdown diz "nenhum"', () {
+      final md = comparePerf(current: _report({'a': 1})).toMarkdown();
+      expect(md, contains('Sem baseline para esta CPU'));
+      expect(md, contains('`desconhecida`'));
+      expect(md, contains('Baselines existentes: nenhum'));
+    });
   });
 
   group('CLI', () {
@@ -187,6 +215,12 @@ void main() {
 
     String write(String name, PerfReport report) {
       final f = File('${dir.path}/$name')..writeAsStringSync(report.encode());
+      return f.path;
+    }
+
+    String writeIn(String subdir, String name, PerfReport report) {
+      final d = Directory('${dir.path}/$subdir')..createSync(recursive: true);
+      final f = File('${d.path}/$name')..writeAsStringSync(report.encode());
       return f.path;
     }
 
@@ -219,5 +253,96 @@ void main() {
       ]);
       expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
     });
+
+    test('--baselines escolhe o arquivo da CPU atual (regressão sai 1)', () async {
+      const cpu = 'AMD EPYC 7763 64-Core Processor';
+      writeIn(
+        'baselines',
+        baselineFileName(cpu),
+        _report({'c': 1}, cpu: cpu),
+      );
+      final r = await run([
+        '--result',
+        write('r.json', _report({'c': 2}, cpu: cpu)),
+        '--baselines',
+        '${dir.path}/baselines',
+      ]);
+      expect(r.exitCode, 1, reason: '${r.stdout}\n${r.stderr}');
+      expect(r.stdout as String, contains('regressão'));
+    });
+
+    test(
+      'CPU sem arquivo correspondente: sai 0 e lista as CPUs existentes',
+      () async {
+        const outra = 'Intel(R) Xeon(R) 6973P-C';
+        writeIn(
+          'baselines',
+          baselineFileName(outra),
+          _report({'c': 1}, cpu: outra),
+        );
+        const atual = 'AMD EPYC 9V45 96-Core Processor';
+        final r = await run([
+          '--result',
+          write('r.json', _report({'c': 1}, cpu: atual)),
+          '--baselines',
+          '${dir.path}/baselines',
+        ]);
+        expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
+        expect(r.stdout as String, contains('Sem baseline para esta CPU'));
+        expect(r.stdout as String, contains(outra));
+      },
+    );
+
+    test('diretório de baselines inexistente conta como vazio: sai 0', () async {
+      const atual = 'AMD EPYC 9V45 96-Core Processor';
+      final r = await run([
+        '--result',
+        write('r.json', _report({'c': 1}, cpu: atual)),
+        '--baselines',
+        '${dir.path}/nao-existe',
+      ]);
+      expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
+      expect(r.stdout as String, contains('Sem baseline para esta CPU'));
+    });
+
+    test(
+      '--baseline explícito continua funcionando mesmo com --baselines',
+      () async {
+        final r = await run([
+          '--result',
+          write('r.json', _report({'c': 2})),
+          '--baseline',
+          write('b.json', _report({'c': 1})),
+          '--baselines',
+          '${dir.path}/baselines',
+        ]);
+        expect(r.exitCode, 1, reason: '${r.stdout}\n${r.stderr}');
+        expect(r.stdout as String, contains('regressão'));
+      },
+    );
+
+    test(
+      'arquivo malformado em --baselines falha com a mensagem de '
+      'PerfFormatException',
+      () async {
+        const cpu = 'AMD EPYC 7763 64-Core Processor';
+        writeIn(
+          'baselines',
+          baselineFileName(cpu),
+          _report({'c': 1}, cpu: cpu),
+        );
+        File(
+          '${dir.path}/baselines/garbage.json',
+        ).writeAsStringSync('{ not valid json');
+        final r = await run([
+          '--result',
+          write('r.json', _report({'c': 1}, cpu: cpu)),
+          '--baselines',
+          '${dir.path}/baselines',
+        ]);
+        expect(r.exitCode, 1, reason: '${r.stdout}\n${r.stderr}');
+        expect(r.stderr as String, contains('garbage.json'));
+      },
+    );
   });
 }

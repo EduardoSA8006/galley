@@ -1,8 +1,9 @@
 name: Baseline de desempenho
 
 # Gera um baseline candidato no runner do CI. Atualizar
-# test/perf/baseline.json é commit deliberado (doc/10 §4.2): baixe o
-# artefato perf-baseline e commite com a justificativa.
+# test/perf/baselines/ é commit deliberado (doc/10 §4.2): baixe o artefato
+# perf-baseline e copie o arquivo para test/perf/baselines/, commitando com a
+# justificativa.
 on:
   workflow_dispatch:
 
@@ -36,14 +37,14 @@ jobs:
       - name: Combinar
         run: >
           dart run tool/perf/update_baseline.dart
-          --out build/perf/baseline.json
+          --out-dir build/perf/baselines
           --commit "$GITHUB_SHA"
           --runner ubuntu-24.04
           build/perf/result-1.json build/perf/result-2.json build/perf/result-3.json
       - name: Conferir o candidato contra a última execução
-        run: dart run tool/perf/compare.dart --result build/perf/result-3.json --baseline build/perf/baseline.json
+        run: dart run tool/perf/compare.dart --result build/perf/result-3.json --baselines build/perf/baselines
       - uses: actions/upload-artifact@v7
         with:
           name: perf-baseline
-          path: build/perf/baseline.json
+          path: build/perf/baselines/
           if-no-files-found: error
