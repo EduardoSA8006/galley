@@ -29,12 +29,26 @@ começar o trabalho. Sem isso, roadmap é lista de desejos.
 | Tabelas (algoritmo da Emenda 12) | S4 concluído |
 | Imagens em bloco e inline, SVG-invólucro desembrulhado, `EpubSvgRasterizer` | S7 concluído |
 | Desofuscação de fonte IDPF e Adobe | S6 concluído |
-| `EpubWorker` isolate e cooperativo (web) | — |
+| `EpubWorker` isolate e cooperativo (o cooperativo roda nos testes; no web, a partir da 1.0.x) | — |
 | Justificação com `start` como padrão (P1) | — |
 
 **Critério de release:** as 9 invariantes passando em todo o corpus, orçamento de
 desempenho cumprido, teste de adoção de 30 minutos cumprido, app de exemplo
-publicado nas seis plataformas.
+publicado nas cinco plataformas nativas.
+
+## v1.0.x — Web (P10)
+
+| Item | Motivação | Critério de entrada |
+|---|---|---|
+| Parse fatiável do XHTML: `parseFragment` em pedaços de ~16 KB, tokenizer próprio ou Web Worker ([08](08-concorrencia-cache.md) §1) | O parse do `html` é atômico: ~50 ms numa seção de 500 KB em release no Chrome, 3 frames perdidos. A pré-busca de [08](08-concorrencia-cache.md) §1.1 parseia seções grandes enquanto o usuário lê, e cada uma viraria um engasgo sem causa aparente | Os três caminhos medidos na Fase 1 |
+| Cessão por `MessageChannel` (ou `scheduler.postTask`) no agendador e no `CooperativeEpubWorker` | `Timer` de zero sofre o clamp de ~4,2 ms do navegador; fatias de 4 ms rodam a ~50% de ciclo útil ([08](08-concorrencia-cache.md) §2) | — |
+| Inflate no web | Sem `ZLibDecoder` | P7 decidida |
+| App de exemplo no web | Sexta plataforma | Os itens acima |
+
+**Critério de release:** o de P10 ([01](01-decisoes.md)). Seção de 500 KB, parse
+incluído, build de release no Chrome (dart2js `-O4` e dart2wasm `-O2`): nenhuma
+fatia acima de 16 ms e p99 das fatias ≤ 8 ms, medido pelo teste do spike S9. A
+decisão não custa nada ao nativo: `EpubWorker` já isola a escolha.
 
 ## v1.1 — Fixed-layout
 

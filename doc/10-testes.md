@@ -76,6 +76,9 @@ o cache em disco é válido.
 > Para todo bloco, `map.toCanonical(map.toDisplay(c)) == c` para todo `c` no
 > range, e `toCanonical` é monotônica não-decrescente.
 
+Verificada no protótipo do spike S2 em 300 casos aleatórios com `ß`, `ﬁ` e
+U+00AD.
+
 ### Invariante 8 — Paginação ancorada
 
 > A paginação a partir de qualquer âncora cobre a seção inteira (Invariante 1
@@ -202,6 +205,19 @@ verificar que **nenhum** frame passa de 16 ms. É o que valida o agendador com
 orçamento ([08](08-concorrencia-cache.md) §2). Uma segunda variante roda com o
 cache de `Paragraph` limitado a 1 MB, forçando re-shaping em `paint`
 ([05](05-render-selecao-a11y.md) §1), e tolera 3 frames acima de 16 ms em 200.
+
+### 4.4 Desempenho no web
+
+`flutter test --platform chrome` **não** usa dart2js: compila com o DDC, o
+compilador de desenvolvimento (`TargetModel.dartdevc` no `flutter_tools`), e
+`--wasm` usa dart2wasm com `-O0` e asserts ligados (spike S9, Flutter 3.47.5).
+Os números saem pessimistas: o parse de 500 KB custa 245 ms no DDC contra
+~50 ms em dart2js `-O4`, cerca de 5×. Esses modos servem para corretude. Medida
+de desempenho no web exige build de release (`dart compile js -O4` ou
+`dart compile wasm -O2`) rodado no Chrome, e é assim que o critério de P10
+([01](01-decisoes.md)) é medido. O relógio do web tem resolução de 0,1 ms sem
+isolamento cross-origin (`performance.now()`), o que basta para fatias de 4 ms
+mas não para passos de microssegundos.
 
 ## 5. Modo estrito
 

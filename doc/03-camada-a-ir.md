@@ -367,6 +367,13 @@ Camada A precisa conhecer:
 - Entidades definidas em DTD externa (raras em EPUB) não são resolvidas; ficam
   como texto literal e emitem diagnóstico `unknownEntity`
 - `<![CDATA[...]]>` dentro de `<style>` é tratado como conteúdo do estilo
+- `html.parse` é uma chamada atômica sobre a string inteira: não há onde pôr um
+  checkpoint dentro dela, e isso decide o web ([08](08-concorrencia-cache.md) §1)
+- A caminhada no DOM itera `el.nodes`, **nunca** indexa `el.children`. Este é uma
+  `FilteredElementList` cujo `length` e `operator []` refazem
+  `nodes.whereType<Element>().toList()` a cada acesso. Indexado em laço, fica
+  O(n²): o spike S9 mediu 680 ms para 500 KB e 33 s para 3 MB, contra 27 ms e
+  172 ms iterando `nodes`
 
 A tolerância a HTML malformado é a razão da escolha. Um parser XML estrito
 rejeitaria uma fração relevante do acervo real.
