@@ -131,17 +131,24 @@ final class CentralDirectory {
 }
 
 /// Normalização de nome de §5.1 item 5.
+///
+/// Avança um índice em vez de cortar `substring` a cada iteração: na VM
+/// `substring` copia, e um nome hostil só de `/` ou `./` repetidos ficaria
+/// quadrático (um EPUB com poucas entradas de dezenas de KiB assim travaria a
+/// abertura por segundos).
 String normalizeEntryName(String raw) {
-  var name = raw.replaceAll(r'\', '/');
+  final name = raw.replaceAll(r'\', '/');
+  var i = 0;
   while (true) {
-    if (name.startsWith('/')) {
-      name = name.substring(1);
-    } else if (name.startsWith('./')) {
-      name = name.substring(2);
+    if (name.startsWith('/', i)) {
+      i += 1;
+    } else if (name.startsWith('./', i)) {
+      i += 2;
     } else {
-      return name;
+      break;
     }
   }
+  return name.substring(i);
 }
 
 /// Lê o fim do arquivo e o central directory. Exceções da fonte viram

@@ -160,6 +160,24 @@ void main() {
       expect(cd.entries.first.rawName, r'OEBPS\Text\a.xhtml');
     });
 
+    test('normalizeEntryName: só barras vira vazio', () {
+      expect(normalizeEntryName('/' * 65535), '');
+    });
+
+    test('normalizeEntryName: repetição de ./ some inteira', () {
+      expect(normalizeEntryName('${'./' * 30000}a'), 'a');
+    });
+
+    test('normalizeEntryName: nomes hostis não custam quadrático', () {
+      final stopwatch = Stopwatch()..start();
+      normalizeEntryName('/' * 65535);
+      normalizeEntryName('${'./' * 30000}a');
+      stopwatch.stop();
+      // Folgado de propósito: só para pegar regressão quadrática (o bug
+      // original levava ~0,77 s só para o caso de 65 535 barras).
+      expect(stopwatch.elapsedMilliseconds, lessThan(100));
+    });
+
     test('diretórios ficam fora de paths e do índice', () async {
       final w = ZipWriter()
         ..add('OEBPS/', const [], compress: false)
