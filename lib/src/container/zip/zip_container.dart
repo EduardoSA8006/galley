@@ -6,11 +6,13 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
+import 'package:xml/xml.dart';
 
 import '../../diagnostics/diagnostic.dart';
 import '../../diagnostics/exceptions.dart';
 import '../byte_source.dart';
 import '../container.dart';
+import '../encryption.dart';
 import 'binary.dart';
 import 'central_directory.dart';
 
@@ -26,9 +28,10 @@ final class ZipContainer implements EpubContainer {
   @visibleForTesting
   final CentralDirectory centralDirectory;
 
+  final Map<String, FontObfuscation> _obfuscation = {};
   Future<void>? _closing;
 
-  /// Lê o central directory e confere o `mimetype`. Exceção da fonte
+  /// Lê o central directory, confere o `mimetype` e o DRM. Exceção da fonte
   /// vira [EpubContainerException] com `cause`. Se a abertura falha, a fonte
   /// é fechada.
   static Future<ZipContainer> open(
@@ -39,6 +42,7 @@ final class ZipContainer implements EpubContainer {
       final cd = await readCentralDirectory(source, sink: sink);
       final container = ZipContainer._(source, sink, cd);
       await container._checkMimetype();
+      await container._checkEncryption();
       return container;
     } on Object {
       try {
@@ -125,12 +129,76 @@ final class ZipContainer implements EpubContainer {
     );
   }
 
-  /// Sem `encryption.xml` lido ainda: nenhuma fonte ofuscada.
   @override
-  FontObfuscation? obfuscationOf(String path) => null;
+  FontObfuscation? obfuscationOf(String path) {
+    final hit = centralDirectory.lookup(path);
+    return _obfuscation[hit?.entry.name ?? path];
+  }
 
   @override
   Future<void> close() => _closing ??= _source.close();
+
+  /// §6, nesta ordem: licença LCP, `rights.xml`, `encryption.xml`.
+  Future<void> _checkEncryption() async {
+    if (centralDirectory.lookup('META-INF/license.lcpl') != null) {
+      throw EpubEncryptedException(
+        'livro protegido por Readium LCP (META-INF/license.lcpl): esquema lcp',
+        scheme: 'lcp',
+      );
+    }
+    if (centralDirectory.lookup('META-INF/rights.xml') != null) {
+      final text = await _readText('META-INF/rights.xml');
+      final scheme = text == null ? 'unknown:rights.xml' : rightsScheme(text);
+      throw EpubEncryptedException(
+        'livro com META-INF/rights.xml: esquema $scheme',
+        scheme: scheme,
+        href: 'META-INF/rights.xml',
+      );
+    }
+    if (centralDirectory.lookup('META-INF/encryption.xml') == null) return;
+    const invalid = 'unknown:encryption.xml-invalido';
+    final text = await _readText('META-INF/encryption.xml');
+    if (text == null) {
+      throw EpubEncryptedException(
+        'META-INF/encryption.xml ilegível: sem como provar que não há DRM '
+        '(esquema $invalid)',
+        scheme: invalid,
+        href: 'META-INF/encryption.xml',
+      );
+    }
+    final List<EncryptedItem> items;
+    try {
+      items = parseEncryptionXml(text);
+    } on XmlException catch (e) {
+      throw EpubEncryptedException(
+        'META-INF/encryption.xml não é XML válido: sem como provar que não '
+        'há DRM (esquema $invalid)',
+        scheme: invalid,
+        href: 'META-INF/encryption.xml',
+        cause: e,
+      );
+    }
+    _obfuscation.addAll(
+      resolveEncryption(
+        items,
+        resolve: (uri) => centralDirectory.lookup(uri)?.entry.name ?? uri,
+        sink: _sink,
+        drmIsFatal: true,
+      ),
+    );
+  }
+
+  /// Texto UTF-8 de uma entrada; `null` se ausente ou ilegível.
+  Future<String?> _readText(String path) async {
+    try {
+      final pending = await fetch(path);
+      if (pending == null) return null;
+      for (final _ in pending.decode()) {}
+      return utf8.decode(pending.bytes, allowMalformed: true);
+    } on EpubContainerException {
+      return null;
+    }
+  }
 
   void _checkOpen() {
     if (_closing != null) throw StateError('ZipContainer fechado');
