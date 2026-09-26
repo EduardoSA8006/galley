@@ -73,6 +73,7 @@ aponta para ela e diz **quando** voltar ao assunto.
 | NAV: a re-serialização canônica amplia `"` em `&quot;` (6×) e `<` em `&lt;` (4×) sem cobrar no orçamento (~1,7 s, linear, com 4 MiB); sem DOCTYPE, o `html.parse` fica em modo quirks (`table` não fecha `p`), sem efeito medido | Revisão da T7 da Publicação (2026-09-26) | Sub-projeto 5 (custo, no worker), ou se aparecer em EPUB real |
 | NCX: `pageTarget` com rótulo vazio não usa o atributo `value`; atributo com prefixo vence o sem prefixo (convenção do projeto); entidades indefinidas ficam literais no rótulo | Revisão da T8 da Publicação (2026-09-26) | Se aparecer em EPUB real |
 | Reconciliação e capa: o órfão cujo vizinho está aninhado entra na raiz depois da parte inteira (conforme a spec §7.6; a UI pode agrupar por `synthesized`); o título sintetizado só tira a última extensão (`cap.htm.xhtml` → `cap.htm`); `<meta name="cover">` com `href` no lugar do id compara com o `path` sem decodificar `%xx` nem dobrar a caixa (diverge de §5.4) | Revisão da T9 da Publicação (2026-09-26) | Sub-projeto 6, ao montar `doc.toc` e a capa |
+| `decodePath` pode deixar espaço no fim de um segmento (`x.xhtm%20` → `x.xhtm `): um alvo de TOC que não casa com item nenhum sai com esse caminho, que o Win32 grava sem o espaço final. Achado no fuzz de 440 mil casos (1 caso) | Onda de correção da revisão final da Publicação (2026-09-26) | Sub-projeto 6, ao resolver os alvos contra as seções |
 
 ### Fase 2
 
