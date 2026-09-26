@@ -47,6 +47,25 @@ String normalizeCipherReference(String uri) {
   return normalizeEntryName(decoded);
 }
 
+/// Se [root] ou algum descendente está no namespace do ADEPT, numa
+/// caminhada iterativa (pilha) que **não desce** para dentro de um
+/// `EncryptedData` aninhado (por nome local, qualquer namespace): esse
+/// `EncryptedData` é analisado na própria vez dele, pelo laço principal de
+/// [parseEncryptionXml]. Sem isso, `EncryptedData` aninhado dentro de um
+/// `KeyInfo` (`EncryptedData > KeyInfo > EncryptedData > …`) fica
+/// quadrático, porque cada nível repercorreria os descendentes de todos os
+/// níveis abaixo dele.
+bool _hasAdeptNamespace(XmlElement root) {
+  final stack = List<XmlElement>.of(root.childElements);
+  while (stack.isNotEmpty) {
+    final element = stack.removeLast();
+    if (element.namespaceUri == adeptNamespace) return true;
+    if (element.name.local == 'EncryptedData') continue;
+    stack.addAll(element.childElements);
+  }
+  return false;
+}
+
 /// Um `EncryptedData` com `CipherReference`.
 final class EncryptedItem {
   const EncryptedItem({
@@ -79,7 +98,10 @@ final class EncryptedItem {
 /// de `EncryptedData`; `KeyInfo` são filhos diretos de `EncryptedData`;
 /// `RetrievalMethod` é filho direto de `KeyInfo`. Isso evita custo quadrático
 /// com `EncryptedData` aninhado e evita ler o `CipherReference` de um
-/// `EncryptedKey` dentro do `KeyInfo` como se fosse o do `EncryptedData`.
+/// `EncryptedKey` dentro do `KeyInfo` como se fosse o do `EncryptedData`. A
+/// checagem do namespace ADEPT (via [_hasAdeptNamespace]) também não desce
+/// para dentro de `EncryptedData` aninhado dentro de um `KeyInfo`, pelo
+/// mesmo motivo de custo.
 List<EncryptedItem> parseEncryptionXml(String text) {
   final doc = XmlDocument.parse(text);
   final items = <EncryptedItem>[];
@@ -108,9 +130,7 @@ List<EncryptedItem> parseEncryptionXml(String text) {
               .any((r) => r.getAttribute('Type') == lcpContentKeyType),
         ),
         adeptKey: keyInfos.any(
-          (k) =>
-              k.namespaceUri == adeptNamespace ||
-              k.descendantElements.any((e) => e.namespaceUri == adeptNamespace),
+          (k) => k.namespaceUri == adeptNamespace || _hasAdeptNamespace(k),
         ),
       ),
     );

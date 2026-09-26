@@ -248,7 +248,7 @@ void main() {
 
     test('BOM UTF-8 antes da declaração XML não torna o XML inválido', () async {
       final xml =
-          '﻿'
+          '\uFEFF'
           '${_encryption([_data(_font, algorithm: idpfObfuscationAlgorithm)])}';
       final c = await _open(_book({'META-INF/encryption.xml': xml}));
       expect(c.obfuscationOf(_font), FontObfuscation.idpf);
@@ -352,6 +352,41 @@ void main() {
       expect(items.length, depth);
       // Folgado de propósito: só para pegar regressão quadrática (o custo
       // linear é bem menor que 1 s; o quadrático não termina nessa ordem).
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 1)));
+    });
+
+    test('20 000 níveis de EncryptedData > KeyInfo > EncryptedData > … não '
+        'são quadráticos', () {
+      const depth = 20000;
+      const dsigNamespace = 'http://www.w3.org/2000/09/xmldsig#';
+      final buffer = StringBuffer(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" '
+        'xmlns:enc="http://www.w3.org/2001/04/xmlenc#">',
+      );
+      for (var i = 0; i < depth; i++) {
+        buffer.write(
+          '<enc:EncryptedData>'
+          '<enc:EncryptionMethod Algorithm="$idpfObfuscationAlgorithm"/>'
+          '<enc:CipherData>'
+          '<enc:CipherReference URI="OEBPS/Fonts/f$i.ttf"/>'
+          '</enc:CipherData>'
+          '<ds:KeyInfo xmlns:ds="$dsigNamespace">',
+        );
+      }
+      for (var i = 0; i < depth; i++) {
+        buffer.write('</ds:KeyInfo></enc:EncryptedData>');
+      }
+      buffer.write('</encryption>');
+      final stopwatch = Stopwatch()..start();
+      final items = parseEncryptionXml(buffer.toString());
+      stopwatch.stop();
+      expect(items.length, depth);
+      for (final item in items) {
+        expect(item.adeptKey, isFalse);
+      }
+      // Folgado de propósito: só para pegar regressão quadrática na
+      // checagem do namespace ADEPT dentro de KeyInfo aninhado.
       expect(stopwatch.elapsed, lessThan(const Duration(seconds: 1)));
     });
 
