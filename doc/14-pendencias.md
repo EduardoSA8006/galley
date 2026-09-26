@@ -23,6 +23,7 @@ aponta para ela e diz **quando** voltar ao assunto.
 | `combineBaseline` confere Flutter e casos entre execuções, mas não `dart`/`os`; herda do primeiro | Implementação do harness (2026-09-25) | Se o baseline passar a combinar runners diferentes |
 | Cobrir o EPYC 9V74 e outros modelos que aparecerem com baseline próprio (disparar o `perf-baseline` até cair neles) | Sub-tarefa 10b — baseline por modelo de CPU (2026-09-25) | Contínuo |
 | Versão do pacote `html` não travada para o perf (`/pubspec.lock` é ignorado): registrar as versões resolvidas dos pacotes medidos no `result.json` e avisar quando divergirem do baseline | Revisão final do harness (2026-09-25) | Fase 1 |
+| `S5.5` (`test/spike/s5_soft_hyphen_test.dart`) é uma razão de tempo e falhou uma vez sob carga local; agora que os spikes rodam no job `test` obrigatório, pode deixar a PR vermelha por ruído. Afirmar pela mediana de várias rodadas, ou marcar como perf | Implementação do contêiner (2026-09-26) | Na próxima vez que falhar no CI, ou junto com o sub-projeto 2 |
 
 ### Fase 1
 
@@ -78,5 +79,5 @@ aponta para ela e diz **quando** voltar ao assunto.
 | Reformatar os spikes S5–S8 no formatter do Dart 3.13 | 2026-09-25 | c6d312a |
 | Medir a variação entre VMs antes de commitar o baseline e decidir baseline por CPU. Resultado: dentro do mesmo modelo (EPYC 7763, 3 VMs) a razão varia no máximo 8,3%; entre quatro modelos (EPYC 7763, EPYC 9V45, Xeon 6973P-C, Xeon 8370C) varia até 30% (zlib), 22% (html) e 21% (paragraph). Decisão: baseline por modelo de CPU, um arquivo por modelo em `test/perf/baselines/`; CPU sem baseline só avisa | 2026-09-25 | 28f10e8, db3a518 |
 | A CLI `update_baseline.dart` não tinha teste automatizado próprio; ganhou `test/tool/perf_update_baseline_test.dart` ao adicionar `--out-dir` por TDD | 2026-09-25 | 28f10e8 |
-| Proteção de branch na `main` exigindo `analyze`, `test (min)`, `test (stable)`, `engine-linux` e `perf` (sem revisão obrigatória, sem exigir branch atualizada, admin pode passar por cima; force-push e exclusão bloqueados) | 2026-09-25 | configuração do repositório |
+| Proteção de branch na `main` exigindo `analyze`, `test (min)`, `test (stable)`, `engine-linux` e `perf` vindos do GitHub Actions, com a PR em dia com a `main` antes do merge; vale também para admin; sem revisão obrigatória; force-push e exclusão bloqueados | 2026-09-25 (branch em dia e checks amarrados ao Actions em 2026-09-26) | configuração do repositório |
 | `encryption.xml` sem teto próprio de tamanho: é lido até `maxEntrySize` (256 MiB) e parseado de forma síncrona | 2026-09-26 | d07f676 |
