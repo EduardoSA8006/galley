@@ -80,6 +80,13 @@ segundo handle dentro do isolate, o que elimina o ping-pong. As duas são
 implementações do mesmo `EpubByteSource`; a segunda é a padrão em plataformas com
 `dart:io`.
 
+**Prólogo assíncrono, corpo síncrono.** `readRange` devolve `Future`, e um
+gerador `sync*` não espera. Por isso a tarefa que lê do contêiner tem duas
+partes: um prólogo assíncrono com as idas à fonte (`EpubContainer.fetch`, uma
+por entrada) e um corpo `sync*` que decodifica e processa
+(`PendingResource.decode()` e o que vem depois), com os checkpoints de §3
+([spec do contêiner](specs/2026-09-25-container-design.md) §4).
+
 ### 1.1 Prioridade da fila
 
 1. Seção sendo exibida (ou a do `initialLocator` na abertura)
@@ -184,7 +191,7 @@ Checkpoints obrigatórios (cada um é um `yield` no gerador da tarefa):
 
 | Etapa | Checkpoint |
 |---|---|
-| Inflate de entrada | A cada 64 KB de saída |
+| Inflate e CRC de entrada | A cada 64 KiB completos de saída e mais um ao terminar; no stored, o passo é o CRC de cada 64 KiB |
 | Parse do XHTML (`html.parse`) | Nenhum dentro da chamada, que é atômica (§1). No web, a cada pedaço de ~16 KB quando o parse fatiável existir (P10) |
 | Caminhada no DOM e construção da IR | A cada bloco emitido e a cada 64 KB de texto dentro de um bloco |
 | Cascata de CSS | A cada regra |

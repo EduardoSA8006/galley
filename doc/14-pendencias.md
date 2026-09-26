@@ -35,6 +35,15 @@ aponta para ela e diz **quando** voltar ao assunto.
 | Cessão entre fatias por `MessageChannel` (ou `scheduler.postTask`) em vez de `Timer`, por causa do clamp de ~4,2 ms do navegador | [08](08-concorrencia-cache.md) §2; S9 | Fase 1 (pré-requisito da 1.0.x) |
 | SVG-invólucro desembrulhado e repaginação quando a dimensão da imagem chega | S7; [13](13-riscos-spikes-fases.md) §1 | Fase 1 |
 | Tamanho do pacote no web (inflate, SHA-1, CSS), teto de 300 KB minificado | [13](13-riscos-spikes-fases.md) §1.2 | Fase 1 |
+| Chave NFC no índice de nomes do contêiner: nomes do ZIP e caminhos pedidos comparados em NFC | [Spec do contêiner](specs/2026-09-25-container-design.md) §1.2 | Sub-projeto 4 (IR de seção), quando a normalização existir |
+| `tool/corpus/lib/hashes.dart` duplica o CRC-32 e o SHA-1 de `lib/src/container/`; unificar quando `tool/` puder importar o pacote | [Spec do contêiner](specs/2026-09-25-container-design.md) §7 | Antes da 1.0 |
+| `test/container/inflate_web_test.dart` só roda com `--platform chrome`; entra no CI junto com o job web | [Spec do contêiner](specs/2026-09-25-container-design.md) §7 | Com o job web (1.0.x) |
+| Regenerar os baselines por CPU com `zip.open.800`, `zip.fetch.inflate.1mb` e `font.deobfuscate.idpf` (disparar o `perf-baseline`); até lá aparecem como "novo, sem baseline" | [Spec do contêiner](specs/2026-09-25-container-design.md) §10 | Logo depois do merge da PR do contêiner |
+| `encryption.xml` sem teto próprio de tamanho: é lido até `maxEntrySize` (256 MiB) e parseado de forma síncrona | Implementação do contêiner (2026-09-26) | Sub-projeto 5 (worker), ou antes se aparecer caso real |
+| `encryption.xml` em UTF-16 ou com `encoding` Latin-1 declarado é decodificado como UTF-8 (UTF-16 vira falso positivo `unknown:encryption.xml-invalido`) | Implementação do contêiner (2026-09-26) | Sub-projeto 4, junto com a detecção de encoding da IR |
+| `CipherReference` relativo ao diretório do OPF (em vez da raiz do contêiner) não casa com a entrada, e a fonte segue ofuscada sem diagnóstico | Implementação do contêiner (2026-09-26) | Sub-projeto 2 (Publicação, que conhece o diretório do OPF) |
+| `CipherReference` fora de `CipherData` e `RetrievalMethod` LCP fora de filho direto do `KeyInfo` (XML-Enc fora do esquema) não são detectados; nenhum produtor conhecido gera isso | Implementação do contêiner (2026-09-26) | Se aparecer um EPUB real assim |
+| `ProviderContainer` só aplica `maxEntrySize` depois que `provider.read` materializa o recurso inteiro, porque `EpubResourceProvider` não expõe tamanho nem leitura em fatias | Implementação do contêiner (2026-09-26) | Sub-projeto 6, ao revisar a API pública |
 
 ### Fase 2
 

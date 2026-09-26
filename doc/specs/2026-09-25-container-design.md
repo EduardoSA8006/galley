@@ -1,8 +1,9 @@
 # Contêiner (Fase 1, sub-projeto 1) — design
 
-**Data:** 2026-09-25. **Estado:** aprovada (revisão delegada pelo dono do
-repositório ao executor, com uma revisão independente cujos achados estão
-incorporados). **Branch:** `fase1/container`.
+**Data:** 2026-09-25. **Estado:** aprovada e implementada (plano em
+`doc/plans/2026-09-25-container.md`; revisão delegada pelo dono do repositório
+ao executor, com uma revisão independente cujos achados estão incorporados).
+**Branch:** `fase1/container`.
 
 ## 1. Objetivo
 
