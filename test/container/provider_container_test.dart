@@ -169,6 +169,22 @@ void main() {
     },
   );
 
+  test(
+    'encryption.xml acima de 4 MiB: encryptionIgnored too-large, sem parse',
+    () async {
+      final sink = DiagnosticSink(strict: true);
+      final huge = List<int>.filled(5 * 1024 * 1024, 0x41);
+      final c = await ProviderContainer.open(
+        _MapProvider({'META-INF/encryption.xml': huge}),
+        sink: sink,
+      );
+      final d = sink.diagnostics.single;
+      expect(d.code, EpubDiagnosticCode.encryptionIgnored);
+      expect(d.details['reason'], 'too-large');
+      expect(c.obfuscationOf('OEBPS/Fonts/a.otf'), isNull);
+    },
+  );
+
   test('encryption.xml ilegível pelo provider: encryptionIgnored', () async {
     final sink = DiagnosticSink();
     await ProviderContainer.open(

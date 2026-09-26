@@ -146,8 +146,11 @@ final class ZipContainer implements EpubContainer {
         scheme: 'lcp',
       );
     }
-    if (centralDirectory.lookup('META-INF/rights.xml') != null) {
-      final text = await _readText('META-INF/rights.xml');
+    final rightsHit = centralDirectory.lookup('META-INF/rights.xml');
+    if (rightsHit != null) {
+      final text = rightsHit.entry.uncompressedSize > maxMetadataSize
+          ? null
+          : await _readText('META-INF/rights.xml');
       final scheme = text == null ? 'unknown:rights.xml' : rightsScheme(text);
       throw EpubEncryptedException(
         'livro com META-INF/rights.xml: esquema $scheme',
@@ -155,8 +158,17 @@ final class ZipContainer implements EpubContainer {
         href: 'META-INF/rights.xml',
       );
     }
-    if (centralDirectory.lookup('META-INF/encryption.xml') == null) return;
+    final encryptionHit = centralDirectory.lookup('META-INF/encryption.xml');
+    if (encryptionHit == null) return;
     const invalid = 'unknown:encryption.xml-invalido';
+    if (encryptionHit.entry.uncompressedSize > maxMetadataSize) {
+      throw EpubEncryptedException(
+        'META-INF/encryption.xml acima do teto de $maxMetadataSize bytes: '
+        'sem como provar que não há DRM (esquema $invalid)',
+        scheme: invalid,
+        href: 'META-INF/encryption.xml',
+      );
+    }
     final text = await _readText('META-INF/encryption.xml');
     if (text == null) {
       throw EpubEncryptedException(

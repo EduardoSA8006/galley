@@ -13,6 +13,11 @@ import 'zip/crc32.dart';
 /// Maior entrada aceita, descomprimida. Proteção contra zip bomb.
 const int maxEntrySize = 256 * 1024 * 1024;
 
+/// Teto dos arquivos de metadado do contêiner (`encryption.xml`,
+/// `rights.xml`): os reais têm poucos KiB, e ler ou parsear um maior seria
+/// só custo pago para um atacante.
+const int maxMetadataSize = 4 * 1024 * 1024;
+
 /// Um passo do `decode()` a cada 64 KiB completos de saída.
 const int decodeStepBytes = 64 * 1024;
 

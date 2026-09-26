@@ -413,6 +413,43 @@ void main() {
     });
   });
 
+  group('teto de 4 MiB para metadados', () {
+    // Altamente compressível: o ZIP fica pequeno mesmo com 5 MiB declarados.
+    final huge = List<int>.filled(5 * 1024 * 1024, 0x41);
+
+    test('encryption.xml acima do teto: unknown:encryption.xml-invalido sem '
+        'buscar nem parsear', () async {
+      final zip = _book({}, extra: {'META-INF/encryption.xml': huge});
+      final counting = CountingByteSource(MemoryEpubByteSource(zip));
+      final stopwatch = Stopwatch()..start();
+      await expectLater(
+        ZipContainer.open(counting, sink: DiagnosticSink()),
+        _encrypted('unknown:encryption.xml-invalido'),
+      );
+      stopwatch.stop();
+      expect(stopwatch.elapsedMilliseconds, lessThan(200));
+      // Só o fim do arquivo e o central directory: nenhuma ida extra para
+      // ler ou parsear os dados de encryption.xml.
+      expect(counting.calls, 2);
+    });
+
+    test(
+      'rights.xml acima do teto: unknown:rights.xml sem buscar nem parsear',
+      () async {
+        final zip = _book({}, extra: {'META-INF/rights.xml': huge});
+        final counting = CountingByteSource(MemoryEpubByteSource(zip));
+        final stopwatch = Stopwatch()..start();
+        await expectLater(
+          ZipContainer.open(counting, sink: DiagnosticSink()),
+          _encrypted('unknown:rights.xml'),
+        );
+        stopwatch.stop();
+        expect(stopwatch.elapsedMilliseconds, lessThan(200));
+        expect(counting.calls, 2);
+      },
+    );
+  });
+
   group('isFontPath e normalizeCipherReference', () {
     test('extensões de fonte', () {
       for (final p in [
