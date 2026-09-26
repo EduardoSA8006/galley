@@ -605,8 +605,8 @@ final class _Metadata {
   }
 }
 
-/// Gramática do EPUB para datas (um subconjunto validado de ISO 8601, doc/09
-/// §6.2, decisão 11): `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, ou
+/// Gramática do EPUB para datas (um subconjunto validado de ISO 8601, spec
+/// da Publicação §6.2, decisão 11): `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, ou
 /// `YYYY-MM-DDThh:mm(:ss(.fração)?)?` com `Z` ou `±hh:mm` opcional. Nada de
 /// ano expandido (`+`/`-` na frente), nada de hora sem minuto.
 final RegExp _epubDate = RegExp(
@@ -649,8 +649,8 @@ int _daysInMonth(int year, int month) =>
 /// (mês fora de 1–12, dia fora do mês — inclusive 29/02 fora de bissexto,
 /// hora/minuto/segundo fora do intervalo, offset acima de 14:00) ou texto
 /// que não casa com a gramática (inclusive acima de 64 caracteres, ou ano
-/// expandido com sinal) é `null` (doc/09 §6.2, decisão 11: nada de
-/// `DateTime.parse` normalizando data inválida).
+/// expandido com sinal) é `null` (spec da Publicação §6.2, decisão 11: nada
+/// de `DateTime.parse` normalizando data inválida).
 DateTime? parseEpubDate(String text) {
   final s = text.trim();
   if (s.isEmpty || s.length > 64) return null;

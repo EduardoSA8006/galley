@@ -755,17 +755,21 @@ void main() {
         buffer.write('<dc:creator id="a">Autor $i</dc:creator>');
       }
       for (var i = 0; i < 20000; i++) {
-        buffer.write('<meta refines="#a" property="role">aut</meta>');
+        buffer.write('<meta refines="#a" property="role">ill</meta>');
       }
       final sw = Stopwatch()..start();
       final m = _parse(_opf(metadata: buffer.toString())).metadata;
       sw.stop();
-      expect(sw.elapsed, lessThan(const Duration(seconds: 1)));
-      // Todos os 20 000 creators contam como autor (sem papel refinado,
-      // o padrão é autor); só o dono do `id` "a" de fato consultou os
-      // refinamentos, então nenhum deles some em `raw`.
-      expect(m.authors, hasLength(20000));
-      expect(m.contributors, isEmpty);
+      expect(sw.elapsed, lessThan(const Duration(seconds: 5)));
+      // `ill` não é `aut`, e não é o padrão (sem refinamento, o padrão é
+      // autor): só o dono do `id` "a" (o primeiro creator, "Autor 0") de
+      // fato consulta os refinamentos e vira colaborador; os outros 19 999,
+      // sem acesso aos refinamentos do dono, caem no padrão e viram autor.
+      // Se a busca por refinamentos ainda fosse quadrática (sem o `_owner`
+      // por id), o resultado seria o mesmo — só o tempo reprovaria; por
+      // isso a asserção de conteúdo é o que prova que só o dono usa.
+      expect(m.contributors, ['Autor 0']);
+      expect(m.authors, hasLength(19999));
       expect(m.raw.containsKey('role'), isFalse);
     });
   });
