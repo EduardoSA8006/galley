@@ -84,4 +84,4 @@ aponta para ela e diz **quando** voltar ao assunto.
 | A CLI `update_baseline.dart` não tinha teste automatizado próprio; ganhou `test/tool/perf_update_baseline_test.dart` ao adicionar `--out-dir` por TDD | 2026-09-25 | 28f10e8 |
 | Proteção de branch na `main` exigindo `analyze`, `test (min)`, `test (stable)`, `engine-linux` e `perf` vindos do GitHub Actions, com a PR em dia com a `main` antes do merge; vale também para admin; sem revisão obrigatória; force-push e exclusão bloqueados | 2026-09-25 (branch em dia e checks amarrados ao Actions em 2026-09-26) | configuração do repositório |
 | `encryption.xml` sem teto próprio de tamanho: é lido até `maxEntrySize` (256 MiB) e parseado de forma síncrona | 2026-09-26 | d07f676 |
-
+| Regenerar os baselines por CPU com os casos do contêiner: EPYC 7763 (mediana de 5 VMs), EPYC 9V74 (novo) e Xeon 6973P-C; os casos antigos ficaram entre −4% e +0,5% dos baselines anteriores, sem regressão | 2026-09-26 | 34beb62 |
