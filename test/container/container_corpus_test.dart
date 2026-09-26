@@ -1,5 +1,6 @@
 // O contêiner sobre os 65 EPUBs do corpus (spec do contêiner §9.1).
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:galley/src/container/zip/central_directory.dart';
@@ -19,8 +20,13 @@ const containerCodes = {
   'fontObfuscationUnknown',
 };
 
-/// Dos acima, os `warning` (lançam em strict).
-const containerWarnings = {'zipCrcMismatch', 'fontObfuscationUnknown'};
+/// Dos acima, os `warning` (lançam em strict); `mimetypeIrregular` entra
+/// porque o `DiagnosticSink` o promove a `warning` quando `strict` (spec §9.1).
+const containerWarnings = {
+  'zipCrcMismatch',
+  'fontObfuscationUnknown',
+  'mimetypeIrregular',
+};
 
 /// Grupos que rodam com `strict: false` (doc/10 §5).
 const relaxedGroups = {'patologia', 'faixa-b'};
@@ -70,6 +76,10 @@ void main() {
     expect(cases, hasLength(65));
   });
 
+  /// Casos em que o orçamento de abertura fica estritamente abaixo do
+  /// tamanho do arquivo: prova que a abertura não lê o arquivo inteiro.
+  final underBudgetCases = <String>{};
+
   for (final name in cases) {
     final dir = '${root.path}/$name';
     final group = name.split('/').first;
@@ -98,18 +108,20 @@ void main() {
         return e == null ? 0 : fetchBound(e, calls: 2);
       }
 
+      final size = await counting.length;
+      final openBudget =
+          math.min(tailReadSize, size) +
+          (cd.zip64 ? 56 : 0) +
+          cd.cdSize +
+          bound('mimetype') +
+          bound('META-INF/encryption.xml') +
+          bound('META-INF/rights.xml');
       expect(
         counting.bytesRead,
-        lessThanOrEqualTo(
-          tailReadSize +
-              (cd.zip64 ? 56 : 0) +
-              cd.cdSize +
-              bound('mimetype') +
-              bound('META-INF/encryption.xml') +
-              bound('META-INF/rights.xml'),
-        ),
+        lessThanOrEqualTo(openBudget),
         reason: 'a abertura leu demais',
       );
+      if (openBudget < size) underBudgetCases.add(name);
 
       await _drainAll(c, counting);
       final emitted = sink.diagnostics
@@ -136,4 +148,13 @@ void main() {
       });
     }
   }
+
+  test('a abertura evita ler o arquivo inteiro em ao menos um caso', () {
+    // ignore: avoid_print
+    print(
+      'casos com orçamento de abertura abaixo do tamanho do arquivo: '
+      '${underBudgetCases.length} de ${cases.length}',
+    );
+    expect(underBudgetCases, isNotEmpty);
+  });
 }
