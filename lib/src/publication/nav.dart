@@ -3,9 +3,9 @@
 /// Linear no tamanho do NAV:
 /// - antes do parse, [htmlWorkCut] corta o texto onde o trabalho estimado do
 ///   parser HTML5 passaria de [navParseBudget] (o parser percorre a pilha de
-///   elementos abertos em várias tags, e aninhamento hostil o deixaria
-///   quadrático: 4 000 níveis de `<ol><li>` custam 1,3 s, 50 000 custam
-///   6 min);
+///   elementos abertos e a lista de formatação ativa em várias tags, e
+///   aninhamento hostil o deixaria quadrático: 4 000 níveis de `<ol><li>`
+///   custam 1,3 s, 50 000 custam 6 min);
 /// - a caminhada itera `nodes` com pilha explícita, nunca indexa `children`;
 /// - cada nó é visitado no máximo uma vez pela busca dos `nav`, uma pela
 ///   busca da lista do `nav`, uma pela varredura do `li` dono e uma pelo
@@ -23,8 +23,8 @@ const int maxNavDepth = 64;
 /// Máximo de entradas por `nav` (spec §7.2).
 const int maxNavEntries = 100000;
 
-/// Teto do trabalho estimado do parser HTML5 no NAV (~0,7 s no pior caso
-/// medido; um NAV real de 100 000 entradas usa ~3 milhões).
+/// Teto do trabalho estimado do parser HTML5 no NAV (~1 s no pior caso
+/// medido com 4 MiB; um NAV plano de 100 000 entradas usa ~5 milhões).
 const int navParseBudget = 1 << 24;
 
 /// Entrada crua de NAV ou NCX: o `href` como está no documento.
