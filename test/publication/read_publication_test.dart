@@ -431,7 +431,7 @@ void main() {
     });
 
     test('XHTML remoto no spine vai ao fallback local', () async {
-      final (p, _) = await _read(
+      final (p, sink) = await _read(
         _book({
           'OEBPS/content.opf': opfXml(
             items: [
@@ -446,6 +446,30 @@ void main() {
       expect(s.item.id, 'r');
       expect(s.item.remote, isTrue);
       expect(s.content.id, 'c1');
+      expect(_codes(sink), isNot(contains('resourceMissing')));
+    });
+
+    test('content final remoto no spine: resourceMissing remote', () async {
+      final (p, sink) = await _read(
+        _book({
+          'OEBPS/content.opf': opfXml(
+            items: [
+              item('c1', 'Text/c1.xhtml'),
+              item('r', 'https://ex.com/c.xhtml', fallback: 'r2'),
+              item('r2', 'http://ex.com/d.xhtml'),
+              item('fora', 'https://ex.com/e.xhtml'),
+            ],
+            itemrefs: [itemref('c1'), itemref('r')],
+          ),
+        }),
+      );
+      final s = p.spine.last;
+      expect(s.content.id, 'r');
+      expect(s.content.remote, isTrue);
+      final d = _only(sink, EpubDiagnosticCode.resourceMissing);
+      expect(d.severity, EpubSeverity.warning);
+      expect(d.href, 'https://ex.com/c.xhtml');
+      expect(d.details, {'id': 'r', 'reason': 'remote', 'count': 1});
     });
 
     test('borda da cadeia de fallback: 16 passos resolvem, 17 não', () async {

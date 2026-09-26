@@ -397,6 +397,16 @@ final class _Reader {
       if (_renderable(next)) return next;
       current = next;
     }
+    if (item.remote) {
+      // Sem bytes locais para abrir; recurso remoto fora do spine não tem
+      // diagnóstico (spec §5.3).
+      _emit(
+        EpubDiagnosticCode.resourceMissing,
+        href: item.path,
+        message: 'item do spine "${item.id}" é remoto, sem fallback local',
+        details: {'id': item.id, 'reason': 'remote'},
+      );
+    }
     if (item.kind == SectionKind.unsupported) {
       _emit(
         EpubDiagnosticCode.unsupportedMediaType,

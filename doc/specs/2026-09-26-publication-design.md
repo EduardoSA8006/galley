@@ -215,7 +215,8 @@ contêiner (caminhos sem `\`, `%xx` e `..`).
 
 Para cada item, a partir do `href` cru e do diretório do OPF:
 - **Esquema `http:`/`https:`** → `remote: true`, `missing: false`, `path` = `href`
-  cru, sem diagnóstico.
+  cru, sem diagnóstico aqui (no spine, sem `fallback` local, §6.4 emite
+  `resourceMissing` com `reason: 'remote'`).
 - **Outro `href` recusado** por `normalizeHref` → `missing: true`, `path` = `href`
   cru, `resourceMissing` (`href: null`, `details: {id, raw}`).
 - **Tentativa dupla** ([03](../03-camada-a-ir.md) §3.2): pergunta ao contêiner
@@ -343,8 +344,10 @@ resolve (inclusive por não ter `fallback`), `content` = o próprio item, e,
 quando ele é `unsupported`, emite `unsupportedMediaType` (`warning`,
 `href` = caminho, `details: {mediaType}`); um XHTML `remote` sem `fallback`
 local chega assim: `content` é ele mesmo, com `kind: xhtml` e
-`content.remote: true` (sem diagnóstico — o sub-projeto 6 trata como
-`missing`, já que não há bytes locais para abrir). Item `missing` continua no
+`content.remote: true`, e emite `resourceMissing` (`warning`, `href` = a URL,
+`details: {id, reason: 'remote'}`) — o sub-projeto 6 trata como `missing`, já
+que não há bytes locais para abrir. Recurso remoto fora do spine continua sem
+diagnóstico. Item `missing` continua no
 spine (a IR faz a seção placeholder).
 
 ## 7. NAV, NCX, landmarks, `page-list` e reconciliação
