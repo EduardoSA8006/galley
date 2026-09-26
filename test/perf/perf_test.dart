@@ -99,12 +99,14 @@ List<PerfCase> _containerCases() {
           sink: DiagnosticSink(),
         );
         _sink += c.paths.length;
+        await c.close();
       },
       innerIterations: 10, // ≈ 5 ms por amostra
     ),
     PerfCase(
       id: 'zip.fetch.inflate.1mb',
       setUp: () async {
+        // Contêiner reusado entre amostras de propósito (o harness não tem teardown).
         final zip =
             (ZipWriter()
                   ..add(
