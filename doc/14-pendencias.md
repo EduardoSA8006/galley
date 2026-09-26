@@ -55,7 +55,8 @@ aponta para ela e diz **quando** voltar ao assunto.
 | Item | Origem | Quando |
 |---|---|---|
 | `li` que não é filho direto da lista (`<ol><div><li>…`) é ignorado pelo `parseNav`; tolerância barata a considerar (aceitar o `li` descendente sem descer em listas aninhadas) | Revisão da T7 da Publicação (2026-09-26) | Sub-projeto 6 (Documento), ou se aparecer em EPUB real |
-| O parse do conteúdo XHTML do sub-projeto 6 (Documento) precisa da mesma proteção do NAV contra exceções do `package:html`: referência numérica fora de faixa (`&#99999999999999999999;`, `&#x8000000000000000;`) faz o `int.parse` do tokenizador lançar `FormatException`; o `htmlWorkCut` a reescreve como `&#xFFFD;` antes do parse (fuzz dirigido não achou outra exceção no `package:html` 0.15.7) | Revisão da T7 da Publicação (2026-09-26) | Sub-projeto 6 |
+| O parse do conteúdo XHTML do sub-projeto 6 (Documento) precisa da mesma proteção do NAV contra o `package:html` (0.15.7): referência numérica fora de faixa (`&#99999999999999999999;`) faz o `int.parse` do tokenizador lançar `FormatException`; fechamento de nome longo dentro de texto cru (`<title></aaa…`) e nome de tag ou DOCTYPE longo são quadráticos; e o estado do tokenizador depende da árvore (SVG/MathML, `select`, escape de `script`), o que um modelo de fora não acompanha. O NAV resolve com um pré-passe que tokeniza e re-serializa um HTML canônico (sem comentários, texto cru, SVG/MathML nem atributos não lidos; referência fora de faixa como `&#xFFFD;`), mais uma captura estreita de `FormatException` em volta do `html.parse` | Revisão da T7 da Publicação (2026-09-26) | Sub-projeto 6 |
+| O texto dentro de `svg`/`math` some dos rótulos do NAV (o pré-passe tira as subárvores inteiras): um rótulo só com MathML cai para o atributo `title` ou para `''` | Revisão da T7 da Publicação (2026-09-26) | Se aparecer em EPUB real |
 
 ### Fase 2
 

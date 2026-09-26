@@ -1,11 +1,13 @@
 /// NAV do EPUB3 com `package:html` (spec da Publicação §7.2; doc/03 §8).
 ///
 /// Linear no tamanho do NAV:
-/// - antes do parse, [htmlWorkCut] corta o texto onde o trabalho estimado do
-///   parser HTML5 passaria de [navParseBudget] (o parser percorre a pilha de
-///   elementos abertos e a lista de formatação ativa em várias tags, e
-///   aninhamento hostil o deixaria quadrático: 4 000 níveis de `<ol><li>`
-///   custam 1,3 s, 50 000 custam 6 min);
+/// - antes do parse, [htmlWorkCut] re-serializa o texto como HTML canônico
+///   (sem comentários, texto cru, SVG/MathML nem atributos que o NAV não lê)
+///   e o corta onde o trabalho estimado do parser HTML5 passaria de
+///   [navParseBudget] (o parser percorre a pilha de elementos abertos e a
+///   lista de formatação ativa em várias tags, e aninhamento hostil o
+///   deixaria quadrático: 4 000 níveis de `<ol><li>` custam 1,3 s, 50 000
+///   custam 6 min);
 /// - a caminhada itera `nodes` com pilha explícita, nunca indexa `children`;
 /// - cada nó é visitado no máximo uma vez pela busca dos `nav`, uma pela
 ///   busca da lista do `nav`, uma pela varredura do `li` dono e uma pelo
@@ -73,7 +75,22 @@ final class NavDocument {
 /// Lê os `nav` de `toc`, `page-list` e `landmarks` (o primeiro de cada tipo).
 NavDocument parseNav(String text) {
   final work = htmlWorkCut(text);
-  final document = html.parse(work.text);
+  final Document document;
+  try {
+    document = html.parse(work.text);
+  } on FormatException {
+    // Rede de segurança. A única FormatException conhecida do package:html
+    // (0.15.7) é o int.parse da referência numérica fora de faixa, que o
+    // texto canônico já não tem; se outra versão lançar outra, o NAV conta
+    // como inutilizável: sem entradas, e o leitor segue para o NCX
+    // (navIgnored no-toc). Outros erros continuam sendo bug e propagam.
+    return NavDocument(
+      toc: const [],
+      pageList: const [],
+      landmarks: const [],
+      truncated: false,
+    );
+  }
   Element? toc;
   Element? pageList;
   Element? landmarks;
@@ -239,8 +256,8 @@ String _title(Element label) {
   return '';
 }
 
-/// Elementos que o `package:html` nunca empilha em conteúdo HTML (inserir e
-/// desempilhar, ou ignorar). Em SVG/MathML eles empilham sem `/>`.
+/// Elementos que o `package:html` nunca empilha (inserir e desempilhar, ou
+/// ignorar).
 const Set<String> _voidElements = {
   'area',
   'base',
@@ -364,8 +381,8 @@ const Set<String> _listItemPassable = {
   'rtc',
 };
 
-/// RCDATA e RAWTEXT do `package:html` em conteúdo HTML (`noscript` inclusive:
-/// ele parseia com scripting ligado).
+/// Elementos de texto cru (RCDATA, RAWTEXT, `plaintext`): saem do texto
+/// canônico com o conteúdo.
 const Set<String> _rawText = {
   'iframe',
   'noembed',
@@ -377,11 +394,6 @@ const Set<String> _rawText = {
   'title',
   'xmp',
 };
-
-/// Contextos em que o modo do parser pode divergir do modelo: conteúdo
-/// estrangeiro (onde `script`/`style` não são RAWTEXT e `<![CDATA[` é
-/// CDATA) e os modos que ignoram tags (`select`, `frameset`).
-const Set<String> _ambiguousContext = {'frameset', 'math', 'select', 'svg'};
 
 /// Tags que o modo "in table" não insere por foster parenting (`input` só
 /// escapa com `type=hidden`, e fica de fora).
@@ -402,8 +414,11 @@ const Set<String> _notFostered = {
   'tr',
 };
 
-/// Entrada opaca na pilha: nenhum fechamento a casa nem passa por ela.
-const String _opaque = '';
+/// Os atributos que [parseNav] lê; os outros saem do texto canônico.
+const Set<String> _keptAttributes = {'alt', 'epub:type', 'href', 'title'};
+
+/// Nome de tag acima disso vira um nome neutro ([_WorkModel.canonicalName]).
+const int _maxTagNameLength = 32;
 
 bool _isLetter(int c) => (c | 0x20) >= 0x61 && (c | 0x20) <= 0x7A;
 
@@ -420,27 +435,33 @@ bool _endsTagName(int c) => _isSpace(c) || c == 0x2F || c == 0x3E;
 /// cortado (`null` se coube inteiro).
 typedef HtmlWork = ({String text, int? cut});
 
-/// Prepara [text] para o parse HTML5 numa passada só:
-/// - reescreve `<x …/>` de elemento não vazio como `<x …></x>`: o HTML5
-///   ignora a barra, e o XHTML válido com `<title/>` ou `<script src="…"/>`
-///   no head viraria texto até o fim (o NAV sumiria);
-/// - corta no ponto onde o trabalho estimado do parser passaria de [budget]
-///   passos; `cut` é esse índice em [text], e `text` o que sobra, reescrito.
+/// Tokeniza [text] e o re-serializa como um HTML canônico, o único texto que
+/// o `html.parse` recebe, numa passada linear:
+/// - comentários, DOCTYPE, `<?…>` e `<!…>` saem; CDATA vira texto escapado;
+///   os elementos de texto cru ([_rawText] e `plaintext`) e as subárvores
+///   `svg` e `math` saem com o conteúdo;
+/// - tags só com os atributos que [parseNav] lê, entre aspas duplas; nome de
+///   tag longo vira nome neutro, igual na abertura e no fechamento; `<x/>` de
+///   elemento não vazio vira `<x></x>` (o HTML5 ignora a barra);
+/// - no texto, `<` que não abre tag vira `&lt;`, e a referência numérica
+///   acima de U+10FFFF vira `&#xFFFD;` (o tokenizador faz `int.parse` dos
+///   dígitos e lançaria `FormatException` acima de 2^63);
+/// - entre dois textos que no original não eram contíguos entra `<!---->`,
+///   para o fim de um não continuar a referência do outro.
 ///
-/// O modelo segue o tokenizador do `package:html` (nome de tag até
-/// whitespace, `/` ou `>`; atributos entre aspas; comentário até `-->`,
-/// `--!>`, `<!-->` ou `<!--->`; DOCTYPE, `<?` e `</x` falso até o primeiro
-/// `>`; RCDATA/RAWTEXT até o fechamento do próprio nome) e mantém uma pilha
-/// que nunca fica menor que a do parser: um fechamento só desempilha pelo
-/// que o parser também desempilharia (ver [_WorkModel.close]), e o que o
-/// modelo não sabe classificar vira entrada opaca. O custo de cada tag é
-/// `(profundidade + 1) × (formatação + 1)`, porque o parser percorre a pilha
-/// e a lista de formatação ativa (e reconstrói os clones dela); cada texto
-/// custa `1 + formatação × (profundidade + 1)`; nome de tag e DOCTYPE custam
-/// `comprimento² / 256` (o tokenizador os monta concatenando caractere a
-/// caractere); foster parenting custa os nós já criados (o parser procura a
-/// tabela entre os irmãos). Cada índice de [text] é lido um número constante
-/// de vezes e o resto do trabalho está no orçamento: linear.
+/// Nesse texto o tokenizador do `package:html` fica sempre nos estados de
+/// dados e de tag, então o que ele vê é exatamente o que foi escrito. Sobre
+/// esses tokens, uma pilha que nunca fica menor que a do parser estima o
+/// trabalho da construção da árvore, e o texto é cortado onde ele passaria
+/// de [budget]; `cut` é esse índice em [text].
+///
+/// Custo (em passos): tag `(profundidade + 1) × (formatação + 1)`, porque o
+/// parser percorre a pilha e a lista de formatação ativa (e reconstrói os
+/// clones dela); cada token de texto `1 + formatação × (profundidade + 1)`;
+/// foster parenting, os nós já criados (o parser procura a tabela entre os
+/// irmãos); `</h1>`–`</h6>` doze percursos, `</p>`/`</body>`/`</html>` dois;
+/// `isindex` oito tags e seis nós. Um fechamento só desempilha pelo que o
+/// parser também desempilharia (ver [_WorkModel.close]).
 HtmlWork htmlWorkCut(String text, {int budget = navParseBudget}) =>
     _WorkModel(text, budget).run();
 
@@ -450,8 +471,9 @@ final class _WorkModel {
   final String text;
   final int budget;
   final int n;
+  final StringBuffer out = StringBuffer();
 
-  /// Nomes dos elementos abertos (ou [_opaque]).
+  /// Nomes dos elementos abertos.
   final List<String> stack = [];
 
   /// Índices de `table` e de `td`/`th`/`caption` em [stack].
@@ -462,41 +484,29 @@ final class _WorkModel {
   /// Elementos de formatação em [stack].
   int formatting = 0;
 
-  /// `svg`/`math` em [stack].
-  int foreign = 0;
-
-  /// Elementos de [_ambiguousContext] em [stack].
-  int ambiguous = 0;
-
   /// Nós criados até aqui (limite para os irmãos de uma tabela).
   int nodes = 0;
   int? cutAt;
 
-  /// Texto reescrito até [copied] (só existe depois da primeira reescrita).
-  StringBuffer? out;
-  int copied = 0;
-
-  /// Texto corrente: início, e até onde já foi cobrado.
-  int segment = 0;
-  bool segmentCharged = false;
-  int textScanned = 0;
-  int whitespaceScanned = 0;
+  /// A última coisa escrita foi texto, que terminava em [textEnd] no
+  /// original; [fosterCharged] vale para esse texto.
+  bool inText = false;
+  int textEnd = -1;
   bool fosterCharged = false;
 
   /// Próximas ocorrências já buscadas (cada busca só anda para a frente).
   int nextAmp = -1;
   int nextNul = -1;
+  int nextLt = -1;
   int nextDashDashGt = -1;
   int nextDashDashBangGt = -1;
-  int nextCommentOpen = -1;
-  int nextGt = -1;
 
-  /// Terminou em `/>` fora de valor de atributo (preenchido por [tagEnd]).
+  /// Preenchidos por [tagEnd]: terminou em `/>` fora de valor de atributo, e
+  /// os atributos mantidos (nome, início e fim do valor; início -1 sem
+  /// valor).
   bool selfClosing = false;
-
-  /// Início e fim das referências fora de faixa nos atributos da tag que
-  /// [tagEnd] acabou de ler; reescritas só se a tag não for cortada.
-  final List<int> pendingReferences = [];
+  final List<String> attrNames = [];
+  final List<int> attrValues = [];
 
   int get depthCost => (stack.length + 1) * (formatting + 1);
 
@@ -521,11 +531,22 @@ final class _WorkModel {
 
   HtmlWork run() {
     var i = 0;
+    var from = 0;
     while (true) {
-      final lt = text.indexOf('<', i);
-      if (!textUpTo(lt < 0 ? n : lt)) return result();
-      if (lt < 0 || lt + 1 >= n) return result();
-      final c = text.codeUnitAt(lt + 1);
+      final lt = find('<', from);
+      if (lt >= n) {
+        emitText(i, n);
+        return result();
+      }
+      final c = lt + 1 < n ? text.codeUnitAt(lt + 1) : 0;
+      final opens =
+          _isLetter(c) || c == 0x21 || c == 0x3F || (c == 0x2F && lt + 2 < n);
+      if (!opens) {
+        // `<` solto: texto (vira `&lt;` em [emitText]).
+        from = lt + 1;
+        continue;
+      }
+      if (!emitText(i, lt)) return result();
       final int next;
       if (_isLetter(c)) {
         next = startTag(lt);
@@ -533,45 +554,94 @@ final class _WorkModel {
         next = endTag(lt);
       } else if (c == 0x21) {
         next = markup(lt);
-      } else if (c == 0x3F) {
-        next = bogus(lt, lt + 2);
       } else {
-        // `<` solto é texto, mas quebra o token de texto.
-        if (!textUpTo(lt + 1) || !charge(3 * textTokenCost, lt)) {
-          return result();
-        }
-        i = lt + 1;
-        continue;
+        next = skipPast('>', lt + 2);
       }
       if (next < 0) return result();
-      i = segment = next;
-      segmentCharged = fosterCharged = false;
+      i = from = next;
     }
   }
 
-  HtmlWork result() {
-    final cut = cutAt;
-    final buffer = out;
-    if (buffer == null) {
-      return (text: cut == null ? text : text.substring(0, cut), cut: cut);
+  HtmlWork result() => (text: out.toString(), cut: cutAt);
+
+  /// Escreve o texto [from, [to) do original (sem tag dentro, mas com `<`
+  /// solto), cobrando os tokens; com [cdata], todo `&` e `<` sai escapado.
+  bool emitText(int from, int to, {bool cdata = false}) {
+    if (from >= to) return true;
+    if (inText && from != textEnd) {
+      if (!charge(1, from)) return false;
+      nodes++;
+      out.write('<!---->');
+      inText = false;
     }
-    buffer.write(text.substring(copied, cut ?? n));
-    return (text: buffer.toString(), cut: cut);
+    if (!inText) {
+      inText = true;
+      fosterCharged = false;
+      nodes += 1 + formatting;
+      if (!charge(2 * textTokenCost, from)) return false;
+    }
+    textEnd = to;
+    if (!fosterCharged && fosterContext) {
+      var k = from;
+      while (k < to && _isSpace(text.codeUnitAt(k))) {
+        k++;
+      }
+      if (k < to) {
+        fosterCharged = true;
+        nodes++;
+        if (!charge(nodes * (formatting + 1), k)) {
+          out.write(text.substring(from, k));
+          return false;
+        }
+      }
+    }
+    var copied = from;
+    var k = from;
+    while (true) {
+      if (nextAmp < k) nextAmp = find('&', k);
+      if (nextNul < k) nextNul = find('\u0000', k);
+      if (nextLt < k) nextLt = find('<', k);
+      var at = nextAmp < nextNul ? nextAmp : nextNul;
+      if (nextLt < at) at = nextLt;
+      if (at >= to) break;
+      out.write(text.substring(copied, at));
+      if (!charge(3 * textTokenCost, at)) return false;
+      final c = text.codeUnitAt(at);
+      copied = k = at + 1;
+      if (c == 0x3C) {
+        out.write('&lt;');
+      } else if (c == 0x26) {
+        if (cdata) {
+          out.write('&amp;');
+        } else {
+          final e = badReferenceEnd(at, to);
+          if (e < 0) {
+            out.write('&');
+          } else {
+            out.write('&#xFFFD;');
+            copied = k = e;
+          }
+        }
+      } else {
+        out.write('\u0000');
+      }
+    }
+    out.write(text.substring(copied, to));
+    return true;
   }
 
   /// Fim (depois do `;`, se houver) da referência numérica que começa no `&`
   /// em [at] se o valor passa de U+10FFFF, ou -1. O tokenizador consome
   /// todos os dígitos e faz `int.parse` deles, que lança acima de 2^63; acima
-  /// de U+10FFFF ele já daria U+FFFD, então trocar por `&#xFFFD;` não muda
-  /// o resultado. Zeros à esquerda não contam.
-  int badReferenceEnd(int at) {
-    if (at + 2 >= n || text.codeUnitAt(at + 1) != 0x23) return -1;
+  /// de U+10FFFF ele já daria U+FFFD. Zeros à esquerda não contam.
+  int badReferenceEnd(int at, int to) {
+    if (at + 2 >= to || text.codeUnitAt(at + 1) != 0x23) return -1;
     var p = at + 2;
     final hex = text.codeUnitAt(p) | 0x20 == 0x78;
     if (hex) p++;
     final start = p;
     var value = 0;
-    while (p < n) {
+    while (p < to) {
       final c = text.codeUnitAt(p);
       final int digit;
       if (c >= 0x30 && c <= 0x39) {
@@ -585,94 +655,23 @@ final class _WorkModel {
       p++;
     }
     if (p == start || value <= 0x10FFFF) return -1;
-    return p < n && text.codeUnitAt(p) == 0x3B ? p + 1 : p;
+    return p < to && text.codeUnitAt(p) == 0x3B ? p + 1 : p;
   }
 
-  void rewriteReference(int at, int end) {
-    (out ??= StringBuffer())
-      ..write(text.substring(copied, at))
-      ..write('&#xFFFD;');
-    copied = end;
-  }
-
-  /// Reescreve as referências fora de faixa em [from, [to).
-  void rewriteReferences(int from, int to) {
-    var k = from;
-    while (true) {
-      if (nextAmp < k) nextAmp = find('&', k);
-      if (nextAmp >= to) return;
-      final e = badReferenceEnd(nextAmp);
-      if (e >= 0) {
-        rewriteReference(nextAmp, e);
-        k = e;
-      } else {
-        k = nextAmp + 1;
+  /// Nome canônico: minúsculas ASCII (como o tokenizador; `toLowerCase`
+  /// mapearia, por exemplo, o sinal de Kelvin para `k`); acima de
+  /// [_maxTagNameLength], `x-` e um hash do nome, para que abertura e
+  /// fechamento do mesmo nome continuem iguais.
+  String canonicalName(int start, int end) {
+    if (end - start > _maxTagNameLength) {
+      var hash = 0x811C9DC5;
+      for (var k = start; k < end; k++) {
+        var c = text.codeUnitAt(k);
+        if (_isUpper(c)) c += 0x20;
+        hash = ((hash ^ c) * 0x01000193) & 0xFFFFFFFF;
       }
+      return 'x-${hash.toRadixString(16)}';
     }
-  }
-
-  void applyPendingReferences() {
-    for (var k = 0; k < pendingReferences.length; k += 2) {
-      rewriteReference(pendingReferences[k], pendingReferences[k + 1]);
-    }
-  }
-
-  /// `<x …/>` (o `/` em `gt - 1`) vira `<x …></x>`.
-  void rewriteSelfClosing(String name, int gt) {
-    (out ??= StringBuffer())
-      ..write(text.substring(copied, gt - 1))
-      ..write('></')
-      ..write(name)
-      ..write('>');
-    copied = gt + 1;
-  }
-
-  /// Cobra o texto de [segment] até [end]: o início (dois tokens: espaços e
-  /// resto), foster parenting se houver não whitespace, e cada `&` ou NUL
-  /// (que partem o texto em até três tokens). Com [references], o `&` que
-  /// abre uma referência numérica fora de faixa é reescrito.
-  bool textUpTo(int end, {bool references = true}) {
-    if (end <= segment) return true;
-    if (!segmentCharged) {
-      segmentCharged = true;
-      nodes += 1 + formatting;
-      if (!charge(2 * textTokenCost, segment)) return false;
-    }
-    if (!fosterCharged && fosterContext) {
-      var k = whitespaceScanned > segment ? whitespaceScanned : segment;
-      while (k < end && _isSpace(text.codeUnitAt(k))) {
-        k++;
-      }
-      whitespaceScanned = k;
-      if (k < end) {
-        fosterCharged = true;
-        nodes++;
-        if (!charge(nodes * (formatting + 1), k)) return false;
-      }
-    }
-    var from = textScanned > segment ? textScanned : segment;
-    while (true) {
-      if (nextAmp < from) nextAmp = find('&', from);
-      if (nextNul < from) nextNul = find('\u0000', from);
-      final at = nextAmp < nextNul ? nextAmp : nextNul;
-      if (at >= end) break;
-      if (!charge(3 * textTokenCost, at)) return false;
-      from = at + 1;
-      if (references && at == nextAmp) {
-        final e = badReferenceEnd(at);
-        if (e >= 0) {
-          rewriteReference(at, e);
-          from = e;
-        }
-      }
-    }
-    textScanned = end;
-    return true;
-  }
-
-  /// Nome de tag em minúsculas ASCII (como o tokenizador; `toLowerCase`
-  /// mapearia, por exemplo, o sinal de Kelvin para `k`).
-  String tagName(int start, int end) {
     var k = start;
     while (k < end && !_isUpper(text.codeUnitAt(k))) {
       k++;
@@ -694,214 +693,215 @@ final class _WorkModel {
     return p;
   }
 
-  int nameCost(int length) => length * length >> 8;
-
+  /// Tag de abertura: índice depois dela, ou -1 (fim do texto ou corte).
   int startTag(int lt) {
     final p = nameEnd(lt + 1);
-    final length = p - lt - 1;
-    if (p >= n) {
-      charge(nameCost(length), lt);
-      return -1;
-    }
+    if (p >= n) return -1;
     final gt = tagEnd(p);
-    if (gt < 0) {
-      if (charge(nameCost(length), lt)) applyPendingReferences();
-      return -1;
+    if (gt < 0) return -1;
+    final name = canonicalName(lt + 1, p);
+    if (_rawText.contains(name)) {
+      if (selfClosing) return gt + 1;
+      final close = rawTextEnd(name, gt + 1);
+      if (close >= n) return -1;
+      return skipEndTag(close);
     }
-    final name = tagName(lt + 1, p);
+    if (name == 'plaintext') return -1;
+    if (name == 'svg' || name == 'math') {
+      return selfClosing ? gt + 1 : skipForeign(gt + 1);
+    }
     // `isindex` vira form, hr, label, um texto de 50 caracteres, input e hr:
     // oito tokens e seis nós a partir de nove bytes.
-    var cost = name == 'isindex'
-        ? 8 * depthCost + 128 + nameCost(length)
-        : depthCost + nameCost(length);
+    var cost = name == 'isindex' ? 8 * depthCost + 128 : depthCost;
     if (fosterContext && !_notFostered.contains(name)) {
       cost += (nodes + 1) * (formatting + 1);
     }
     final isVoid = _voidElements.contains(name);
-    // `plaintext` não tem fechamento: reescrever não mudaria nada.
-    final rewrite = selfClosing && !isVoid && name != 'plaintext';
-    if (rewrite) {
+    final closeToo = selfClosing && !isVoid;
+    if (closeToo) {
       cost += (stack.length + 2) * (formatting + 2) * _endTagWeight(name);
     }
     if (!charge(cost, lt)) return -1;
-    applyPendingReferences();
     nodes += 1 + formatting;
-    if (rewrite) {
-      rewriteSelfClosing(name, gt);
-      open(name);
-      close(name);
-      return gt + 1;
-    }
-    if (isVoid && (foreign == 0 || selfClosing)) return gt + 1;
-    if (name == 'plaintext') {
-      if (ambiguous > 0) {
-        open(_opaque);
-        return opaqueRegion(gt + 1, n) < 0 ? -1 : n;
-      }
-      open(name);
-      segment = gt + 1;
-      segmentCharged = fosterCharged = false;
-      textUpTo(n, references: false);
-      return -1;
-    }
-    if (_rawText.contains(name)) {
-      final close = rawTextEnd(name, gt + 1);
-      if (ambiguous > 0) {
-        // Sem `<` até o fechamento, as duas leituras só veem texto e o
-        // mesmo fechamento (o `<title>` de um ícone SVG).
-        if (!hasLessThan(gt + 1, close)) {
-          rewriteReferences(gt + 1, close);
-          open(name);
-          return close;
-        }
-        open(_opaque);
-        return opaqueRegion(gt + 1, close);
-      }
-      // `<!--` no script abre os estados de escape, e um `</script>` pode
-      // não fechar: opaco.
-      if (name == 'script') {
-        if (nextCommentOpen < gt + 1) nextCommentOpen = find('<!--', gt + 1);
-        open(nextCommentOpen < close ? _opaque : name);
-      } else {
-        // RCDATA resolve referências; RAWTEXT não.
-        if (name == 'title' || name == 'textarea') {
-          rewriteReferences(gt + 1, close);
-        }
-        open(name);
-      }
-      return close;
-    }
+    inText = false;
+    out
+      ..write('<')
+      ..write(name);
+    writeAttributes();
+    out.write('>');
+    if (isVoid) return gt + 1;
     open(name);
+    if (closeToo) {
+      out
+        ..write('</')
+        ..write(name)
+        ..write('>');
+      close(name);
+    }
     return gt + 1;
   }
 
+  void writeAttributes() {
+    for (var a = 0; a < attrNames.length; a++) {
+      out
+        ..write(' ')
+        ..write(attrNames[a])
+        ..write('="');
+      final start = attrValues[2 * a];
+      final end = attrValues[2 * a + 1];
+      var copied = start;
+      for (var k = start; k < end; k++) {
+        final c = text.codeUnitAt(k);
+        if (c == 0x22) {
+          out
+            ..write(text.substring(copied, k))
+            ..write('&quot;');
+          copied = k + 1;
+        } else if (c == 0x26) {
+          final e = badReferenceEnd(k, end);
+          if (e >= 0) {
+            out
+              ..write(text.substring(copied, k))
+              ..write('&#xFFFD;');
+            copied = e;
+            k = e - 1;
+          }
+        }
+      }
+      if (start < end) out.write(text.substring(copied, end));
+      out.write('"');
+    }
+  }
+
   int endTag(int lt) {
-    if (lt + 2 >= n) return -1;
     final c = text.codeUnitAt(lt + 2);
-    if (c == 0x3E) return charge(1, lt) ? lt + 3 : -1;
-    if (!_isLetter(c)) return bogus(lt, lt + 2);
+    if (c == 0x3E) return lt + 3; // `</>` é ignorado
+    if (!_isLetter(c)) return skipPast('>', lt + 2);
     final p = nameEnd(lt + 2);
-    final length = p - lt - 2;
-    if (p >= n) {
-      charge(nameCost(length), lt);
-      return -1;
-    }
+    if (p >= n) return -1;
     final gt = tagEnd(p);
-    if (gt < 0) {
-      if (charge(nameCost(length), lt)) applyPendingReferences();
-      return -1;
-    }
-    final name = tagName(lt + 2, p);
-    var cost = depthCost * _endTagWeight(name) + nameCost(length);
+    if (gt < 0) return -1;
+    final name = canonicalName(lt + 2, p);
+    var cost = depthCost * _endTagWeight(name);
     // `</br>` vira `<br>` e `</p>` sem p abre um p: inserções.
     if ((name == 'br' || name == 'p') && fosterContext) {
       cost += (nodes + 1) * (formatting + 1);
       nodes++;
     }
     if (!charge(cost, lt)) return -1;
-    applyPendingReferences();
+    inText = false;
+    out
+      ..write('</')
+      ..write(name)
+      ..write('>');
     close(name);
     return gt + 1;
+  }
+
+  /// Fechamento do elemento de texto cru em [lt]: índice depois dele.
+  int skipEndTag(int lt) {
+    final p = nameEnd(lt + 2);
+    if (p >= n) return -1;
+    final gt = tagEnd(p);
+    return gt < 0 ? -1 : gt + 1;
   }
 
   /// Percursos da pilha que o fechamento custa ao parser, em múltiplos de
   /// [depthCost] (medido no `package:html`): `</h1>`–`</h6>` testam o escopo
   /// de cada cabeçalho duas vezes; `</p>` sem p abre e fecha um;
-  /// `</body>`/`</html>` testam o escopo do body; em SVG/MathML o fechamento
-  /// ainda compara cada nome em minúsculas antes.
+  /// `</body>`/`</html>` testam o escopo do body.
   int _endTagWeight(String name) {
-    var weight = 1;
     if (name.length == 2 &&
         name.codeUnitAt(0) == 0x68 &&
         name.codeUnitAt(1) >= 0x31 &&
         name.codeUnitAt(1) <= 0x36) {
-      weight = 12;
-    } else if (name == 'p' || name == 'body' || name == 'html') {
-      weight = 2;
+      return 12;
     }
-    return foreign > 0 ? 2 * weight : weight;
+    return name == 'p' || name == 'body' || name == 'html' ? 2 : 1;
   }
 
-  /// `<!`: comentário, DOCTYPE, CDATA (só em conteúdo estrangeiro) ou
-  /// comentário falso.
+  /// `<!`: comentário e DOCTYPE saem; CDATA vira texto escapado.
   int markup(int lt) {
-    if (text.startsWith('--', lt + 2)) {
-      if (!charge(1, lt)) return -1;
-      nodes++;
-      if (nextDashDashGt < lt + 2) nextDashDashGt = find('-->', lt + 2);
-      if (nextDashDashBangGt < lt + 4) {
-        nextDashDashBangGt = find('--!>', lt + 4);
-      }
-      final a = nextDashDashGt + 2;
-      final b = nextDashDashBangGt + 3;
-      final end = a < b ? a : b;
-      return end >= n ? -1 : end + 1;
-    }
-    if (_startsWithDoctype(lt + 2)) {
-      final gt = find('>', lt + 2);
-      if (!charge(nameCost(gt - lt), lt)) return -1;
-      return gt >= n ? -1 : gt + 1;
-    }
-    if (foreign > 0 && text.startsWith('[CDATA[', lt + 2)) {
-      if (!charge(1, lt)) return -1;
+    if (text.startsWith('--', lt + 2)) return skipComment(lt);
+    if (text.startsWith('[CDATA[', lt + 2)) {
       final close = find(']]>', lt + 9);
-      // Sem `<` até o `]]>`, CDATA e comentário falso só escondem texto.
-      if (!hasLessThan(lt + 9, close)) {
-        // Lido como comentário falso, o que vem depois do primeiro `>` é
-        // texto, com referências.
-        rewriteReferences(lt + 9, close);
-      } else if (opaqueRegion(lt + 9, close) < 0) {
-        return -1;
-      }
+      if (!emitText(lt + 9, close, cdata: true)) return -1;
       return close >= n ? -1 : close + 3;
     }
-    return bogus(lt, lt + 2);
+    return skipPast('>', lt + 2);
   }
 
-  bool _startsWithDoctype(int at) {
-    const doctype = 'doctype';
-    if (at + doctype.length > n) return false;
-    for (var k = 0; k < doctype.length; k++) {
-      if (text.codeUnitAt(at + k) | 0x20 != doctype.codeUnitAt(k)) {
-        return false;
-      }
+  /// Comentário: termina em `<!-->`, `<!--->`, no primeiro `-->` ou `--!>`.
+  int skipComment(int lt) {
+    if (nextDashDashGt < lt + 2) nextDashDashGt = find('-->', lt + 2);
+    if (nextDashDashBangGt < lt + 4) {
+      nextDashDashBangGt = find('--!>', lt + 4);
     }
-    return true;
+    final a = nextDashDashGt + 2;
+    final b = nextDashDashBangGt + 3;
+    final end = a < b ? a : b;
+    return end >= n ? -1 : end + 1;
   }
 
-  /// Comentário falso até o primeiro `>`.
-  int bogus(int lt, int from) {
-    if (!charge(1, lt)) return -1;
-    nodes++;
-    final gt = find('>', from);
-    return gt >= n ? -1 : gt + 1;
+  /// Depois do próximo [pattern] a partir de [from], ou -1.
+  int skipPast(String pattern, int from) {
+    final at = find(pattern, from);
+    return at >= n ? -1 : at + pattern.length;
   }
 
-  /// Há `<` em [from, [to])? (A busca para no primeiro, que é no máximo o
-  /// `<` do fechamento em [to]: cada índice é lido uma vez.)
-  bool hasLessThan(int from, int to) {
-    final lt = text.indexOf('<', from);
-    return lt >= 0 && lt < to;
-  }
-
-  /// Onde o parser pode ou não ver tags: cada `<` empilha uma entrada opaca,
-  /// nenhum fechamento é visto, e o custo é o do pior token que ali pode
-  /// começar (o fechamento de cabeçalho em SVG, e um nome ou DOCTYPE até o
-  /// próximo `>`). Devolve [to], ou -1 se cortou.
-  int opaqueRegion(int from, int to) {
+  /// Subárvore `svg`/`math` a partir de [from]: índice depois do fechamento
+  /// que a encerra, ou -1. Dentro dela não há texto cru; CDATA vai até
+  /// `]]>`.
+  int skipForeign(int from) {
+    var depth = 1;
     var k = from;
     while (true) {
-      final lt = text.indexOf('<', k);
-      if (lt < 0 || lt >= to) {
-        rewriteReferences(k, to);
-        return to;
+      final lt = find('<', k);
+      if (lt + 1 >= n) return -1;
+      final c = text.codeUnitAt(lt + 1);
+      if (c == 0x21) {
+        if (text.startsWith('--', lt + 2)) {
+          k = skipComment(lt);
+        } else if (text.startsWith('[CDATA[', lt + 2)) {
+          k = skipPast(']]>', lt + 9);
+        } else {
+          k = skipPast('>', lt + 2);
+        }
+      } else if (c == 0x3F) {
+        k = skipPast('>', lt + 2);
+      } else if (_isLetter(c) || (c == 0x2F && lt + 2 < n)) {
+        final closing = c == 0x2F;
+        final start = closing ? lt + 2 : lt + 1;
+        if (closing && !_isLetter(text.codeUnitAt(start))) {
+          k = text.codeUnitAt(start) == 0x3E ? start + 1 : skipPast('>', start);
+        } else {
+          final p = nameEnd(start);
+          if (p >= n) return -1;
+          final gt = tagEnd(p);
+          if (gt < 0) return -1;
+          final length = p - start;
+          final foreign =
+              length == 3 &&
+                  (text.codeUnitAt(start) | 0x20) == 0x73 &&
+                  (text.codeUnitAt(start + 1) | 0x20) == 0x76 &&
+                  (text.codeUnitAt(start + 2) | 0x20) == 0x67 ||
+              length == 4 &&
+                  (text.codeUnitAt(start) | 0x20) == 0x6D &&
+                  (text.codeUnitAt(start + 1) | 0x20) == 0x61 &&
+                  (text.codeUnitAt(start + 2) | 0x20) == 0x74 &&
+                  (text.codeUnitAt(start + 3) | 0x20) == 0x68;
+          if (foreign && closing) {
+            depth--;
+            if (depth == 0) return gt + 1;
+          } else if (foreign && !selfClosing) {
+            depth++;
+          }
+          k = gt + 1;
+        }
+      } else {
+        k = lt + 1;
       }
-      rewriteReferences(k, lt);
-      if (nextGt < lt) nextGt = find('>', lt);
-      if (!charge(depthCost * 24 + nameCost(nextGt - lt), lt)) return -1;
-      nodes++;
-      open(_opaque);
-      k = lt + 1;
+      if (k < 0) return -1;
     }
   }
 
@@ -929,9 +929,12 @@ final class _WorkModel {
 
   /// Índice do `>` da tag cujo nome termina em [p] (atributos como no
   /// tokenizador, valores entre aspas inteiros), ou -1 no fim do texto.
+  /// Guarda em [attrNames]/[attrValues] a primeira ocorrência de cada nome de
+  /// [_keptAttributes].
   int tagEnd(int p) {
     selfClosing = false;
-    pendingReferences.clear();
+    attrNames.clear();
+    attrValues.clear();
     const beforeName = 0;
     const attrName = 1;
     const afterName = 2;
@@ -939,6 +942,8 @@ final class _WorkModel {
     const unquoted = 4;
     const afterQuoted = 5;
     const selfClosingStart = 6;
+    var nameStart = -1;
+    var kept = false;
     final first = text.codeUnitAt(p);
     if (first == 0x3E) return p;
     var state = first == 0x2F ? selfClosingStart : beforeName;
@@ -952,8 +957,12 @@ final class _WorkModel {
             state = selfClosingStart;
           } else if (!_isSpace(c)) {
             state = attrName;
+            nameStart = q;
           }
         case attrName:
+          if (c == 0x3E || c == 0x3D || c == 0x2F || _isSpace(c)) {
+            kept = keepAttribute(nameStart, q);
+          }
           if (c == 0x3E) return q;
           if (c == 0x3D) {
             state = beforeValue;
@@ -970,42 +979,28 @@ final class _WorkModel {
             state = selfClosingStart;
           } else if (!_isSpace(c)) {
             state = attrName;
+            nameStart = q;
           }
         case beforeValue:
           if (c == 0x3E) return q;
           if (c == 0x22 || c == 0x27) {
-            var quote = text.indexOf(c == 0x22 ? '"' : "'", q + 1);
-            // Sem a aspa de fechamento, o valor vai até o fim do texto (e as
-            // referências dele são lidas antes de a tag ser descartada).
-            final unterminated = quote < 0;
-            if (unterminated) quote = n;
-            var from = q + 1;
-            while (true) {
-              if (nextAmp < from) nextAmp = find('&', from);
-              if (nextAmp >= quote) break;
-              final e = badReferenceEnd(nextAmp);
-              if (e >= 0) pendingReferences.addAll([nextAmp, e]);
-              from = nextAmp + 1;
-            }
-            if (unterminated) return -1;
+            final quote = text.indexOf(c == 0x22 ? '"' : "'", q + 1);
+            if (quote < 0) return -1;
+            if (kept) setValue(q + 1, quote);
+            kept = false;
             q = quote;
             state = afterQuoted;
           } else if (!_isSpace(c)) {
             state = unquoted;
-            continue;
+            nameStart = q;
           }
         case unquoted:
-          if (c == 0x3E) return q;
-          if (_isSpace(c)) {
-            state = beforeName;
-          } else if (c == 0x26) {
-            final e = badReferenceEnd(q);
-            if (e >= 0) {
-              pendingReferences.addAll([q, e]);
-              q = e;
-              continue;
-            }
+          if (c == 0x3E || _isSpace(c)) {
+            if (kept) setValue(nameStart, q);
+            kept = false;
           }
+          if (c == 0x3E) return q;
+          if (_isSpace(c)) state = beforeName;
         case afterQuoted:
           if (c == 0x3E) return q;
           if (c == 0x2F) {
@@ -1027,6 +1022,25 @@ final class _WorkModel {
     return -1;
   }
 
+  /// Registra o atributo [start, [end) se for de [_keptAttributes] e ainda
+  /// não visto (o primeiro vale), com valor vazio até [tagEnd] achar o
+  /// valor. Devolve se o valor que vier é dele.
+  bool keepAttribute(int start, int end) {
+    if (end - start > 9) return false;
+    final name = canonicalName(start, end);
+    if (!_keptAttributes.contains(name) || attrNames.contains(name)) {
+      return false;
+    }
+    attrNames.add(name);
+    attrValues.addAll([-1, -1]);
+    return true;
+  }
+
+  void setValue(int start, int end) {
+    attrValues[attrValues.length - 2] = start;
+    attrValues[attrValues.length - 1] = end;
+  }
+
   /// Abertura: o que o parser fecha antes de inserir, depois empilha.
   void open(String name) {
     switch (name) {
@@ -1039,14 +1053,11 @@ final class _WorkModel {
       case 'p':
         closeP();
       case 'option' || 'optgroup':
-        // Em SVG/MathML `option` é elemento estrangeiro e não fecha nada.
-        if (foreign == 0 && stack.isNotEmpty && stack.last == 'option') {
+        if (stack.isNotEmpty && stack.last == 'option') {
           popTo(stack.length - 1);
         }
     }
     if (_formatting.contains(name)) formatting++;
-    if (name == 'svg' || name == 'math') foreign++;
-    if (_ambiguousContext.contains(name)) ambiguous++;
     if (name == 'table') tables.add(stack.length);
     if (name == 'td' || name == 'th' || name == 'caption') {
       cells.add(stack.length);
@@ -1105,10 +1116,7 @@ final class _WorkModel {
 
   void popTo(int k) {
     while (stack.length > k) {
-      final e = stack.removeLast();
-      if (_formatting.contains(e)) formatting--;
-      if (e == 'svg' || e == 'math') foreign--;
-      if (_ambiguousContext.contains(e)) ambiguous--;
+      if (_formatting.contains(stack.removeLast())) formatting--;
     }
     while (tables.isNotEmpty && tables.last >= k) {
       tables.removeLast();

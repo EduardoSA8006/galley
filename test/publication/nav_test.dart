@@ -46,13 +46,15 @@ String _navThen(String tail) => _html(
   '<nav epub:type="toc"><ol><li><a href="a.xhtml">A</a></li></ol></nav>$tail',
 );
 
-/// Parse de [text] com corte, rápido, sem perder o NAV que vem antes.
-void _expectCutFast(String text) {
-  expect(htmlWorkCut(text).cut, isNotNull);
+/// Parse de [text] rápido, sem exceção, sem perder o NAV que vem antes, e
+/// com `truncated` coerente com o corte ([cut]: se o corte é obrigatório).
+void _expectFast(String text, {bool cut = false}) {
+  final cutAt = htmlWorkCut(text).cut;
+  if (cut) expect(cutAt, isNotNull);
   final sw = Stopwatch()..start();
   final nav = parseNav(text);
   sw.stop();
-  expect(nav.truncated, isTrue);
+  expect(nav.truncated, cutAt != null);
   expect(_shape(nav.toc), ['A|a.xhtml']);
   expect(sw.elapsed, lessThan(const Duration(seconds: 5)));
 }
@@ -339,23 +341,121 @@ void main() {
       }
     });
 
-    test(
-      'só a referência muda: comentário, RAWTEXT e não referência ficam',
-      () {
-        const big = '&#99999999999999999999;';
-        final work = htmlWorkCut(
-          '<p>$big&#99999999999999999999x&#;&#x;&#xZ;&#x0000000000000041;'
-          '<!-- $big --><script>"$big"</script><style>$big</style>'
-          '<title>$big</title></p>',
-        );
-        expect(
-          work.text,
-          '<p>&#xFFFD;&#xFFFD;x&#;&#x;&#xZ;&#x0000000000000041;'
-          '<!-- $big --><script>"$big"</script><style>$big</style>'
-          '<title>&#xFFFD;</title></p>',
-        );
-      },
-    );
+    test('no texto só a referência muda; comentário e texto cru saem', () {
+      const big = '&#99999999999999999999;';
+      final work = htmlWorkCut(
+        '<p>$big&#99999999999999999999x&#;&#x;&#xZ;&#x0000000000000041;'
+        '<!-- $big --><script>"$big"</script><style>$big</style>'
+        '<title>$big</title></p>',
+      );
+      expect(
+        work.text,
+        '<p>&#xFFFD;&#xFFFD;x&#;&#x;&#xZ;&#x0000000000000041;</p>',
+      );
+    });
+
+    test('texto separado pelo que saiu não continua a referência', () {
+      String title(String label) => parseNav(
+        _html(
+          '<nav epub:type="toc"><ol><li><a href="a">$label</a></li></ol></nav>',
+        ),
+      ).toc.single.title;
+      final digits = '9' * 22;
+      expect(title('&#99<!---->$digits;'), 'c$digits;');
+      expect(title('&#99<![CDATA[$digits]]>;'), 'c$digits;');
+      expect(title('&#99<script>x</script>$digits;'), 'c$digits;');
+    });
+  });
+
+  group('texto canônico', () {
+    test('rótulo com SVG ou MathML: o título cai para o que sobra', () {
+      final nav = parseNav(
+        _html(
+          '<nav epub:type="toc"><ol>'
+          '<li><a href="c1.xhtml"><svg><title>Ícone</title><g/></svg>'
+          ' Capítulo</a></li>'
+          '<li><a href="c2.xhtml" title="Pelo title"><math><mi>x</mi>'
+          '</math></a></li>'
+          '<li><a href="c3.xhtml"><svg/></a></li>'
+          '<li><a href="c4.xhtml">Quatro</a></li></ol></nav>',
+        ),
+      );
+      expect(_shape(nav.toc), [
+        'Capítulo|c1.xhtml',
+        'Pelo title|c2.xhtml',
+        '|c3.xhtml',
+        'Quatro|c4.xhtml',
+      ]);
+      expect(nav.truncated, isFalse);
+    });
+
+    test('atributos: só os lidos, o primeiro vale, entre aspas duplas', () {
+      final work = htmlWorkCut(
+        '<a class=x HREF=\'a"b\' TITLE=t href="dup" data-x=1 epub:TYPE=toc>',
+      );
+      expect(work.text, '<a href="a&quot;b" title="t" epub:type="toc">');
+      final nav = parseNav(
+        _html(
+          '<nav epub:type=\'toc\'><ol><li><a HREF=\'a"b\'>T</a></li></ol></nav>',
+        ),
+      );
+      expect(nav.toc.single.href, 'a"b');
+    });
+
+    test('CDATA vira texto escapado', () {
+      final nav = parseNav(
+        _html(
+          '<nav epub:type="toc"><ol><li><a href="a"><![CDATA[a<b&c]]></a>'
+          '</li></ol></nav>',
+        ),
+      );
+      expect(nav.toc.single.title, 'a<b&c');
+    });
+
+    test('nome de tag longo vira nome neutro, igual nos dois lados', () {
+      final long = 'x' * 100;
+      final work = htmlWorkCut('<$long><p></$long>');
+      final name = RegExp(r'^<(x-[0-9a-f]+)><p></\1>$').firstMatch(work.text);
+      expect(name, isNotNull, reason: work.text);
+    });
+  });
+
+  group('formas da re-revisão de 1 MiB (texto cru, estado do tokenizador, '
+      'atributos)', () {
+    final attrs = [for (var j = 0; j < 5000; j++) 'a$j'].join(' ');
+    final forms = <String, String>{
+      'fechamento longo em title': '<p><title></${'a' * (1 << 20)}',
+      'fechamento longo em style': '<p><style></${'a' * (1 << 20)}',
+      'fechamento longo em script': '<p><script></${'a' * (1 << 20)}',
+      'fechamento longo em textarea': '<p><textarea></${'a' * (1 << 20)}',
+      'fechamento longo em script com <!--':
+          '<p><script><!--</${'a' * (1 << 20)}',
+      'math: style, breakout e title que passa do fim da região':
+          '<math><style><i><title></style><!-- </title>${_fill('<div>')}-->',
+      'script com double-escape abre xmp':
+          '<script><!--<script></script><xmp></script>${_fill('<div>')}'
+          '</xmp>',
+      'select: title e textarea':
+          '<select><title><textarea></title><!-- </textarea>'
+          '${_fill('<div>')}-->',
+      'b com 5 000 atributos reconstruído': _seq(
+        (i) => '<p><b $attrs x="$i"></p>',
+      ),
+      'b com 5 000 atributos aninhado': _seq((i) => '<b $attrs x="$i">'),
+    };
+    for (final MapEntry(key: name, value: body) in forms.entries) {
+      test(name, () => _expectFast(_navThen(body)));
+    }
+
+    test('exemplos mínimos de FormatException do fuzz', () {
+      for (final body in [
+        '<math><style><i><title></style><!&#9999999999999999999',
+        '<script><!--<script></script><noscript></script>'
+            '&#9999999999999999999',
+      ]) {
+        expect(() => parseNav(_navThen(body)), returnsNormally, reason: body);
+      }
+    });
   });
 
   test('li sem fechamento num ol só: um li fecha o anterior, sem corte', () {
@@ -396,7 +496,7 @@ void main() {
       'reconstrução da formatação ativa (p)': _seq((i) => '<p><b x="$i"></p>'),
     };
     for (final MapEntry(key: name, value: body) in forms.entries) {
-      test(name, () => _expectCutFast(_navThen(body)));
+      test(name, () => _expectFast(_navThen(body), cut: true));
     }
   });
 
@@ -443,16 +543,21 @@ void main() {
       'DOCTYPE longo': '<!DOCTYPE html PUBLIC "${'a' * k256}">',
     };
     for (final MapEntry(key: name, value: body) in forms.entries) {
-      test(name, () => _expectCutFast(_navThen(body)));
+      test(name, () => _expectFast(_navThen(body)));
     }
   });
 
   group('htmlWorkCut', () {
-    test('documento comum cabe inteiro e sai sem cópia', () {
-      final text = _html('<nav><ol><li><a href="a">A</a></li></ol></nav>');
-      final work = htmlWorkCut(text);
+    test('documento comum cabe inteiro, em forma canônica', () {
+      final work = htmlWorkCut(
+        _html('<nav><ol><li><a href="a">A</a></li></ol></nav>'),
+      );
       expect(work.cut, isNull);
-      expect(work.text, same(text));
+      expect(
+        work.text,
+        '<html><head></head><body><nav><ol><li><a href="a">A</a></li>'
+        '</ol></nav></body></html>',
+      );
     });
 
     test('comentário, doctype e void não empilham', () {
@@ -467,8 +572,7 @@ void main() {
       );
       expect(
         work.text,
-        '<p><title></title><div class="a" ></div><br/><img src="x"/>'
-        '<a title="x/>" href="y"></a><b x=1/><!-- <i/> --></p>',
+        '<p><div></div><br><img><a title="x/>" href="y"></a><b></p>',
       );
       expect(work.cut, isNull);
       // Reescrito, <div/> não empilha.
