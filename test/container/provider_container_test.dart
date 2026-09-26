@@ -116,6 +116,68 @@ void main() {
     expect(sink.diagnostics, isEmpty);
   });
 
+  test('cifra de DRM (LCP/ADEPT) sobre fonte já decifrada é ignorada pelo '
+      'provider', () async {
+    const lcp =
+        '<ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">'
+        '<ds:RetrievalMethod Type="$lcpContentKeyType"/></ds:KeyInfo>';
+    final sink = DiagnosticSink(strict: true);
+    final c = await ProviderContainer.open(
+      _MapProvider({
+        'META-INF/encryption.xml': utf8.encode(
+          _encryption(
+            'http://www.w3.org/2001/04/xmlenc#aes256-cbc',
+            'OEBPS/Fonts/a.otf',
+            keyInfo: lcp,
+          ),
+        ),
+      }),
+      sink: sink,
+    );
+    expect(c.obfuscationOf('OEBPS/Fonts/a.otf'), isNull);
+    expect(sink.diagnostics, isEmpty);
+  });
+
+  test(
+    'algoritmo de xmlenc# sem KeyInfo de DRM sobre fonte também é ignorado',
+    () async {
+      final sink = DiagnosticSink(strict: true);
+      final c = await ProviderContainer.open(
+        _MapProvider({
+          'META-INF/encryption.xml': utf8.encode(
+            _encryption(
+              'http://www.w3.org/2001/04/xmlenc#aes256-cbc',
+              'OEBPS/Fonts/a.otf',
+            ),
+          ),
+        }),
+        sink: sink,
+      );
+      expect(c.obfuscationOf('OEBPS/Fonts/a.otf'), isNull);
+      expect(sink.diagnostics, isEmpty);
+    },
+  );
+
+  test(
+    'algoritmo realmente desconhecido sobre fonte continua unknown',
+    () async {
+      final sink = DiagnosticSink();
+      final c = await ProviderContainer.open(
+        _MapProvider({
+          'META-INF/encryption.xml': utf8.encode(
+            _encryption('urn:x-desconhecido', 'OEBPS/Fonts/a.otf'),
+          ),
+        }),
+        sink: sink,
+      );
+      expect(c.obfuscationOf('OEBPS/Fonts/a.otf'), FontObfuscation.unknown);
+      expect(
+        sink.diagnostics.single.code,
+        EpubDiagnosticCode.fontObfuscationUnknown,
+      );
+    },
+  );
+
   group('obfuscationOf', () {
     for (final (algorithm, kind) in [
       (idpfObfuscationAlgorithm, FontObfuscation.idpf),

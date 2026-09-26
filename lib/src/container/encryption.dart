@@ -14,6 +14,7 @@ const String adobeObfuscationAlgorithm = 'http://ns.adobe.com/pdf/enc#RC';
 const String lcpContentKeyType =
     'http://readium.org/2014/01/lcp#EncryptedContentKey';
 const String adeptNamespace = 'http://ns.adobe.com/adept';
+const String _xmlencNamespacePrefix = 'http://www.w3.org/2001/04/xmlenc#';
 
 const Set<String> _fontExtensions = {
   '.ttf',
@@ -196,6 +197,15 @@ Map<String, FontObfuscation> resolveEncryption(
   for (final item in items) {
     final path = resolve(item.uri);
     if (!isFontPath(path)) continue;
+    if (!drmIsFatal &&
+        (item.lcpKey ||
+            item.adeptKey ||
+            item.algorithm.startsWith(_xmlencNamespacePrefix))) {
+      // Provider (Camada B): o livro já chega decifrado; uma entrada de DRM
+      // sobre uma fonte legível não é "ofuscação desconhecida", é cifra que
+      // o próprio provider já resolveu. Ignora, sem diagnóstico (spec §6.2).
+      continue;
+    }
     final kind = switch (item.algorithm) {
       idpfObfuscationAlgorithm => FontObfuscation.idpf,
       adobeObfuscationAlgorithm => FontObfuscation.adobe,
