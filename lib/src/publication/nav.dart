@@ -156,13 +156,14 @@ List<NavEntry> _list(
   _Reader reader, {
   required bool landmark,
 }) {
-  if (depth > maxNavDepth) {
-    reader.truncate();
-    return const [];
-  }
   final out = <NavEntry>[];
   for (final node in list.nodes) {
     if (node is! Element || node.localName != 'li') continue;
+    // Só descarta (e marca) se a lista além do limite tem alguma entrada.
+    if (depth > maxNavDepth) {
+      reader.truncate();
+      break;
+    }
     if (reader.count >= maxNavEntries) {
       reader.truncate();
       break;

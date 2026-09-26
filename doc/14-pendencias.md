@@ -50,6 +50,12 @@ aponta para ela e diz **quando** voltar ao assunto.
 | Os passos do `decode()` saem em rajada com taxa de compressão alta: uma fatia de 16 KiB pode gerar até 16 MiB de saída e ~56 ms sem ceder o isolate | Revisão final do contêiner (2026-09-26) | Sub-projeto 5 (worker) |
 | O fallback do EOCD64 assume 56 bytes colados ao locator (`eocdPos - locatorSize - eocd64Size`); prefixo com um extensible data sector entre o central directory e o locator faria essa busca falhar e o arquivo virar fatal | Revisão final do contêiner (2026-09-26) | Se aparecer um EPUB real assim |
 
+### Publicação
+
+| Item | Origem | Quando |
+|---|---|---|
+| `li` que não é filho direto da lista (`<ol><div><li>…`) é ignorado pelo `parseNav`; tolerância barata a considerar (aceitar o `li` descendente sem descer em listas aninhadas) | Revisão da T7 da Publicação (2026-09-26) | Sub-projeto 6 (Documento), ou se aparecer em EPUB real |
+
 ### Fase 2
 
 | Item | Origem | Quando |

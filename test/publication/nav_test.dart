@@ -191,6 +191,16 @@ void main() {
     expect(deep.truncated, isTrue);
   });
 
+  test('lista vazia no nível 64 não descarta nada nem marca truncated', () {
+    String nested(int levels) => levels == 0
+        ? '<ol></ol>'
+        : '<ol><li><a href="n$levels.xhtml">N</a>${nested(levels - 1)}'
+              '</li></ol>';
+    final nav = parseNav(_html('<nav epub:type="toc">${nested(64)}</nav>'));
+    expect(_depth(nav.toc), 64);
+    expect(nav.truncated, isFalse);
+  });
+
   test('100 000 entradas por nav: o excedente é descartado', () {
     final items = '<li><a href="a.xhtml">x</a></li>' * (maxNavEntries + 5);
     final nav = parseNav(
