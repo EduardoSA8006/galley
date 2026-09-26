@@ -325,7 +325,9 @@ do spine, `page-progression-direction`, layout, `guide` e o `id` do
 
 ### 6.4 Tipo da seção e `fallback`
 
-`SectionKind` de um item: `application/xhtml+xml` e `text/html` → `xhtml`;
+`SectionKind` de um item: `application/xhtml+xml`, `text/html` e
+`text/x-oeb1-document` (o XHTML do OEB 1.x, cujo OPF a Publicação já lê) →
+`xhtml`;
 `image/*` → `image`; outro → `unsupported`. Um item é "renderizável" quando não
 é `missing`, não é `remote` e o `kind` não é `unsupported`. Para cada item do
 spine, se ele não é renderizável, segue a cadeia de `fallback` (conjunto de
@@ -448,10 +450,17 @@ viram `unreadable`.
 ### 8.1 Conferência de ofuscação pelo `media-type`
 
 Para cada item do manifest cujo `container.obfuscationOf(path)` não é `null` e cujo
-`media-type` não é de fonte (`font/*`, `application/font-*`,
-`application/x-font-*`, `application/vnd.ms-opentype`, `application/font-woff*`):
+`media-type` não é de fonte (`isFontMediaType`: `font/*`, `application/font-*`
+— inclusive `application/font-woff*` —, `application/x-font-*`,
+`application/vnd.ms-opentype` e o genérico `application/octet-stream`, aceito
+porque não declara conteúdo e produtores antigos o usam para fontes; sem ele,
+um livro legítimo com fonte ofuscada assim declarada seria fatal, doc/09 §4):
 `EpubEncryptedException(scheme: 'unknown:obfuscation-on-content')`, fatal — a
-extensão enganou a checagem do contêiner (spec do contêiner §6).
+extensão enganou a checagem do contêiner (spec do contêiner §6). A lista bate
+item por item com `isFontMediaType` (`lib/src/publication/read_publication.dart`).
+Pendência aberta em [14](../14-pendencias.md): considerar inverter a regra —
+fatal só quando o `media-type` é consumido como conteúdo — o que dispensaria
+o caso especial de `application/octet-stream`.
 
 ### 8.2 `findCover`
 
