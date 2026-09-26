@@ -438,15 +438,20 @@ viram `unreadable`.
 ### 7.6 `reconcileToc`
 
 `List<NavPoint> reconcileToc(List<NavPoint> toc, List<SpineItem> spine, {required DiagnosticSink sink})`:
-- **Órfão:** item do spine com `linear` verdadeiro, local e presente — nem o
-  item nem o `content` são `missing` ou `remote`, porque o `path` desses é o
-  `href` cru (§5.3) e nunca pode virar `target.path` — cujo caminho
-  (`item.path`) e cujo `content.path` nenhuma entrada do TOC, em qualquer
-  nível, tem como `target.path`: uma entrada para o `content` do `fallback`
-  (`b.xhtml`) cobre o item do spine (`a.foo`). Itens com `linear: false` nunca
-  são órfãos, mas entradas existentes que apontam para eles são mantidas.
+- **Órfão:** item do spine com `linear` verdadeiro cujo `content` final é
+  local e presente (nem `missing` nem `remote`; o item em si pode ser
+  `missing` com `fallback` local, `gone.xhtml` → `b.xhtml`, porque a seção é
+  renderizada) e cujo `item.path` e `content.path` nenhuma entrada do TOC, em
+  qualquer nível, tem como `target.path`: uma entrada para o `content` do
+  `fallback` (`b.xhtml`) cobre o item do spine (`a.foo`). Item `missing` sem
+  `fallback` local e item `remote` nunca são órfãos. Itens com `linear: false`
+  nunca são órfãos, mas entradas existentes que apontam para eles são
+  mantidas.
 - Cada órfão vira entrada raiz com `synthesized: true`, `target:
-  NavTarget(item.path, null)` e título = nome do arquivo sem extensão.
+  NavTarget(content.path, null)` e título = nome do arquivo do `content` sem
+  extensão — nunca o `path` do item, que num item `missing`/`remote` é o
+  `href` cru (§5.3). Dois itens do spine com o mesmo `content` dão um órfão
+  só.
 - **Posição:** para cada entrada raiz existente, `primeira(e)` = menor índice do
   spine entre os `target.path` dela e dos descendentes, casando com o
   `item.path` ou o `content.path` de cada item (sem alvo no spine →

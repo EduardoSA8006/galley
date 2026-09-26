@@ -871,6 +871,35 @@ void main() {
       ]);
     });
 
+    test('item missing com fallback local vira órfão pelo content', () async {
+      final (p, _) = await _read({
+        'OEBPS/content.opf': opfXml(
+          items: [
+            item('gone', 'gone.xhtml', fallback: 'b'),
+            item('b', 'b.xhtml'),
+            item('fora', '../../fora.xhtml', fallback: 'c'),
+            item('c', 'c.xhtml'),
+            item('sem', 'sem.xhtml'),
+            item('r', 'https://ex.com/r.xhtml'),
+          ],
+          itemrefs: [
+            itemref('gone'),
+            itemref('fora'),
+            itemref('sem'),
+            itemref('r'),
+          ],
+        ),
+        'OEBPS/b.xhtml': chapter,
+        'OEBPS/c.xhtml': chapter,
+      });
+      expect(p.spine.first.item.missing, isTrue);
+      expect(p.spine.first.content.id, 'b');
+      expect(p.toc.map((e) => (e.title, e.target, e.synthesized)), [
+        ('b', const NavTarget('OEBPS/b.xhtml'), true),
+        ('c', const NavTarget('OEBPS/c.xhtml'), true),
+      ]);
+    });
+
     test('NAV que aponta para o content do fallback cobre o item', () async {
       final (p, sink) = await _read({
         'OEBPS/content.opf': opfXml(

@@ -242,4 +242,59 @@ void main() {
     expect(_titles(out), ['+c', 'B']);
     expect(sink.diagnostics.single.details['orphans'], 1);
   });
+
+  test('item missing com fallback local vira órfão pelo content.path', () {
+    final gone = ManifestItem(
+      id: 'gone',
+      path: 'OEBPS/gone.xhtml',
+      mediaType: 'application/xhtml+xml',
+      fallback: 'b',
+      missing: true,
+    );
+    final raw = ManifestItem(
+      id: 'raw',
+      path: '../../fora.xhtml',
+      mediaType: 'application/xhtml+xml',
+      fallback: 'c',
+      missing: true,
+    );
+    ManifestItem local(String id) => ManifestItem(
+      id: id,
+      path: 'OEBPS/$id.xhtml',
+      mediaType: 'application/xhtml+xml',
+    );
+    final b = local('b');
+    final c = local('c');
+    final spine = [
+      SpineItem(idref: 'gone', item: gone, content: b, linear: true),
+      SpineItem(idref: 'raw', item: raw, content: c, linear: true),
+    ];
+    final sink = DiagnosticSink();
+    final out = reconcileToc(const [], spine, sink: sink);
+    expect(out.map((e) => (e.title, e.target, e.synthesized)), [
+      ('b', const NavTarget('OEBPS/b.xhtml'), true),
+      ('c', const NavTarget('OEBPS/c.xhtml'), true),
+    ]);
+    expect(sink.diagnostics.single.details['orphans'], 2);
+  });
+
+  test('dois itens do spine com o mesmo content: um órfão só', () {
+    final b = ManifestItem(
+      id: 'b',
+      path: 'OEBPS/b.xhtml',
+      mediaType: 'application/xhtml+xml',
+    );
+    ManifestItem foo(String id) => ManifestItem(
+      id: id,
+      path: 'OEBPS/$id.foo',
+      mediaType: 'application/x-foo',
+      fallback: 'b',
+    );
+    final spine = [
+      SpineItem(idref: 'x', item: foo('x'), content: b, linear: true),
+      SpineItem(idref: 'y', item: foo('y'), content: b, linear: true),
+    ];
+    final out = reconcileToc(const [], spine, sink: DiagnosticSink());
+    expect(out.map((e) => e.target), [const NavTarget('OEBPS/b.xhtml')]);
+  });
 }

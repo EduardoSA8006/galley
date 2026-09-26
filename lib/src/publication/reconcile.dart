@@ -11,10 +11,13 @@ import 'href.dart';
 import 'model.dart';
 
 /// [toc] com os órfãos do spine inseridos como entradas raiz
-/// `synthesized`. Órfão: item com `linear` verdadeiro, local e presente (nem
-/// ele nem o `content` são `missing` ou `remote`: o `path` desses é o `href`
-/// cru), cujo `item.path` e cujo `content.path` nenhuma entrada, em qualquer
-/// nível, tem como `target.path`. O órfão de índice `i` entra logo depois da
+/// `synthesized`. Órfão: item com `linear` verdadeiro cujo `content` final é
+/// local e presente (nem `missing` nem `remote`; o item em si pode ser
+/// `missing` com `fallback` local), cujo `item.path` e cujo `content.path`
+/// nenhuma entrada, em qualquer nível, tem como `target.path`. O alvo e o
+/// título do órfão vêm do `content.path`, nunca do `path` do item (o de um
+/// item `missing`/`remote` é o `href` cru); dois itens com o mesmo `content`
+/// dão um órfão só. O órfão de índice `i` entra logo depois da
 /// última raiz, na ordem do TOC, cujo menor índice do spine (dela e dos
 /// descendentes, casando por `item.path` ou `content.path`) é menor que `i`;
 /// sem nenhuma, no início. Emite `tocReconciled` uma vez, se houver órfão.
@@ -51,15 +54,18 @@ List<NavPoint> reconcileToc(
       stack.addAll(point.children);
     }
   }
-  final orphans = <int>[
-    for (var i = 0; i < spine.length; i++)
-      if (spine[i].linear &&
-          _isLocal(spine[i]) &&
-          !covered.contains(spine[i].item.path) &&
-          !covered.contains(spine[i].content.path) &&
-          spineIndex[spine[i].item.path] == i)
-        i,
-  ];
+  // Um órfão por `content.path` (dois itens com o mesmo `content`, um só).
+  final targets = <String>{};
+  final orphans = <int>[];
+  for (var i = 0; i < spine.length; i++) {
+    final s = spine[i];
+    if (!s.linear || !_hasLocalContent(s)) continue;
+    if (covered.contains(s.item.path) || covered.contains(s.content.path)) {
+      continue;
+    }
+    if (spineIndex[s.item.path] != i) continue;
+    if (targets.add(s.content.path)) orphans.add(i);
+  }
   if (orphans.isEmpty) return toc;
 
   // lastBefore[i] = maior r com first[r] < i, ou -1.
@@ -78,7 +84,7 @@ List<NavPoint> reconcileToc(
   // Órfãos por posição de inserção (antes da raiz `slot`), na ordem do spine.
   final bySlot = <int, List<NavPoint>>{};
   for (final i in orphans) {
-    final path = spine[i].item.path;
+    final path = spine[i].content.path;
     (bySlot[lastBefore[i] + 1] ??= []).add(
       NavPoint(
         title: basenameWithoutExtension(path),
@@ -101,10 +107,6 @@ List<NavPoint> reconcileToc(
   return out;
 }
 
-/// Item e `content` locais e presentes: só então `item.path` é um caminho
+/// `content` local e presente: só então o `content.path` é um caminho
 /// normalizado que pode virar `NavTarget.path`.
-bool _isLocal(SpineItem s) =>
-    !s.item.missing &&
-    !s.item.remote &&
-    !s.content.missing &&
-    !s.content.remote;
+bool _hasLocalContent(SpineItem s) => !s.content.missing && !s.content.remote;
