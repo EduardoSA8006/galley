@@ -103,7 +103,9 @@ acadêmico. Resolvido via mapa de âncoras.
 
 Na ausência de `page-list` no NAV, o NCX pode ter `<pageList>` (EPUB2), e há
 EPUBs com `<span epub:type="pagebreak" id="pg214" title="214"/>` no corpo sem
-NAV correspondente. Os três são fontes; a prioridade é NAV, NCX, corpo.
+NAV correspondente. Os três são fontes; a prioridade é NAV, NCX, corpo. NAV e
+NCX são lidos pela Publicação (sub-projeto 2); o corpo, pela IR (sub-projeto
+4).
 
 `doc.pageMarkAt(Locator)` devolve a marca de página impressa em vigor no
 locator (a última marca com offset ≤ `charOffset`), para a UI exibir "p. 214"
@@ -164,13 +166,27 @@ final class EpubMetadata {
   final String? rights;
   final String? series;              // calibre:series / belongs-to-collection
   final double? seriesIndex;
-  final Map<String, List<String>> raw;   // todo <dc:*> e <meta> não mapeado, por nome
+  final Map<String, List<String>> raw;   // só o que não virou campo, por nome local
 }
 ```
 
 `raw` existe porque metadados de EPUB são um pântano de convenções (`calibre:`,
 `schema:`, `rendition:`), e o app sempre acaba precisando de um campo que não
 previmos.
+
+Regras de preenchimento ([spec da Publicação](specs/2026-09-26-publication-design.md)
+§6.2): o título é o `dc:title` com `title-type` `main`, senão o primeiro que
+não é `subtitle` nem `expanded`; o subtítulo, o primeiro `subtitle`; um
+`dc:creator` é autor sem papel ou com algum papel `aut` (`opf:role` ou
+`<meta refines property="role">`), senão colaborador; a série vem de
+`belongs-to-collection` com `collection-type` `series` (ou sem tipo), senão de
+`calibre:series`; `published` é o `dc:date` de `opf:event="publication"` (ou o
+primeiro que não é de modificação) e `modified` o `dcterms:modified`, com
+datas parciais (`YYYY`, `YYYY-MM`) no primeiro dia. `raw` guarda só o que não
+virou campo, pelo nome local do `dc:*` ou pelo `property`/`name` do `meta`
+(pelo texto do elemento, ou pelo `content` quando o texto é vazio). Elemento
+de `metadata` com `id` repetido: só o primeiro é o dono para efeito de
+`<meta refines>`.
 
 ```dart
 final class EpubTocEntry {
@@ -212,7 +228,13 @@ Em ordem, a primeira que resolver:
 4. Item do manifest cujo `id` ou `href` contém "cover" e é imagem
 5. Primeira imagem da primeira seção do spine
 
-Cada passo abaixo do 2 emite `coverHeuristic` como diagnóstico `info`.
+Cada passo abaixo do 2 emite `coverHeuristic` como diagnóstico `info`. Os
+passos 1, 2 e 4 são da Publicação (sub-projeto 2), que pula itens `missing` e
+`remote` (um item achado que não seja imagem também não é usado, e a busca
+segue para o próximo passo); o passo 2 resolve `content` pelo `id` e, sem
+casamento, pelo `href` relativo ao diretório do OPF; o passo 4, entre vários
+candidatos, prefere o de nome exatamente `cover`. Os passos 3 e 5 olham a
+seção e ficam para o sub-projeto 6.
 
 ## 6. Navegação programática
 

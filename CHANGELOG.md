@@ -1,5 +1,12 @@
 ## Não lançado
 
+- Fase 1, sub-projeto 2 (publicação): `container.xml`, OPF (metadados com
+  `refines`, série, datas parciais e `raw`), NAV e NCX com limites contra
+  arquivo hostil, normalização de `href` com tentativa dupla de `%xx`,
+  `fallback` do spine, TOC reconciliado com o spine, landmarks, `page-list`,
+  capa, direção e layout; `EpubPackageException`, `EpubMetadata`,
+  `EpubReadingDirection` e `EpubLayoutMode` públicos.
+
 - Fase 1, sub-projeto 1 (contêiner): leitor de ZIP próprio com leitura por
   faixas, ZIP64, prefixo e limites contra arquivo hostil; inflate chunked com
   CRC-32 sempre verificado; detecção de DRM (LCP, ADEPT, criptografia do ZIP);

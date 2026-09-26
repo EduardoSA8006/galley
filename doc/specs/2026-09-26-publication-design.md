@@ -1,7 +1,8 @@
 # Publicação (Fase 1, sub-projeto 2) — design
 
-**Data:** 2026-09-26. **Estado:** aprovada em conversa (desenho em quatro seções),
-com uma revisão independente cujos achados estão incorporados.
+**Data:** 2026-09-26. **Estado:** aprovada e implementada (plano em
+`doc/plans/2026-09-26-publication.md`; desenho em quatro seções, com uma
+revisão independente cujos achados estão incorporados).
 **Branch:** `fase1/publicacao`.
 
 ## 1. Objetivo
@@ -173,12 +174,16 @@ normalizado relativo à raiz do contêiner, ou `null` quando o `href` é inváli
 Não decodifica `%xx`.
 
 1. Esquema (`[a-zA-Z][a-zA-Z0-9+.-]*:` no início, ex.: `http:`, `mailto:`,
-   `data:`) → `null`.
+   `data:`) → `null`. Contém `\u0000` → `null`.
 2. Tira `?query` e `#fragmento` (o fragmento sai por `splitFragment`).
 3. Troca `\` por `/`.
 4. Resolve contra `baseDir` (diretório do documento que contém o `href`, sem `/`
    final; vazio na raiz); `href` que começa com `/` é relativo à raiz.
-5. Colapsa `.`, `..` e barras repetidas. Um `..` que sai da raiz → `null`.
+5. Colapsa `.`, `..` e barras repetidas. Um `..` que sai da raiz → `null`. Um
+   segmento que revela esquema/letra de drive (`C:`…), ou que, tirados os
+   pontos e espaços finais, fica vazio sem ser exatamente `.` ou `..`
+   (`".. "`, `"..."`), também invalida o caminho inteiro (o que o Win32
+   enxergaria como `.`/`..` ao gravar em disco).
 6. Caminho vazio → `null`.
 
 `(String path, String? fragment) splitFragment(String raw)` separa no primeiro
@@ -188,11 +193,18 @@ tolerante (fica cru se não decodificar).
 ### 5.2 `decodePath`
 
 `String? decodePath(String normalized)`: decodifica `%xx` segmento a segmento
-(`Uri.decodeComponent`; segmento que não decodifica fica cru) e **reaplica os
-passos 3–6** de §5.1 ao resultado. `%2F` decodificado não é separador: um segmento
-que, decodificado, contém `/` fica cru. Se o resultado sai da raiz ou fica vazio,
-devolve `null` (vale só a forma crua). Fecha a travessia por `%2e%2e` e mantém o
-contrato do contêiner (caminhos sem `\`, `%xx` e `..`).
+**com um decodificador próprio, linear e tolerante a IRI** (não
+`Uri.decodeComponent`): `%xx` vira o byte, `%` sem dois hex depois fica o
+byte do próprio `%`, e caractere literal (inclusive não ASCII) vira os bytes
+UTF-8 dele; no fim, `utf8.decode` estrito sobre os bytes do segmento — quando
+lança (overlong, sequência inválida), o segmento fica cru. `%2F` decodificado
+não é separador: um segmento que, decodificado, contém `/` também fica cru, e
+o mesmo vale para um segmento cujo decodificado contém caractere de controle
+(`U+0000`–`U+001F`, `U+007F`). Depois, **reaplica os passos 3–6** de §5.1 ao
+resultado. Se o resultado sai da raiz, fica vazio, ou revela um
+esquema/letra de drive ou um segmento só de pontos e espaços, devolve `null`
+(vale só a forma crua). Fecha a travessia por `%2e%2e` e mantém o contrato do
+contêiner (caminhos sem `\`, `%xx` e `..`).
 
 ### 5.3 Itens do manifest (orquestrador)
 
@@ -210,18 +222,20 @@ Para cada item, a partir do `href` cru e do diretório do OPF:
   `resourceUnreadable` (`href` = caminho, `details: {reason: 'exists',
   exception}`).
 
-### 5.4 Alvos de NAV e NCX (orquestrador)
+### 5.4 Alvos de NAV, NCX e `guide` (orquestrador)
 
 Os parsers devolvem o `href` **cru** de cada entrada; o orquestrador resolve
 contra o diretório do documento que contém a entrada (NAV ou NCX):
 - `href` com esquema → `target: null`, sem diagnóstico.
 - `href` só com fragmento (`#frag`) → o próprio documento (caminho do NAV ou NCX)
-  com o fragmento.
+  com o fragmento. Não vale para o `guide` do OPF (§6.3): o OPF não é
+  documento de leitura, então `#frag` sozinho fica sem alvo (`target: null`).
 - Senão, `normalizeHref` e casamento com o `path` de algum item do manifest, nesta
   ordem: forma decodificada exata, forma crua exata, decodificada sem diferenciar
-  maiúsculas, crua sem diferenciar maiúsculas. Casou → `target.path` = o `path` do
-  item. Não casou → `target.path` = a forma decodificada (ou a crua), sem
-  diagnóstico (a resolução é do sub-projeto 6).
+  maiúsculas, crua sem diferenciar maiúsculas — a mesma caixa dobrada do
+  `ZipContainer` (§9). Casou → `target.path` = o `path` do item. Não casou →
+  `target.path` = a forma decodificada (ou a crua), sem diagnóstico (a
+  resolução é do sub-projeto 6).
 - `href` recusado por `normalizeHref` (fora da raiz) → `target: null`.
 
 ## 6. OPF
@@ -257,7 +271,10 @@ do spine, `page-progression-direction`, layout, `guide` e o `id` do
   **algum** papel é `aut`; senão colaborador. `dc:contributor` é sempre
   colaborador. Papel = `opf:role` (EPUB2) ou `<meta refines="#id" property="role">`
   (EPUB3; vários permitidos). `role` só vale para `dc:creator`/`dc:contributor`
-  (refinando outro elemento, fica em `raw`).
+  (refinando outro elemento, fica em `raw`). Elemento de `metadata` com `id`
+  repetido: só o primeiro é o dono do `id` para efeito de `<meta refines>`; os
+  demais não recebem refinamento nenhum (evita reler a lista de refinamentos
+  inteira por cópia num OPF hostil).
 - **Série:** de `belongs-to-collection` só quando algum `collection-type`
   refinado é `series` ou quando não há `collection-type`; índice de
   `group-position`. Com `collection-type` `set` (listas, coleções), vai para
@@ -266,12 +283,23 @@ do spine, `page-progression-direction`, layout, `guide` e o `id` do
 - **Datas:** `published` = o `dc:date` com `opf:event="publication"`; senão o
   primeiro `dc:date` sem `opf:event` ou com outro evento que não seja
   `modification`; `modified` = `<meta property="dcterms:modified">`; senão o
-  `dc:date` com `opf:event="modification"`. Datas parciais: `YYYY` → 1º de
-  janeiro, `YYYY-MM` → dia 1; o que não parseia fica `null` (o texto em `raw`).
+  `dc:date` com `opf:event="modification"`. Gramática (subconjunto validado de
+  ISO 8601): `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, ou `YYYY-MM-DDThh:mm(:ss(.fração)?)?`
+  com `Z` ou `±hh:mm` opcional. Datas parciais: `YYYY` → 1º de janeiro,
+  `YYYY-MM` → dia 1. Sem offset, vale UTC; offset até 14:00 (hora 0–14, minuto
+  0–59, e minuto 0 quando a hora é 14); os componentes de calendário e de hora
+  são validados (mês, dia, hora, minuto, segundo fora do intervalo, ou
+  `2021-02-29`, invalidam). A saída é sempre `isUtc`. O candidato escolhido
+  pela regra acima que não parseia deixa o campo `null` (não se tenta o
+  seguinte) e o texto (até 64 caracteres; acima disso também `null`) fica em
+  `raw`.
 - **Demais:** `language` = primeiro `dc:language`; `publisher`, `description`,
   `rights` = primeiro de cada; `subjects` = todos os `dc:subject`.
-- **`raw`:** o que não virou campo. `<meta name content>` (EPUB2) entra com o
-  `content`; `<meta property>` (EPUB3) com o texto.
+- **`raw`:** o que não virou campo, incluindo os refinamentos usados para
+  decidir (`title-type`, `role`, `collection-type`/`group-position`) e os
+  demais `dc:identifier` (`EpubMetadata` só expõe um). `<meta name content>`
+  (EPUB2) entra com o `content`; `<meta property>` (EPUB3) com o texto, ou com
+  o `content` quando o texto é vazio.
 
 ### 6.3 Identificadores, manifest e spine
 
@@ -283,9 +311,12 @@ do spine, `page-progression-direction`, layout, `guide` e o `id` do
   (`href: null`, `details: {reason, id?}`); `id` duplicado → vale o primeiro.
   Item cujo caminho resolvido é o próprio OPF ou termina em `/` → `missing`.
 - **Spine:** `idref` sem item → `spineItemUnresolved` (`warning`, `href: opfPath`,
-  `details: {idref}`) e o `itemref` é ignorado. `idref` (ou caminho) repetido →
-  vale o primeiro, e emite `spineItemDuplicate` (`info`, código novo, `href:
-  opfPath`, `details: {idref}`). `page-progression-direction` → `direction`
+  `details: {idref}`) e o `itemref` é ignorado. `idref` (ou caminho, sem
+  diferenciar maiúsculas, como o `ZipContainer`, §9) repetido → vale o
+  primeiro, e emite `spineItemDuplicate` (`info`, código novo, `href:
+  opfPath`, `details: {idref}`) — dois itens cujo `path` só difere na caixa
+  (o OCF proíbe, mas nada barra o arquivo) caem nessa regra, e o segundo é
+  descartado como se fosse o mesmo caminho. `page-progression-direction` → `direction`
   (`ltr`/`rtl`; ausente ou `default` → `auto`). O `toc` do spine é guardado.
 - **Layout:** `<meta property="rendition:layout">pre-paginated</meta>` global →
   `prePaginated`; senão `reflowable`.
@@ -295,13 +326,19 @@ do spine, `page-progression-direction`, layout, `guide` e o `id` do
 ### 6.4 Tipo da seção e `fallback`
 
 `SectionKind` de um item: `application/xhtml+xml` e `text/html` → `xhtml`;
-`image/*` → `image`; outro → `unsupported`. Para cada item do spine, se o item
-não é `xhtml` nem `image`, ou é `missing`, segue a cadeia de `fallback` (conjunto
-de visitados para ciclo, no máximo 16 passos) até o primeiro item `xhtml`/`image`
-não `missing`; esse é o `content`. Se a cadeia não resolve, `content` = o próprio
-item, e, quando ele é `unsupported`, emite `unsupportedMediaType` (`warning`,
-`href` = caminho, `details: {mediaType}`). Item `missing` continua no spine (a IR
-faz a seção placeholder).
+`image/*` → `image`; outro → `unsupported`. Um item é "renderizável" quando não
+é `missing`, não é `remote` e o `kind` não é `unsupported`. Para cada item do
+spine, se ele não é renderizável, segue a cadeia de `fallback` (conjunto de
+visitados para ciclo, no máximo 16 passos) até o primeiro item renderizável;
+esse é o `content` — um item `remote` nunca vira `content` de outro, exatamente
+pela mesma regra que o exclui de ser `content` de si mesmo. Se a cadeia não
+resolve (inclusive por não ter `fallback`), `content` = o próprio item, e,
+quando ele é `unsupported`, emite `unsupportedMediaType` (`warning`,
+`href` = caminho, `details: {mediaType}`); um XHTML `remote` sem `fallback`
+local chega assim: `content` é ele mesmo, com `kind: xhtml` e
+`content.remote: true` (sem diagnóstico — o sub-projeto 6 trata como
+`missing`, já que não há bytes locais para abrir). Item `missing` continua no
+spine (a IR faz a seção placeholder).
 
 ## 7. NAV, NCX, landmarks, `page-list` e reconciliação
 
@@ -327,15 +364,37 @@ indexando `children`, [03](../03-camada-a-ir.md) §8), devolve `toc`,
 - `a` com `href` → `href` cru; `span` ou `a` sem `href` → sem alvo.
 - Em `landmarks`, `type` = `epub:type` do `a`.
 - Limites contra arquivo hostil: profundidade 64 e 100 000 entradas **por
-  `nav`**; o excedente é descartado e o `NavDocument` marca `truncated: true`.
+  `nav`**; o excedente é descartado e o `NavDocument` marca `truncated: true`
+  — só quando existe alguma entrada além do limite (uma lista vazia no nível
+  65 não conta: não custou nada percorrê-la).
+
+**Pré-passe (`htmlWorkCut`):** antes do parse, o texto é tokenizado e
+re-serializado como um HTML canônico, o único texto que `html.parse` recebe,
+numa passada linear: comentários, DOCTYPE, `<?…>`/`<!…>` saem; CDATA vira
+texto escapado; os elementos de texto cru (RCDATA/RAWTEXT, `plaintext`) e as
+subárvores `svg`/`math` saem com o conteúdo (o texto dentro delas some dos
+rótulos); as tags ficam só com os atributos que `parseNav` lê (`alt`,
+`epub:type`, `href`, `title`), entre aspas duplas; nome de tag acima de 32
+caracteres vira um nome neutro `x-<hash>` (igual na abertura e no
+fechamento); `<x/>` de elemento que não é vazio de conteúdo vira `<x></x>`
+(o HTML5 ignora a barra); no texto, `<` que não abre tag vira `&lt;`, e uma
+referência numérica acima de U+10FFFF vira `&#xFFFD;` (o tokenizador do
+`package:html` 0.15.7 faz `int.parse` dos dígitos e lançaria
+`FormatException` acima de 2^63). Sobre esses tokens, um modelo de pilha e
+custo (que nunca fica menor que a pilha do parser real) estima o trabalho da
+construção da árvore e corta o texto onde ele passaria de [`navParseBudget`]
+(o `NavDocument` marca `truncated: true`). Se, apesar disso, `html.parse`
+lançar `FormatException` (rede de segurança), o NAV conta como inutilizável:
+sem entradas nenhuma, e o leitor segue para o NCX (`navIgnored` `no-toc`).
 
 ### 7.3 `parseNcx`
 
 `NcxDocument parseNcx(String text)` com `package:xml`: `navMap/navPoint`
 recursivo (`navLabel/text`, `content@src`) e `pageList/pageTarget`, por nome
 local. `playOrder` é ignorado (vale a ordem do documento). `navPoint` sem
-`content` → sem alvo. Mesmos limites e `truncated` de §7.2. XML inválido lança
-`XmlException`.
+`content` → sem alvo. Mesmos limites de §7.2, e `truncated` com a mesma
+regra (só quando existe `navPoint`/`pageTarget` além do limite). XML inválido
+lança `XmlException`.
 
 ### 7.4 Precedência
 
@@ -397,14 +456,22 @@ extensão enganou a checagem do contêiner (spec do contêiner §6).
 ### 8.2 `findCover`
 
 `String? findCover(OpfDocument opf, Map<String, ManifestItem> manifest, {required DiagnosticSink sink})`,
-na ordem ([06](../06-locator-navegacao.md) §5.1, só os passos de pacote):
+na ordem ([06](../06-locator-navegacao.md) §5.1, só os passos de pacote); os
+passos 1 e 2 só valem para item de `image/*` — um item achado que não seja
+imagem, ou que seja `missing`/`remote`, não é usado, e a busca segue para o
+próximo passo:
 1. item com `properties` contendo `cover-image`;
-2. item cujo `id` é o `content` do `<meta name="cover">`;
+2. item cujo `id` é o `content` do `<meta name="cover">`; sem casamento por
+   `id`, o `content` é resolvido como `href` contra o diretório do OPF e
+   casado com o `path` de algum item;
 3. item de `image/*` cujo `id` ou `path`, sem diferenciar maiúsculas, contém
-   `cover` — emite `coverHeuristic` (`info`, `href` = caminho).
+   `cover` — emite `coverHeuristic` (`info`, `href` = caminho); entre vários
+   candidatos, prefere o de nome exatamente `cover`, senão o primeiro na
+   ordem do manifest.
 
-Itens `missing` ou `remote` são pulados em todos os passos. Nenhum → `null`. Os
-passos 3 e 5 de 06 §5.1 (que olham a seção) ficam para o sub-projeto 6.
+Itens `missing` ou `remote` são pulados em todos os passos. Nenhum → `null`
+(no máximo três passadas pelo manifest). Os passos 3 e 5 de 06 §5.1 (que
+olham a seção) ficam para o sub-projeto 6.
 
 ## 9. Orquestrador, exceções e diagnósticos
 
@@ -438,7 +505,21 @@ não é drenado (OPF → fatal; NAV/NCX → `navIgnored`, `too-large`); senão o
 A exceção lançada pelo `DiagnosticSink` em `strict` sempre propaga como está.
 Os `emit` da Publicação passam `onStrict: (m) => EpubPackageException(m, href: …)`,
 então um warning da Publicação em `strict` lança `EpubPackageException` com o nome
-do código na mensagem.
+do código na mensagem. Em volta de todo `fetch`/`decode()` que pode
+atravessar essa exceção (leitura do OPF, do NAV, do NCX), o orquestrador
+reconhece a exceção do sink **por identidade** (`identical(e,
+sink.lastStrictException)`), nunca pela mensagem: o `DiagnosticSink` guarda a
+última exceção que ele mesmo lançou, e é essa referência que decide se o
+`catch` genérico de `EpubException` deve deixar a exceção propagar ou
+converter em `resourceUnreadable`/`navIgnored`.
+
+O casamento de caminho — do spine (`idref`/caminho repetido, §6.3), dos
+alvos de NAV/NCX/`guide` (§5.4) e de um item do manifest contra o próprio
+`opfPath` (para detectar um item que aponta para o OPF, §6.3) — não
+diferencia maiúsculas, com a caixa dobrada por `toLowerCase`: o mesmo
+critério do `ZipContainer` (`CentralDirectory.lookup`, spec do contêiner),
+para que dois nomes que só o sistema de arquivos ou o produtor tratam como
+iguais não pareçam dois recursos diferentes para a Publicação.
 
 ### 9.2 Diagnósticos
 

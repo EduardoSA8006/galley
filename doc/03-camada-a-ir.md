@@ -88,19 +88,28 @@ emitimos diagnóstico mas seguimos, porque muitos arquivos reais violam isso.
 ## 3. Publicação
 
 ```dart
-final class EpubPublication {
-  final EpubMetadata metadata;
-  final List<SpineItem> readingOrder;
-  final Map<String, ManifestItem> manifest;
-  final List<EpubTocEntry> toc;
-  final List<EpubPageMark> pageList;      // do NAV epub:type="page-list"
-  final List<EpubTocEntry> landmarks;     // do NAV epub:type="landmarks"
-  final String? coverHref;                // ver 06 §5.1
+final class EpubPublication {             // interna: lib/src/publication/model.dart
+  final String opfPath, version;
+  final EpubMetadata metadata;            // pública (06 §5)
+  final Map<String, ManifestItem> manifest; // por id, caminho resolvido, missing/remote
+  final List<SpineItem> spine;            // doc.readingOrder no sub-projeto 6
+  final List<NavPoint> toc;               // reconciliado (§3.1); EpubTocEntry no 6
+  final List<NavPoint> pageList;          // NAV, senão NCX (06 §3); EpubPageMark no 6
+  final List<NavPoint> landmarks;         // NAV, senão guide do OPF
+  final String? coverPath;                // passos de pacote de 06 §5.1; coverHref no 6
+  final String? navPath, ncxPath;         // documentos lidos (chave do livro, 08 §4.1)
   final EpubReadingDirection direction;   // page-progression-direction
   final EpubLayoutMode layout;            // reflowable | prePaginated
-  final int totalChars;                   // soma das seções, para progresso
+  final List<String> uniqueIdentifiers, identifiers; // chaves IDPF e Adobe (09 §4)
 }
 ```
+
+Implementada em `lib/src/publication/` (Fase 1, sub-projeto 2;
+[spec](specs/2026-09-26-publication-design.md)): só o nível do pacote
+(`container.xml`, OPF, NAV e NCX), sem abrir seção. Os tipos públicos com
+`Locator` (`EpubTocEntry`, `EpubPageMark`) são montados pelo `EpubDocument`
+no sub-projeto 6 a partir de `NavPoint`; `totalChars` (soma das seções, para
+progresso) vem da IR, no sub-projeto 4.
 
 ### 3.1 Reconciliação NCX × spine
 
@@ -108,9 +117,13 @@ EPUBs reais têm navegação incompleta. Quando o NAV/NCX não cobre todos os it
 do spine:
 
 1. Preserva a hierarquia da navegação para os itens que ela contém
-2. Inclui itens órfãos do spine como entradas de nível raiz, na posição correta
-   da ordem de leitura, com título derivado do primeiro heading da seção ou, na
-   falta dele, do nome do arquivo
+2. Inclui itens órfãos do spine (com `linear` verdadeiro e sem entrada, em
+   nenhum nível, que aponte para eles) como entradas de nível raiz marcadas
+   `synthesized`, logo depois da última entrada raiz, na ordem do TOC, cujo
+   menor índice do spine (dela e dos descendentes) é anterior ao do órfão; sem
+   nenhuma, no início; órfãos no mesmo ponto ficam na ordem do spine. O título
+   é o nome do arquivo sem extensão; o primeiro heading da seção fica como
+   gancho para a IR (sub-projeto 4). Emite `tocReconciled` uma vez
 3. A ordem de leitura vem **sempre** do spine, nunca do TOC
 4. Itens com `linear="no"` ficam no spine (participam do progresso e podem ser
    alvo de link), mas são pulados por `next()`/`prev()` e marcados em
@@ -125,14 +138,17 @@ Quando NAV e NCX coexistem (EPUB3 com NCX de compatibilidade), o NAV vence.
 | Caso | Tratamento |
 |---|---|
 | `href` com separador do Windows (`\`) | Normalizado para `/` |
-| `href` URL-encoded | Decodificado; tentativa dupla (cru e decodificado) |
-| `href` relativo ao OPF em subpasta | Resolvido contra o diretório do OPF, depois normalizado (`..` colapsado) |
+| `href` URL-encoded | Decodificado segmento a segmento; tentativa dupla (decodificado, depois cru); `%2e%2e` que sairia da raiz e `%2F` ficam crus |
+| `href` relativo ao OPF em subpasta | Resolvido contra o diretório do OPF, depois normalizado (`..` colapsado); `..` além da raiz recusa o `href` |
+| `href` recusado (esquema que não é `http:`/`https:`, fora da raiz, vazio) | Item `missing`, `resourceMissing` com `href: null` e `details: {id, raw}` |
+| `href` `http:`/`https:` | Item `remote`, sem diagnóstico |
 | Diferença de caixa entre manifest e ZIP | Segunda tentativa case-insensitive, com diagnóstico `pathCaseMismatch` |
-| Item do manifest sem arquivo no ZIP | Seção de placeholder + `EpubDiagnostic.resourceMissing` |
+| Item do manifest sem arquivo no ZIP | Item `missing` com `resourceMissing` (`href` = caminho); seção de placeholder na IR |
 | Item só-imagem no spine (`image/*` no media-type) | Seção com um único `Block(kind: object)` |
-| Item com media-type não renderizável (PDF, áudio) | Seção de placeholder com o nome e o tipo, diagnóstico `unsupportedMediaType` |
+| Item com media-type não renderizável (PDF, áudio) | Segue a cadeia de `fallback` (até 16 passos, com detecção de ciclo) até um XHTML ou imagem existente; sem ela, seção de placeholder com o nome e o tipo e `unsupportedMediaType` (`href` = caminho) |
 | Spine vazio | `EpubPackageException` (fatal) |
-| `idref` do spine sem item no manifest | Item ignorado, diagnóstico `spineItemUnresolved` |
+| `idref` do spine sem item no manifest | Item ignorado, diagnóstico `spineItemUnresolved` (`href` = OPF) |
+| `idref` ou caminho repetido no spine | Vale o primeiro, diagnóstico `spineItemDuplicate` (`href` = OPF) |
 
 ## 4. A IR
 

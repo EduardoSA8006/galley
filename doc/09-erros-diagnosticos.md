@@ -33,7 +33,7 @@ abstract base class EpubException implements Exception {
 | Exceção | Quando | Fatal? | Recuperação |
 |---|---|---|---|
 | `EpubContainerException` | ZIP corrompido (EOCD ou central directory ilegível), `container.xml` ausente; depois de `open`, entrada ilegível (método não suportado, dados corrompidos, acima de `maxEntrySize`) | **Sim**, em `open`; depois dele, é falha de uma entrada | Entrada ilegível vira seção `placeholder` com `resourceUnreadable`; só é fatal quando é o `container.xml` ou o OPF |
-| `EpubPackageException` | OPF malformado, spine vazio | **Sim**, em `open` | — |
+| `EpubPackageException` | OPF ausente (nenhum `rootfile` existe), acima de 4 MiB, com XML inválido, raiz que não é `package` ou sem `manifest`/`spine`; spine vazio depois de descartar `idref` sem item; em `strict`, também todo warning da Publicação, com o nome do código na mensagem ([spec da Publicação](specs/2026-09-26-publication-design.md) §9.1) | **Sim**, em `open` | — |
 | `EpubEncryptedException` | `META-INF/license.lcpl`, `rights.xml`, o bit 0 da flag do ZIP, ou `encryption.xml` com esquema de DRM sobre conteúdo — inclusive `encryption.xml` ilegível ou acima do teto de tamanho (§4) | **Sim**, em `open`, com o esquema na mensagem (§4) | Provider que decifra ([07](07-api-publica.md) §4) |
 | `EpubUnsupportedException` | `EpubFidelity.faithful` na v1.0; `layout == prePaginated` na v1.0 | **Sim**, na construção de `EpubLayoutEngine`/`EpubReader` (não em `open`: o app ainda pode ler metadados e capa) | — |
 | `EpubResourceMissingException` | `href` do manifest sem arquivo no ZIP | Não | Seção `placeholder` |
@@ -111,6 +111,8 @@ final class EpubDiagnosticCode {
 | `locatorRepaired` | warning | Offset não validou; offset antigo, novo e confiança |
 | `tocReconciled` | info | Itens órfãos do spine inseridos no TOC |
 | `coverHeuristic` | info | Capa encontrada por heurística, qual |
+| `navIgnored` | info | NAV ou NCX não usado; `details.reason`: `missing`, `too-large`, `unreadable`, `invalid`, `no-toc` ou `truncated` |
+| `spineItemDuplicate` | info | `idref` (ou caminho) repetido no spine; vale o primeiro |
 | `cacheMiss` | info | Recomputou por falha de cache |
 | `mimetypeIrregular` | info | `mimetype` ausente, fora do primeiro lugar, comprimido, com conteúdo errado ou ilegível, ou ZIP com prefixo; o motivo em `details.reason` |
 | `zipCrcMismatch` | warning | CRC-32 divergente (`reason: crc`) ou saída menor que a declarada (`reason: size`); sempre verificado |
@@ -168,6 +170,14 @@ diretos (`EncryptedData > CipherData > CipherReference`,
 `EncryptedData > KeyInfo`, `KeyInfo > RetrievalMethod`), por nome local em
 qualquer namespace; a busca do namespace ADEPT dentro do `KeyInfo` não desce
 para `EncryptedData` aninhados.
+
+A checagem do contêiner é pela extensão; a Publicação confere, pelo
+`media-type` do manifest, que a ofuscação declarada é mesmo sobre fonte
+(`font/*`, `application/font-*`, `application/x-font-*`,
+`application/vnd.ms-opentype` ou o genérico `application/octet-stream`): um
+item de conteúdo com extensão de fonte e ofuscação declarada é
+`EpubEncryptedException` com `unknown:obfuscation-on-content`
+([spec da Publicação](specs/2026-09-26-publication-design.md) §8.1).
 
 `encryption.xml` e `rights.xml` têm um teto próprio de tamanho,
 `maxMetadataSize` (4 MiB): livros reais têm poucos KiB, e ler/parsear um

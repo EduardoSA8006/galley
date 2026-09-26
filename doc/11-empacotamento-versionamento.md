@@ -132,7 +132,8 @@ galley/
   lib/
     galley.dart                   # export público mínimo
     src/
-      container/                  # byte source, zip, inflate, opf, nav, ncx, encryption
+      container/                  # byte source, zip, inflate, encryption, fontes
+      publication/                # container.xml, OPF, NAV, NCX, href, reconciliação, capa
       diagnostics/                # EpubException, EpubDiagnostic, DiagnosticSink
       ir/                         # blocos, runs, normalização, serialização
       css/                        # subconjunto, cascata, três classes
@@ -146,6 +147,7 @@ galley/
   test/
     container/                    # ZIP, inflate, DRM, fontes e o contêiner sobre o corpus
     diagnostics/                  # exceções e DiagnosticSink
+    publication/                  # parsers, orquestrador, Publicação sobre o corpus, fuzz
     corpus/                       # os 40–50 arquivos + READMEs + diagnósticos esperados
     invariants/                   # as 9 invariantes
     snapshots/                    # gate textual (FlutterTest e fonte OFL)
