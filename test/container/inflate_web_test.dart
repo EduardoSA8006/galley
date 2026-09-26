@@ -5,7 +5,9 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:galley/galley.dart';
 import 'package:galley/src/container/inflate/inflate.dart';
+import 'package:galley/src/container/zip/zip_container.dart';
 
 void main() {
   test('createInflater lança UnsupportedError citando P7 e 1.0.x', () {
@@ -20,4 +22,12 @@ void main() {
       ),
     );
   });
+
+  test(
+    'o pacote compila no web; FileEpubByteSource lança UnsupportedError',
+    () {
+      expect(ZipContainer.open, isNotNull);
+      expect(() => FileEpubByteSource('a.epub'), throwsUnsupportedError);
+    },
+  );
 }
