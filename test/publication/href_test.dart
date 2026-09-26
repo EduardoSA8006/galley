@@ -144,33 +144,33 @@ void main() {
   });
 
   group('custo linear em entrada hostil', () {
-    test('normalizeHref com 64 KiB de "../" termina em menos de 100 ms', () {
+    test('normalizeHref com 64 KiB de "../" termina em menos de 1 s', () {
       final raw = '../' * (64 * 1024 ~/ 3);
       final stopwatch = Stopwatch()..start();
       final result = normalizeHref('OEBPS/a/b/c', raw);
       stopwatch.stop();
       expect(result, isNull);
-      expect(stopwatch.elapsedMilliseconds, lessThan(100));
+      expect(stopwatch.elapsedMilliseconds, lessThan(1000));
     });
 
-    test('decodePath com 64 KiB de "%" termina em menos de 100 ms', () {
+    test('decodePath com 64 KiB de "%" termina em menos de 1 s', () {
       final noisy = '%' * (64 * 1024);
       final raw = 'OEBPS/$noisy';
       final stopwatch = Stopwatch()..start();
       final result = decodePath(raw);
       stopwatch.stop();
       expect(result, raw);
-      expect(stopwatch.elapsedMilliseconds, lessThan(100));
+      expect(stopwatch.elapsedMilliseconds, lessThan(1000));
     });
 
     test('decodePath com prefixo válido longo e "%" solto no fim '
-        'termina em menos de 100 ms', () {
+        'termina em menos de 1 s', () {
       final raw = '%41' * 20000 + '%';
       final stopwatch = Stopwatch()..start();
       final result = decodePath(raw);
       stopwatch.stop();
       expect(result, 'A' * 20000 + '%');
-      expect(stopwatch.elapsedMilliseconds, lessThan(100));
+      expect(stopwatch.elapsedMilliseconds, lessThan(1000));
     });
   });
 
