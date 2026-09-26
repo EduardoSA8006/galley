@@ -1,7 +1,8 @@
 /// Motor de renderização de EPUB nativo para Flutter.
 ///
-/// Fase 1, sub-projeto 1 (contêiner): fonte de bytes, provider de recursos,
-/// exceções e diagnósticos. Ver `doc/` para a arquitetura.
+/// Fase 1, sub-projetos 1 (contêiner: fonte de bytes, provider de recursos,
+/// exceções e diagnósticos) e 2 (publicação: metadados, direção e layout).
+/// Ver `doc/` para a arquitetura.
 library;
 
 export 'src/container/byte_source.dart'
@@ -10,5 +11,11 @@ export 'src/container/resource_provider.dart' show EpubResourceProvider;
 export 'src/diagnostics/diagnostic.dart'
     show EpubDiagnostic, EpubDiagnosticCode, EpubSeverity;
 export 'src/diagnostics/exceptions.dart'
-    show EpubContainerException, EpubEncryptedException, EpubException;
+    show
+        EpubContainerException,
+        EpubEncryptedException,
+        EpubException,
+        EpubPackageException;
 export 'src/io/file_byte_source.dart' show FileEpubByteSource;
+export 'src/publication/metadata.dart' show EpubMetadata;
+export 'src/publication/model.dart' show EpubLayoutMode, EpubReadingDirection;
