@@ -132,6 +132,20 @@ void main() {
       expect(m.title, 'Só');
       expect(m.subtitle, isNull);
     });
+
+    test('title-type duplicado no mesmo título: só o primeiro decide', () {
+      final m = _parse(
+        _opf(
+          metadata:
+              '<dc:title id="t1">Só</dc:title>'
+              '<meta refines="#t1" property="title-type">main</meta>'
+              '<meta refines="#t1" property="title-type">subtitle</meta>',
+        ),
+      ).metadata;
+      expect(m.title, 'Só');
+      expect(m.subtitle, isNull);
+      expect(m.raw['title-type'], ['subtitle']);
+    });
   });
 
   group('autores e colaboradores', () {
@@ -246,6 +260,48 @@ void main() {
       expect(m.series, 'EPUB3');
       expect(m.raw['calibre:series'], ['Calibre']);
     });
+
+    test('seriesIndex não finito (NaN, Infinity, 1e400) fica null', () {
+      for (final bad in ['NaN', 'Infinity', '-Infinity', '1e400']) {
+        final m = _parse(
+          _opf(
+            metadata:
+                '<meta property="belongs-to-collection" id="c">Saga</meta>'
+                '<meta refines="#c" property="group-position">$bad</meta>',
+          ),
+        ).metadata;
+        expect(m.series, 'Saga', reason: bad);
+        expect(m.seriesIndex, isNull, reason: bad);
+        expect(m.raw['group-position'], [bad], reason: bad);
+      }
+    });
+
+    test('group-position duplicado: só o primeiro decide; o resto em raw', () {
+      final m = _parse(
+        _opf(
+          metadata:
+              '<meta property="belongs-to-collection" id="c">Saga</meta>'
+              '<meta refines="#c" property="group-position">1</meta>'
+              '<meta refines="#c" property="group-position">2</meta>',
+        ),
+      ).metadata;
+      expect(m.series, 'Saga');
+      expect(m.seriesIndex, 1.0);
+      expect(m.raw['group-position'], ['2']);
+    });
+
+    test('calibre:series_index inválido: null, texto em raw', () {
+      final m = _parse(
+        _opf(
+          metadata:
+              '<meta name="calibre:series" content="Discworld"/>'
+              '<meta name="calibre:series_index" content="NaN"/>',
+        ),
+      ).metadata;
+      expect(m.series, 'Discworld');
+      expect(m.seriesIndex, isNull);
+      expect(m.raw['calibre:series_index'], ['NaN']);
+    });
   });
 
   group('datas', () {
@@ -303,7 +359,7 @@ void main() {
       expect(m.raw['dcterms:modified'], ['2020-13']);
     });
 
-    test('parseEpubDate', () {
+    test('parseEpubDate: casos parciais e inválidos', () {
       expect(parseEpubDate('2020'), DateTime.utc(2020));
       expect(parseEpubDate('2020-02'), DateTime.utc(2020, 2));
       expect(parseEpubDate('2020-02-29'), DateTime.utc(2020, 2, 29));
@@ -313,6 +369,43 @@ void main() {
       expect(parseEpubDate('9' * 100), isNull);
       expect(parseEpubDate(''), isNull);
     });
+
+    test(
+      'parseEpubDate: com hora, offset e sempre UTC (rodada de correção 1)',
+      () {
+        // Válidos.
+        expect(
+          parseEpubDate('2018-03-27T22:02:30Z'),
+          DateTime.utc(2018, 3, 27, 22, 2, 30),
+        );
+        expect(
+          parseEpubDate('2020-01-01T10:00:00'),
+          DateTime.utc(2020, 1, 1, 10),
+        );
+        expect(parseEpubDate('2020-01-01T10:00:00')!.isUtc, isTrue);
+        expect(
+          parseEpubDate('2020-01-01T01:00:00+05:00'),
+          DateTime.utc(2019, 12, 31, 20),
+        );
+        expect(
+          parseEpubDate('2020-01-01T23:00:00-05:00'),
+          DateTime.utc(2020, 1, 2, 4),
+        );
+        expect(
+          parseEpubDate('2020-01-01T00:00:00+14:00'),
+          DateTime.utc(2019, 12, 31, 10),
+        );
+
+        // `DateTime.parse` normalizava estes; a gramática do EPUB recusa.
+        expect(parseEpubDate('2021-02-29T10:00:00Z'), isNull);
+        expect(parseEpubDate('2021-13-45T10:00:00Z'), isNull);
+        expect(parseEpubDate('99999-99-99'), isNull);
+        expect(parseEpubDate('2020-02-29T24:00:00Z'), isNull);
+        expect(parseEpubDate('2020-01-01T10:00:00+99:99'), isNull);
+        expect(parseEpubDate('2020-01-01T00:00:00+14:01'), isNull);
+        expect(parseEpubDate('2020-04-31'), isNull);
+      },
+    );
   });
 
   group('demais campos e raw', () {
@@ -372,6 +465,19 @@ void main() {
       expect(m.title, 'Fora');
       expect(m.raw['title'], ['Dentro']);
       expect(m.description, '<p>html</p>');
+    });
+
+    test('meta com content vazio some do raw; property com content e sem '
+        'texto usa o content', () {
+      final m = _parse(
+        _opf(
+          metadata:
+              '<meta name="e" content=""/>'
+              '<meta property="x" content="y"/>',
+        ),
+      ).metadata;
+      expect(m.raw.containsKey('e'), isFalse);
+      expect(m.raw['x'], ['y']);
     });
   });
 
@@ -641,6 +747,26 @@ void main() {
       expect(m.title, 't');
       expect(m.raw['title'], hasLength(99999));
       expect(sw.elapsed, lessThan(const Duration(seconds: 5)));
+    });
+
+    test('id repetido: refinamentos não ficam quadráticos; só o dono usa', () {
+      final buffer = StringBuffer();
+      for (var i = 0; i < 20000; i++) {
+        buffer.write('<dc:creator id="a">Autor $i</dc:creator>');
+      }
+      for (var i = 0; i < 20000; i++) {
+        buffer.write('<meta refines="#a" property="role">aut</meta>');
+      }
+      final sw = Stopwatch()..start();
+      final m = _parse(_opf(metadata: buffer.toString())).metadata;
+      sw.stop();
+      expect(sw.elapsed, lessThan(const Duration(seconds: 1)));
+      // Todos os 20 000 creators contam como autor (sem papel refinado,
+      // o padrão é autor); só o dono do `id` "a" de fato consultou os
+      // refinamentos, então nenhum deles some em `raw`.
+      expect(m.authors, hasLength(20000));
+      expect(m.contributors, isEmpty);
+      expect(m.raw.containsKey('role'), isFalse);
     });
   });
 }

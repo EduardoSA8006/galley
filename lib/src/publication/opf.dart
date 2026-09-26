@@ -5,7 +5,11 @@
 /// iterativa pelos descendentes de `metadata` (o texto de cada elemento vem
 /// só dos filhos diretos, nunca de `innerText`, que repercorreria a
 /// subárvore em metadado aninhado), uma pelos filhos de `manifest`, `spine`
-/// e `guide`, e refinamentos por mapa de `id`.
+/// e `guide`, e refinamentos por mapa de `id`. O `package:xml` não obriga
+/// `id` único: com `id` repetido (hostil), só o primeiro elemento com cada
+/// `id` (o "dono") consulta os seus refinamentos; os demais recebem lista
+/// vazia em O(1), senão N elementos com o mesmo `id` e N refinamentos
+/// seriam O(N²).
 library;
 
 import 'package:xml/xml.dart';
@@ -343,6 +347,10 @@ final class _Metadata {
       }
     }
     for (final e in _all) {
+      final id = e.id;
+      if (id != null && id.isNotEmpty) {
+        _owner.putIfAbsent(id, () => e);
+      }
       final refined = e.refines;
       if (!e.isDc && refined != null) {
         (_refinements[refined] ??= []).add(e);
@@ -354,6 +362,11 @@ final class _Metadata {
 
   final List<_Element> _all = [];
   final Map<String, List<_Element>> _refinements = {};
+
+  /// Primeiro elemento com cada `id` em `metadata`: só o dono consulta os
+  /// seus refinamentos (senão, `id` repetido faz cada um copiar a lista
+  /// inteira de refinamentos do outro, o(N²) num OPF hostil).
+  final Map<String, _Element> _owner = {};
   final Set<_Element> _used = Set.identity();
 
   final List<String> identifiers = [];
@@ -373,11 +386,28 @@ final class _Metadata {
         (name == null || e.metaName == name),
   );
 
-  /// `meta` que refinam [e] com [property] e texto não vazio.
-  List<_Element> _refinedBy(_Element e, String property) => [
-    for (final r in _refinements[e.id] ?? const <_Element>[])
-      if (r.property == property && r.text.isNotEmpty) r,
-  ];
+  /// `meta` que refinam [e] com [property] e texto não vazio. Vazio quando
+  /// [e] não é o dono do seu `id` (`id` repetido: só o primeiro consulta;
+  /// os outros não pagam o custo de repercorrer a lista de refinamentos).
+  List<_Element> _refinedBy(_Element e, String property) {
+    final id = e.id;
+    if (id == null || !identical(_owner[id], e)) return const [];
+    return [
+      for (final r in _refinements[id] ?? const <_Element>[])
+        if (r.property == property && r.text.isNotEmpty) r,
+    ];
+  }
+
+  /// Primeiro refinamento de [e] com [property] e texto não vazio, sem
+  /// marcar nada como usado (quem chama decide se ele vira campo).
+  _Element? _firstRefinement(_Element e, String property) {
+    final id = e.id;
+    if (id == null || !identical(_owner[id], e)) return null;
+    for (final r in _refinements[id] ?? const <_Element>[]) {
+      if (r.property == property && r.text.isNotEmpty) return r;
+    }
+    return null;
+  }
 
   /// Valores dos refinamentos de [e] com [property], marcados como usados.
   List<String> _refinedValues(_Element e, String property) {
@@ -411,8 +441,12 @@ final class _Metadata {
   void _build() {
     // Títulos.
     final titles = _dc('title').toList();
-    String? typeOf(_Element t) =>
-        _refinedValues(t, 'title-type').firstOrNull?.toLowerCase();
+    String? typeOf(_Element t) {
+      final r = _firstRefinement(t, 'title-type');
+      if (r != null) _used.add(r);
+      return r?.text.toLowerCase();
+    }
+
     final types = {for (final t in titles) t: typeOf(t)};
     final title =
         titles.where((t) => types[t] == 'main').firstOrNull ??
@@ -456,8 +490,14 @@ final class _Metadata {
       _used
         ..add(c)
         ..addAll(_refinedBy(c, 'collection-type'));
-      final position = _refinedValues(c, 'group-position').firstOrNull;
-      seriesIndex = position == null ? null : double.tryParse(position);
+      final position = _firstRefinement(c, 'group-position');
+      if (position != null) {
+        final value = double.tryParse(position.text);
+        if (value != null && value.isFinite) {
+          seriesIndex = value;
+          _used.add(position);
+        }
+      }
       break;
     }
     if (series == null) {
@@ -469,8 +509,11 @@ final class _Metadata {
         _used.add(calibre);
         final index = _meta(name: 'calibre:series_index').firstOrNull;
         if (index != null) {
-          seriesIndex = double.tryParse(index.content ?? '');
-          _used.add(index);
+          final value = double.tryParse(index.content ?? '');
+          if (value != null && value.isFinite) {
+            seriesIndex = value;
+            _used.add(index);
+          }
         }
       }
     }
@@ -545,37 +588,119 @@ final class _Metadata {
       if (e.isDc) {
         if (e.text.isNotEmpty) (raw[e.name] ??= []).add(e.text);
       } else if (e.property != null && e.property!.isNotEmpty) {
-        if (e.text.isNotEmpty) (raw[e.property!] ??= []).add(e.text);
+        // `content` vazio conta como ausente; sem texto, `content` supre.
+        final content = e.content;
+        final value = e.text.isNotEmpty
+            ? e.text
+            : (content != null && content.isNotEmpty ? content : null);
+        if (value != null) (raw[e.property!] ??= []).add(value);
       } else if (e.metaName != null && e.metaName!.isNotEmpty) {
         final content = e.content;
-        if (content != null) (raw[e.metaName!] ??= []).add(content);
+        if (content != null && content.isNotEmpty) {
+          (raw[e.metaName!] ??= []).add(content);
+        }
       }
     }
     return raw;
   }
 }
 
-final RegExp _partialDate = RegExp(r'^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$');
+/// Gramática do EPUB para datas (um subconjunto validado de ISO 8601, doc/09
+/// §6.2, decisão 11): `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, ou
+/// `YYYY-MM-DDThh:mm(:ss(.fração)?)?` com `Z` ou `±hh:mm` opcional. Nada de
+/// ano expandido (`+`/`-` na frente), nada de hora sem minuto.
+final RegExp _epubDate = RegExp(
+  r'^(?<year>\d{4})'
+  r'(-(?<month>\d{2})'
+  r'(-(?<day>\d{2})'
+  r'(T(?<hour>\d{2}):(?<minute>\d{2})'
+  r'(:(?<second>\d{2})(?:\.(?<fraction>\d+))?)?'
+  r'(?<offset>Z|[+-]\d{2}:\d{2})?'
+  r')?'
+  r')?'
+  r')?'
+  r'$',
+);
 
-/// `YYYY` → 1º de janeiro, `YYYY-MM` → dia 1, `YYYY-MM-DD` (UTC); o resto
-/// por `DateTime.parse`. O que não parseia (ou passa de 64 caracteres) é
-/// `null`.
+const List<int> _daysInMonthTable = [
+  31,
+  28,
+  31,
+  30,
+  31,
+  30,
+  31,
+  31,
+  30,
+  31,
+  30,
+  31,
+];
+
+bool _isLeapYear(int year) =>
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+
+int _daysInMonth(int year, int month) =>
+    month == 2 && _isLeapYear(year) ? 29 : _daysInMonthTable[month - 1];
+
+/// `YYYY` → 1º de janeiro; `YYYY-MM` → dia 1; `YYYY-MM-DD`; e com hora,
+/// `YYYY-MM-DDThh:mm(:ss(.fração)?)?`, com `Z`/`±hh:mm` (até `+14:00`) ou,
+/// sem offset, interpretada como UTC. Sempre `isUtc`. Calendário inválido
+/// (mês fora de 1–12, dia fora do mês — inclusive 29/02 fora de bissexto,
+/// hora/minuto/segundo fora do intervalo, offset acima de 14:00) ou texto
+/// que não casa com a gramática (inclusive acima de 64 caracteres, ou ano
+/// expandido com sinal) é `null` (doc/09 §6.2, decisão 11: nada de
+/// `DateTime.parse` normalizando data inválida).
 DateTime? parseEpubDate(String text) {
   final s = text.trim();
   if (s.isEmpty || s.length > 64) return null;
-  final m = _partialDate.firstMatch(s);
-  if (m != null) {
-    final year = int.parse(m.group(1)!);
-    final month = int.parse(m.group(2) ?? '1');
-    final day = int.parse(m.group(3) ?? '1');
-    final value = DateTime.utc(year, month, day);
-    return value.month == month && value.day == day ? value : null;
+  final m = _epubDate.firstMatch(s);
+  if (m == null) return null;
+
+  final year = int.parse(m.namedGroup('year')!);
+  final monthText = m.namedGroup('month');
+  final month = monthText == null ? 1 : int.parse(monthText);
+  if (month < 1 || month > 12) return null;
+  final dayText = m.namedGroup('day');
+  final day = dayText == null ? 1 : int.parse(dayText);
+  if (day < 1 || day > _daysInMonth(year, month)) return null;
+
+  final hourText = m.namedGroup('hour');
+  if (hourText == null) {
+    return DateTime.utc(year, month, day);
   }
-  try {
-    return DateTime.parse(s);
-  } on FormatException {
-    return null;
-  } on ArgumentError {
-    return null;
+  final hour = int.parse(hourText);
+  final minute = int.parse(m.namedGroup('minute')!);
+  final secondText = m.namedGroup('second');
+  final second = secondText == null ? 0 : int.parse(secondText);
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  final fractionText = m.namedGroup('fraction');
+  final milliseconds = fractionText == null
+      ? 0
+      : int.parse('${fractionText}000'.substring(0, 3));
+
+  var utcHour = hour;
+  var utcMinute = minute;
+  final offset = m.namedGroup('offset');
+  if (offset != null && offset != 'Z') {
+    final sign = offset.startsWith('-') ? -1 : 1;
+    final offsetHour = int.parse(offset.substring(1, 3));
+    final offsetMinute = int.parse(offset.substring(4, 6));
+    if (offsetHour > 14 ||
+        offsetMinute > 59 ||
+        (offsetHour == 14 && offsetMinute > 0)) {
+      return null;
+    }
+    utcHour -= sign * offsetHour;
+    utcMinute -= sign * offsetMinute;
   }
+  return DateTime.utc(
+    year,
+    month,
+    day,
+    utcHour,
+    utcMinute,
+    second,
+    milliseconds,
+  );
 }
