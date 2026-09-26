@@ -4,30 +4,45 @@
   "dart": "3.13.0",
   "os": "linux",
   "cpu": "AMD EPYC 7763 64-Core Processor",
-  "createdAt": "2026-09-25T20:30:16.210116Z",
-  "sourceCommit": "40c08bd",
+  "createdAt": "2026-09-26T14:22:55.372909Z",
+  "sourceCommit": "9149929",
   "runner": "ubuntu-24.04",
-  "runs": 3,
+  "runs": 5,
   "cases": {
+    "font.deobfuscate.idpf": {
+      "ratio": 0.6138331936541771,
+      "medianUs": 4054.662,
+      "calibrationUs": 6589.33
+    },
     "html.parse.500kb": {
-      "ratio": 1.9017440678326154,
-      "medianUs": 12309.533,
-      "calibrationUs": 6389.561
+      "ratio": 1.9109434690155982,
+      "medianUs": 12248.396,
+      "calibrationUs": 6454.117
     },
     "image.decode.target": {
-      "ratio": 1.7228645841998746,
-      "medianUs": 11378.523,
-      "calibrationUs": 6595.241
+      "ratio": 1.7030556052047143,
+      "medianUs": 11317.302,
+      "calibrationUs": 6616.773
     },
     "paragraph.shape.1000": {
-      "ratio": 11.649111997819704,
-      "medianUs": 77301.954,
-      "calibrationUs": 6600.941
+      "ratio": 11.62327150471032,
+      "medianUs": 77198.804,
+      "calibrationUs": 6590.965
+    },
+    "zip.fetch.inflate.1mb": {
+      "ratio": 0.7128237717025604,
+      "medianUs": 4617.53,
+      "calibrationUs": 6553.454
+    },
+    "zip.open.800": {
+      "ratio": 1.0678353998741141,
+      "medianUs": 6994.241,
+      "calibrationUs": 6480.617
     },
     "zlib.inflate.1mb": {
-      "ratio": 0.9184798011362071,
-      "medianUs": 7335.514,
-      "calibrationUs": 6743.909
+      "ratio": 0.8828729182193937,
+      "medianUs": 7226.271,
+      "calibrationUs": 6890.334
     }
   }
 }
