@@ -447,6 +447,35 @@ void main() {
       expect(s.item.remote, isTrue);
       expect(s.content.id, 'c1');
     });
+
+    test('borda da cadeia de fallback: 16 passos resolvem, 17 não', () async {
+      Future<String> contentWithUnsupported(int unsupported) async {
+        final items = [
+          for (var i = 0; i < unsupported; i++)
+            item(
+              'f$i',
+              'f$i.bin',
+              mediaType: 'application/pdf',
+              fallback: 'f${i + 1}',
+            ),
+          item('f$unsupported', 'f$unsupported.xhtml'),
+        ];
+        final (p, _) = await _read(
+          _book({
+            'OEBPS/content.opf': opfXml(
+              items: items,
+              itemrefs: [itemref('f0')],
+            ),
+            for (var i = 0; i < unsupported; i++) 'OEBPS/f$i.bin': [0],
+            'OEBPS/f$unsupported.xhtml': chapter,
+          }),
+        );
+        return p.spine.single.content.id;
+      }
+
+      expect(await contentWithUnsupported(16), 'f16', reason: '16 passos');
+      expect(await contentWithUnsupported(17), 'f0', reason: '17 passos');
+    });
   });
 
   group('NAV e NCX (§7)', () {
@@ -711,6 +740,51 @@ void main() {
         ('Aqui', null),
         ('Começo', const NavTarget('OEBPS/Text/c1.xhtml')),
       ]);
+    });
+
+    test('NCX acima do teto: too-large, TOC sintetizado', () async {
+      final (p, sink) = await _read(
+        _book({
+          'OEBPS/nav.xhtml': null,
+          'OEBPS/toc.ncx': ncxXml([
+            ('Um', 'Text/c1.xhtml'),
+          ]).replaceFirst('<head/>', '<head/>${' ' * maxPackageDocumentSize}'),
+        }),
+      );
+      expect(p.ncxPath, isNull);
+      expect(p.toc.every((e) => e.synthesized), isTrue);
+      expect(
+        [
+          for (final d in sink.diagnostics)
+            if (identical(d.code, EpubDiagnosticCode.navIgnored))
+              (d.href, d.details['reason']),
+        ],
+        [('OEBPS/nav.xhtml', 'missing'), ('OEBPS/toc.ncx', 'too-large')],
+      );
+    });
+
+    test('NAV remoto: navIgnored missing, NCX dá o TOC', () async {
+      final (p, sink) = await _read(
+        _book({
+          'OEBPS/content.opf': opfXml(
+            items: [
+              item('nav', 'https://ex.com/nav.xhtml', properties: 'nav'),
+              item('ncx', 'toc.ncx', mediaType: ncxType),
+              item('c1', 'Text/c1.xhtml'),
+            ],
+            itemrefs: [itemref('c1')],
+            spineAttributes: ' toc="ncx"',
+          ),
+        }),
+      );
+      expect(p.navPath, isNull);
+      expect(p.ncxPath, 'OEBPS/toc.ncx');
+      expect(p.toc.single.title, 'Um (NCX)');
+      final d = _only(sink, EpubDiagnosticCode.navIgnored);
+      expect(
+        (d.href, d.details['reason']),
+        ('https://ex.com/nav.xhtml', 'missing'),
+      );
     });
   });
 
@@ -1030,6 +1104,51 @@ void main() {
       );
       await readPublication(container, sink: DiagnosticSink());
       expect(provider.closed, isFalse);
+      await container.close();
+      expect(provider.closed, isTrue);
+    });
+
+    test('read do NCX que lança: unreadable, TOC sintetizado', () async {
+      final (p, sink) = await readProvider(
+        MapProvider(
+          _book({'OEBPS/nav.xhtml': null}),
+          failingRead: {'OEBPS/toc.ncx'},
+        ),
+      );
+      expect(p.ncxPath, isNull);
+      expect(p.toc.every((e) => e.synthesized), isTrue);
+      final unreadable = _only(sink, EpubDiagnosticCode.resourceUnreadable);
+      expect(unreadable.href, 'OEBPS/toc.ncx');
+      expect(unreadable.details['exception'], contains('read falhou'));
+      expect(
+        [
+          for (final d in sink.diagnostics)
+            if (identical(d.code, EpubDiagnosticCode.navIgnored))
+              (d.href, d.details['reason']),
+        ],
+        [('OEBPS/nav.xhtml', 'missing'), ('OEBPS/toc.ncx', 'unreadable')],
+      );
+    });
+
+    test('caminho fatal também não fecha o contêiner', () async {
+      final provider = MapProvider(
+        _book({
+          'OEBPS/content.opf': opfXml(
+            items: [item('c1', 'Text/c1.xhtml')],
+            itemrefs: [itemref('x')],
+          ),
+        }),
+      );
+      final container = await ProviderContainer.open(
+        provider,
+        sink: DiagnosticSink(),
+      );
+      await expectLater(
+        readPublication(container, sink: DiagnosticSink()),
+        throwsA(isA<EpubPackageException>()),
+      );
+      expect(provider.closed, isFalse);
+      expect(await container.exists('OEBPS/Text/c1.xhtml'), isTrue);
       await container.close();
       expect(provider.closed, isTrue);
     });
