@@ -24,6 +24,9 @@ aponta para ela e diz **quando** voltar ao assunto.
 | Cobrir o EPYC 9V74 e outros modelos que aparecerem com baseline próprio (disparar o `perf-baseline` até cair neles) | Sub-tarefa 10b — baseline por modelo de CPU (2026-09-25) | Contínuo |
 | Versão do pacote `html` não travada para o perf (`/pubspec.lock` é ignorado): registrar as versões resolvidas dos pacotes medidos no `result.json` e avisar quando divergirem do baseline | Revisão final do harness (2026-09-25) | Fase 1 |
 | `S5.5` (`test/spike/s5_soft_hyphen_test.dart`) é uma razão de tempo e falhou uma vez sob carga local; agora que os spikes rodam no job `test` obrigatório, pode deixar a PR vermelha por ruído. Afirmar pela mediana de várias rodadas, ou marcar como perf | Implementação do contêiner (2026-09-26) | Na próxima vez que falhar no CI, ou junto com o sub-projeto 2 |
+| Contêiner em `strict`: `rights.xml` (ou `encryption.xml` com KeyInfo LCP) com CRC errado sai como `EpubContainerException(zipCrcMismatch)` em vez de `EpubEncryptedException`, contra a frase de [09](09-erros-diagnosticos.md) §4. Só afeta `strict` (testes). Ler os metadados com sink não estrito e reemitir o diagnóstico depois da checagem de DRM | Revisão final do contêiner (2026-09-26) | Sub-projeto 2 |
+| Teste do diagnóstico de prefixo do ZIP confere só `reason`, não `details.delta` (a asserção saiu com a mudança do diagnóstico para o `ZipContainer`) | Revisão final do contêiner (2026-09-26) | Sub-projeto 2 |
+| Endurecimento do contêiner abaixo dos tetos: `encryption.xml` válido de 4 MiB com aninhamento profundo ainda custa ~1 s e ~250 MiB (baixar o teto para 1 MiB?); entrada stored com `compressedSize` enorme e tamanho declarado pequeno lê o arquivo antes de recusar (conferir `compressedSize` com folga); um `compressedSize` corrompido invalida as entradas seguintes pela regra de sobreposição | Revisão final do contêiner (2026-09-26) | Sub-projeto 5 (worker), ou antes se aparecer caso real |
 
 ### Fase 1
 
