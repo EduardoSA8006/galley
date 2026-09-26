@@ -48,7 +48,7 @@ String _navThen(String tail) => _html(
 
 /// Parse de [text] com corte, rápido, sem perder o NAV que vem antes.
 void _expectCutFast(String text) {
-  expect(htmlWorkCut(text), isNotNull);
+  expect(htmlWorkCut(text).cut, isNotNull);
   final sw = Stopwatch()..start();
   final nav = parseNav(text);
   sw.stop();
@@ -219,6 +219,53 @@ void main() {
     );
   });
 
+  group('XHTML com <x/> de elemento não vazio', () {
+    // O HTML5 ignora a barra: sem reescrever, <title/> abria um RCDATA até o
+    // fim do documento e o NAV sumia.
+    const toc =
+        '<nav epub:type="toc"><ol><li><a href="c1.xhtml">Um</a></li>'
+        '<li><a href="c2.xhtml">Dois</a></li></ol></nav>';
+    String doc(String head, String body) =>
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<html xmlns="http://www.w3.org/1999/xhtml" '
+        'xmlns:epub="http://www.idpf.org/2007/ops"><head>$head</head>'
+        '<body>$body</body></html>';
+
+    for (final head in [
+      '<title/>',
+      '<script src="x.js"/>',
+      '<style/>',
+      '<title>N</title><script type="text/javascript" src="x.js" />',
+    ]) {
+      test(head, () {
+        final nav = parseNav(doc(head, toc));
+        expect(_shape(nav.toc), ['Um|c1.xhtml', 'Dois|c2.xhtml']);
+        expect(nav.truncated, isFalse);
+      });
+    }
+
+    test('<a href/> numa entrada não engole as seguintes', () {
+      final nav = parseNav(
+        doc(
+          '<title>N</title>',
+          '<nav epub:type="toc"><ol><li><a href="c1.xhtml"/></li>'
+              '<li><a href="c2.xhtml">Dois</a></li></ol></nav>',
+        ),
+      );
+      expect(_shape(nav.toc), ['|c1.xhtml', 'Dois|c2.xhtml']);
+    });
+
+    test('<div/> repetido: reescrito, sem corte e rápido', () {
+      final text = _navThen(_fill('<div/>'));
+      final sw = Stopwatch()..start();
+      final nav = parseNav(text);
+      sw.stop();
+      expect(nav.truncated, isFalse);
+      expect(_shape(nav.toc), ['A|a.xhtml']);
+      expect(sw.elapsed, lessThan(const Duration(seconds: 5)));
+    });
+  });
+
   test('li sem fechamento num ol só: um li fecha o anterior, sem corte', () {
     final items = '<li><a href="x.xhtml">t</a>' * 20000;
     final nav = parseNav(_html('<nav epub:type="toc"><ol>$items</ol></nav>'));
@@ -295,46 +342,66 @@ void main() {
   });
 
   group('htmlWorkCut', () {
-    test('documento comum cabe inteiro', () {
-      expect(
-        htmlWorkCut(_html('<nav><ol><li><a href="a">A</a></li></ol></nav>')),
-        isNull,
-      );
+    test('documento comum cabe inteiro e sai sem cópia', () {
+      final text = _html('<nav><ol><li><a href="a">A</a></li></ol></nav>');
+      final work = htmlWorkCut(text);
+      expect(work.cut, isNull);
+      expect(work.text, same(text));
     });
 
     test('comentário, doctype e void não empilham', () {
       final text = '<!DOCTYPE html><!-- <div><div> --><br><img src="x">' * 1000;
-      expect(htmlWorkCut(text, budget: 20000), isNull);
+      expect(htmlWorkCut(text, budget: 20000).cut, isNull);
     });
 
-    test('/> não fecha elemento não vazio (o HTML5 ignora a barra)', () {
-      expect(htmlWorkCut('<div/>' * 1000, budget: 20000), isNotNull);
+    test('<x/> de elemento não vazio vira <x></x>; void e aspas ficam', () {
+      final work = htmlWorkCut(
+        '<p><title/><div class="a" /><br/><img src="x"/>'
+        '<a title="x/>" href="y"/><b x=1/><!-- <i/> --></p>',
+      );
+      expect(
+        work.text,
+        '<p><title></title><div class="a" ></div><br/><img src="x"/>'
+        '<a title="x/>" href="y"></a><b x=1/><!-- <i/> --></p>',
+      );
+      expect(work.cut, isNull);
+      // Reescrito, <div/> não empilha.
+      expect(htmlWorkCut('<div/>' * 1000, budget: 20000).cut, isNull);
     });
 
     test('> e </div> em valor entre aspas não terminam a tag', () {
       expect(
-        htmlWorkCut('<div title="></div>">' * 1000, budget: 20000),
+        htmlWorkCut('<div title="></div>">' * 1000, budget: 20000).cut,
         isNotNull,
       );
       expect(
-        htmlWorkCut('<div title="a>b"></div>' * 1000, budget: 20000),
+        htmlWorkCut('<div title="a>b"></div>' * 1000, budget: 20000).cut,
         isNull,
       );
     });
 
     test('isindex conta os seis nós que o parser cria', () {
-      expect(htmlWorkCut('<isindex>' * 1000, budget: 100000), isNotNull);
+      expect(htmlWorkCut('<isindex>' * 1000, budget: 100000).cut, isNotNull);
     });
 
     test('fechamento sem abertura não desempilha a pilha real', () {
       final text = '${'<div>' * 100}${'</p>' * 1000}';
-      expect(htmlWorkCut(text, budget: 50000), isNotNull);
+      expect(htmlWorkCut(text, budget: 50000).cut, isNotNull);
+    });
+
+    test('corte depois de reescrita: o texto sai reescrito até o corte', () {
+      final text = '<p/>${'<div>' * 10}';
+      final work = htmlWorkCut(text, budget: 45);
+      expect(work.cut, isNotNull);
+      expect(work.text, '<p></p>${text.substring(4, work.cut)}');
     });
 
     test('corta no < da tag que estoura o orçamento', () {
       final text = '<div>' * 10;
       // 1 + 2 + … + 10 = 55; com orçamento 45 a 10ª tag (9 + 1) estoura.
-      expect(htmlWorkCut(text, budget: 45), 45);
+      final work = htmlWorkCut(text, budget: 45);
+      expect(work.cut, 45);
+      expect(work.text, text.substring(0, 45));
     });
   });
 }

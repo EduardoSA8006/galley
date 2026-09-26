@@ -72,8 +72,8 @@ final class NavDocument {
 
 /// Lê os `nav` de `toc`, `page-list` e `landmarks` (o primeiro de cada tipo).
 NavDocument parseNav(String text) {
-  final cut = htmlWorkCut(text);
-  final document = html.parse(cut == null ? text : text.substring(0, cut));
+  final work = htmlWorkCut(text);
+  final document = html.parse(work.text);
   Element? toc;
   Element? pageList;
   Element? landmarks;
@@ -93,7 +93,7 @@ NavDocument parseNav(String text) {
     toc: _navEntries(toc, reader.reset(), landmark: false),
     pageList: _navEntries(pageList, reader.reset(), landmark: false),
     landmarks: _navEntries(landmarks, reader.reset(), landmark: true),
-    truncated: cut != null || reader.truncatedAny,
+    truncated: work.cut != null || reader.truncatedAny,
   );
 }
 
@@ -406,6 +406,8 @@ const String _opaque = '';
 
 bool _isLetter(int c) => (c | 0x20) >= 0x61 && (c | 0x20) <= 0x7A;
 
+bool _isUpper(int c) => c >= 0x41 && c <= 0x5A;
+
 /// Whitespace do tokenizador (`\t`, `\n`, `\f`, `\r`, espaço).
 bool _isSpace(int c) =>
     c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0C || c == 0x0D;
@@ -413,8 +415,16 @@ bool _isSpace(int c) =>
 /// Fim do nome de tag: whitespace, `/` ou `>`.
 bool _endsTagName(int c) => _isSpace(c) || c == 0x2F || c == 0x3E;
 
-/// Índice onde cortar [text] para o parse HTML5 não passar de [budget]
-/// passos estimados, ou `null` se cabe inteiro.
+/// O texto que vai ao parser HTML5 ([parseNav]) e onde o original foi
+/// cortado (`null` se coube inteiro).
+typedef HtmlWork = ({String text, int? cut});
+
+/// Prepara [text] para o parse HTML5 numa passada só:
+/// - reescreve `<x …/>` de elemento não vazio como `<x …></x>`: o HTML5
+///   ignora a barra, e o XHTML válido com `<title/>` ou `<script src="…"/>`
+///   no head viraria texto até o fim (o NAV sumiria);
+/// - corta no ponto onde o trabalho estimado do parser passaria de [budget]
+///   passos; `cut` é esse índice em [text], e `text` o que sobra, reescrito.
 ///
 /// O modelo segue o tokenizador do `package:html` (nome de tag até
 /// whitespace, `/` ou `>`; atributos entre aspas; comentário até `-->`,
@@ -430,7 +440,7 @@ bool _endsTagName(int c) => _isSpace(c) || c == 0x2F || c == 0x3E;
 /// caractere); foster parenting custa os nós já criados (o parser procura a
 /// tabela entre os irmãos). Cada índice de [text] é lido um número constante
 /// de vezes e o resto do trabalho está no orçamento: linear.
-int? htmlWorkCut(String text, {int budget = navParseBudget}) =>
+HtmlWork htmlWorkCut(String text, {int budget = navParseBudget}) =>
     _WorkModel(text, budget).run();
 
 final class _WorkModel {
@@ -460,6 +470,10 @@ final class _WorkModel {
   /// Nós criados até aqui (limite para os irmãos de uma tabela).
   int nodes = 0;
   int? cutAt;
+
+  /// Texto reescrito até [copied] (só existe depois da primeira reescrita).
+  StringBuffer? out;
+  int copied = 0;
 
   /// Texto corrente: início, e até onde já foi cobrado.
   int segment = 0;
@@ -500,12 +514,12 @@ final class _WorkModel {
     return false;
   }
 
-  int? run() {
+  HtmlWork run() {
     var i = 0;
     while (true) {
       final lt = text.indexOf('<', i);
-      if (!textUpTo(lt < 0 ? n : lt)) return cutAt;
-      if (lt < 0 || lt + 1 >= n) return cutAt;
+      if (!textUpTo(lt < 0 ? n : lt)) return result();
+      if (lt < 0 || lt + 1 >= n) return result();
       final c = text.codeUnitAt(lt + 1);
       final int next;
       if (_isLetter(c)) {
@@ -518,14 +532,36 @@ final class _WorkModel {
         next = bogus(lt, lt + 2);
       } else {
         // `<` solto é texto, mas quebra o token de texto.
-        if (!textUpTo(lt + 1) || !charge(3 * textTokenCost, lt)) return cutAt;
+        if (!textUpTo(lt + 1) || !charge(3 * textTokenCost, lt)) {
+          return result();
+        }
         i = lt + 1;
         continue;
       }
-      if (next < 0) return cutAt;
+      if (next < 0) return result();
       i = segment = next;
       segmentCharged = fosterCharged = false;
     }
+  }
+
+  HtmlWork result() {
+    final cut = cutAt;
+    final buffer = out;
+    if (buffer == null) {
+      return (text: cut == null ? text : text.substring(0, cut), cut: cut);
+    }
+    buffer.write(text.substring(copied, cut ?? n));
+    return (text: buffer.toString(), cut: cut);
+  }
+
+  /// `<x …/>` (o `/` em `gt - 1`) vira `<x …></x>`.
+  void rewriteSelfClosing(String name, int gt) {
+    (out ??= StringBuffer())
+      ..write(text.substring(copied, gt - 1))
+      ..write('></')
+      ..write(name)
+      ..write('>');
+    copied = gt + 1;
   }
 
   /// Cobra o texto de [segment] até [end]: o início (dois tokens: espaços e
@@ -566,10 +602,14 @@ final class _WorkModel {
   /// Nome de tag em minúsculas ASCII (como o tokenizador; `toLowerCase`
   /// mapearia, por exemplo, o sinal de Kelvin para `k`).
   String tagName(int start, int end) {
+    var k = start;
+    while (k < end && !_isUpper(text.codeUnitAt(k))) {
+      k++;
+    }
+    if (k == end) return text.substring(start, end);
     final units = text.codeUnits.sublist(start, end);
-    for (var k = 0; k < units.length; k++) {
-      final u = units[k];
-      if (u >= 0x41 && u <= 0x5A) units[k] = u + 0x20;
+    for (var j = k - start; j < units.length; j++) {
+      if (_isUpper(units[j])) units[j] += 0x20;
     }
     return String.fromCharCodes(units);
   }
@@ -606,11 +646,21 @@ final class _WorkModel {
     if (fosterContext && !_notFostered.contains(name)) {
       cost += (nodes + 1) * (formatting + 1);
     }
+    final isVoid = _voidElements.contains(name);
+    // `plaintext` não tem fechamento: reescrever não mudaria nada.
+    final rewrite = selfClosing && !isVoid && name != 'plaintext';
+    if (rewrite) {
+      cost += (stack.length + 2) * (formatting + 2) * _endTagWeight(name);
+    }
     if (!charge(cost, lt)) return -1;
     nodes += 1 + formatting;
-    if (_voidElements.contains(name) && (foreign == 0 || selfClosing)) {
+    if (rewrite) {
+      rewriteSelfClosing(name, gt);
+      open(name);
+      close(name);
       return gt + 1;
     }
+    if (isVoid && (foreign == 0 || selfClosing)) return gt + 1;
     if (name == 'plaintext') {
       if (ambiguous > 0) {
         open(_opaque);
