@@ -23,6 +23,7 @@ Qualquer outra falha produz uma seção degradada mais um diagnóstico.
 abstract base class EpubException implements Exception {
   String get message;
   String? get href;
+  Object? get cause;
 }
 ```
 
@@ -33,7 +34,7 @@ abstract base class EpubException implements Exception {
 |---|---|---|---|
 | `EpubContainerException` | ZIP corrompido (EOCD ou central directory ilegível), `container.xml` ausente; depois de `open`, entrada ilegível (método não suportado, dados corrompidos, acima de `maxEntrySize`) | **Sim**, em `open`; depois dele, é falha de uma entrada | Entrada ilegível vira seção `placeholder` com `resourceUnreadable`; só é fatal quando é o `container.xml` ou o OPF |
 | `EpubPackageException` | OPF malformado, spine vazio | **Sim**, em `open` | — |
-| `EpubEncryptedException` | `encryption.xml` com esquema de DRM sobre conteúdo | **Sim**, em `open`, com o esquema na mensagem (§4) | Provider que decifra ([07](07-api-publica.md) §4) |
+| `EpubEncryptedException` | `META-INF/license.lcpl`, `rights.xml`, o bit 0 da flag do ZIP, ou `encryption.xml` com esquema de DRM sobre conteúdo — inclusive `encryption.xml` ilegível ou acima do teto de tamanho (§4) | **Sim**, em `open`, com o esquema na mensagem (§4) | Provider que decifra ([07](07-api-publica.md) §4) |
 | `EpubUnsupportedException` | `EpubFidelity.faithful` na v1.0; `layout == prePaginated` na v1.0 | **Sim**, na construção de `EpubLayoutEngine`/`EpubReader` (não em `open`: o app ainda pode ler metadados e capa) | — |
 | `EpubResourceMissingException` | `href` do manifest sem arquivo no ZIP | Não | Seção `placeholder` |
 | `EpubSectionParseException` | XHTML irrecuperável | Não | Seção `placeholder` com o texto cru extraído |
@@ -160,12 +161,20 @@ produz tela em branco sem explicação.
 | **Ofuscação desconhecida em fonte** | Algoritmo não reconhecido aplicado só a fontes | Fonte ignorada, diagnóstico `fontObfuscationUnknown`, texto renderiza com fallback. Não é fatal: fonte é Classe 3 |
 
 Na abertura do `ZipContainer`, a detecção de DRM roda **antes** da checagem do
-`mimetype`, para que um livro com DRM em `strict` não apareça como arquivo
-corrompido. A leitura do `encryption.xml` navega pela estrutura do XML-Enc por
-filhos diretos (`EncryptedData > CipherData > CipherReference`,
+`mimetype` (inclusive do diagnóstico de prefixo, item 4 da lista acima), para
+que um livro com DRM em `strict` não apareça como arquivo corrompido. A
+leitura do `encryption.xml` navega pela estrutura do XML-Enc por filhos
+diretos (`EncryptedData > CipherData > CipherReference`,
 `EncryptedData > KeyInfo`, `KeyInfo > RetrievalMethod`), por nome local em
 qualquer namespace; a busca do namespace ADEPT dentro do `KeyInfo` não desce
 para `EncryptedData` aninhados.
+
+`encryption.xml` e `rights.xml` têm um teto próprio de tamanho,
+`maxMetadataSize` (4 MiB): livros reais têm poucos KiB, e ler/parsear um
+arquivo maior só serviria para um atacante gastar tempo e memória na
+abertura (a checagem usa o `uncompressedSize` do central directory, sem
+buscar nem descomprimir a entrada). Acima do teto, o resultado é o mesmo do
+XML inválido: `unknown:encryption.xml-invalido` ou `unknown:rights.xml`.
 
 O pacote **não implementa DRM** e não pretende. Mas identificar o esquema e
 falhar com mensagem clara é obrigação: o app precisa poder dizer ao usuário
@@ -174,8 +183,13 @@ falhar com mensagem clara é obrigação: o app precisa poder dizer ao usuário
 Ganchos para DRM externo já existem via `EpubResourceProvider` customizado que
 decifra antes de devolver os bytes ([07](07-api-publica.md) §4). Com `provider`,
 o pacote **não** lê `encryption.xml` para decidir fatalidade; presume que o
-provider entrega bytes claros. Falta documentar o padrão com um exemplo
-([12-roadmap.md](12-roadmap.md)).
+provider entrega bytes claros. Por isso o `ProviderContainer` **ignora** uma
+entrada de cifra de DRM (LCP, ADEPT ou algoritmo do namespace
+`http://www.w3.org/2001/04/xmlenc#`) sobre uma fonte: ela já chega decifrada,
+e tratá-la como "ofuscação desconhecida" seria um falso `fontObfuscationUnknown`
+sobre um recurso legível. Só a ofuscação de fonte de verdade (IDPF, Adobe) e
+um algoritmo realmente desconhecido continuam pela tabela acima. Falta
+documentar o padrão com um exemplo ([12-roadmap.md](12-roadmap.md)).
 
 ## 5. Modo estrito para testes
 

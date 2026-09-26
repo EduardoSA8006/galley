@@ -69,6 +69,10 @@ aleatório lazy, e nenhum pacote existente entrega essa forma. Detalhes em
 - **Nunca** carrega o arquivo inteiro em memória (medido no teste de corpus)
 - `maxEntrySize` (256 MiB descomprimidos): entrada maior, ou saída maior que a
   declarada, é ilegível; proteção contra zip bomb
+- **Dados sobrepostos:** o teto acima é só por entrada, então várias entradas
+  do central directory apontando para o mesmo local header/stream deflate
+  (zip bomb por sobreposição) também são cobertas: a partir da segunda, em
+  ordem de `localHeaderOffset`, ficam inválidas
 - Suporta `stored` (método 0) e `deflate` (método 8); qualquer outro método
   levanta `EpubContainerException` daquela entrada
 - Do local file header só usa o tamanho do nome e do extra field, que precisa

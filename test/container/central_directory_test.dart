@@ -49,6 +49,11 @@ void main() {
       expect(e.method, 8);
     });
 
+    test('paths é a mesma instância a cada chamada', () async {
+      final cd = await _read(zip);
+      expect(identical(cd.paths, cd.paths), isTrue);
+    });
+
     test('com comentário', () async {
       final cd = await _read(withComment(zip, utf8.encode('comentário')));
       expect(cd.paths, hasLength(3));
@@ -97,6 +102,14 @@ void main() {
       final big = withZip64ExtraValue(z64, 2, 0, lo: 1, hi: 0x200000);
       final e = (await _read(big)).lookup('OEBPS/cap01.xhtml')!.entry;
       expect(e.invalidReason, contains('2^53'));
+    });
+
+    test('campo 0xFFFFFFFF sem o extra ZIP64 correspondente: mensagem própria, '
+        'não a de 2^53', () async {
+      final z = patchCentralU32(zip, 2, cdUncompressed, 0xFFFFFFFF);
+      final e = (await _read(z)).lookup('OEBPS/cap01.xhtml')!.entry;
+      expect(e.invalidReason, isNot(contains('2^53')));
+      expect(e.invalidReason, contains('extra ZIP64'));
     });
   });
 

@@ -98,9 +98,11 @@ final class CentralDirectory {
   final Map<String, ZipEntry> _byLowerName = {};
   final List<String> _paths = [];
 
+  List<String>? _pathsView;
+
   /// Arquivos (sem diretórios), primeira ocorrência de cada nome, na ordem do
-  /// central directory.
-  List<String> get paths => List.unmodifiable(_paths);
+  /// central directory. Mesma instância a cada chamada.
+  List<String> get paths => _pathsView ??= List.unmodifiable(_paths);
 
   /// Exato; senão, sem diferenciar maiúsculas (vence a primeira entrada).
   ZipLookup? lookup(String path) {
@@ -311,6 +313,7 @@ List<ZipEntry> _parseEntries(
     // Campos 0xFFFFFFFF vêm do extra 0x0001, na ordem da especificação.
     var q = extraStart;
     final extraEnd = extraStart + extraLength;
+    var zip64Overflow = false;
     while (q + 4 <= extraEnd) {
       final id = readU16(cd, q);
       final size = readU16(cd, q + 2);
@@ -322,6 +325,7 @@ List<ZipEntry> _parseEntries(
           if (f + 8 > dataEnd) return null;
           final v = readU64(cd, f);
           f += 8;
+          if (v == null) zip64Overflow = true;
           return v;
         }
 
@@ -334,8 +338,20 @@ List<ZipEntry> _parseEntries(
     }
 
     String? invalid;
-    if (compressed == null || uncompressed == null || offset == null) {
+    if (zip64Overflow) {
       invalid = 'tamanho ou offset acima de 2^53';
+    } else if (compressed == null ||
+        uncompressed == null ||
+        offset == null ||
+        compressed == 0xFFFFFFFF ||
+        uncompressed == 0xFFFFFFFF ||
+        offset == 0xFFFFFFFF) {
+      // 0xFFFFFFFF pede o extra 0x0001; ausente ou curto demais (para o
+      // campo em questão) é um motivo distinto de o valor lido de fato
+      // passar de 2^53 (só possível quando o extra tinha os 8 bytes e o
+      // valor deles excede o inteiro seguro do dart2js, capturado acima em
+      // zip64Overflow).
+      invalid = 'extra ZIP64 ausente ou curto demais para tamanho ou offset';
     } else if (offset + delta >= length) {
       invalid = 'local header além do fim do arquivo';
     } else if (offset + delta + 30 + compressed > length) {

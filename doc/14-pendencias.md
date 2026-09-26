@@ -39,11 +39,12 @@ aponta para ela e diz **quando** voltar ao assunto.
 | `tool/corpus/lib/hashes.dart` duplica o CRC-32 e o SHA-1 de `lib/src/container/`; unificar quando `tool/` puder importar o pacote | [Spec do contêiner](specs/2026-09-25-container-design.md) §7 | Antes da 1.0 |
 | `test/container/inflate_web_test.dart` só roda com `--platform chrome`; entra no CI junto com o job web | [Spec do contêiner](specs/2026-09-25-container-design.md) §7 | Com o job web (1.0.x) |
 | Regenerar os baselines por CPU com `zip.open.800`, `zip.fetch.inflate.1mb` e `font.deobfuscate.idpf` (disparar o `perf-baseline`); até lá aparecem como "novo, sem baseline" | [Spec do contêiner](specs/2026-09-25-container-design.md) §10 | Logo depois do merge da PR do contêiner |
-| `encryption.xml` sem teto próprio de tamanho: é lido até `maxEntrySize` (256 MiB) e parseado de forma síncrona | Implementação do contêiner (2026-09-26) | Sub-projeto 5 (worker), ou antes se aparecer caso real |
 | `encryption.xml` em UTF-16 ou com `encoding` Latin-1 declarado é decodificado como UTF-8 (UTF-16 vira falso positivo `unknown:encryption.xml-invalido`) | Implementação do contêiner (2026-09-26) | Sub-projeto 4, junto com a detecção de encoding da IR |
 | `CipherReference` relativo ao diretório do OPF (em vez da raiz do contêiner) não casa com a entrada, e a fonte segue ofuscada sem diagnóstico | Implementação do contêiner (2026-09-26) | Sub-projeto 2 (Publicação, que conhece o diretório do OPF) |
 | `CipherReference` fora de `CipherData` e `RetrievalMethod` LCP fora de filho direto do `KeyInfo` (XML-Enc fora do esquema) não são detectados; nenhum produtor conhecido gera isso | Implementação do contêiner (2026-09-26) | Se aparecer um EPUB real assim |
 | `ProviderContainer` só aplica `maxEntrySize` depois que `provider.read` materializa o recurso inteiro, porque `EpubResourceProvider` não expõe tamanho nem leitura em fatias | Implementação do contêiner (2026-09-26) | Sub-projeto 6, ao revisar a API pública |
+| Os passos do `decode()` saem em rajada com taxa de compressão alta: uma fatia de 16 KiB pode gerar até 16 MiB de saída e ~56 ms sem ceder o isolate | Revisão final do contêiner (2026-09-26) | Sub-projeto 5 (worker) |
+| O fallback do EOCD64 assume 56 bytes colados ao locator (`eocdPos - locatorSize - eocd64Size`); prefixo com um extensible data sector entre o central directory e o locator faria essa busca falhar e o arquivo virar fatal | Revisão final do contêiner (2026-09-26) | Se aparecer um EPUB real assim |
 
 ### Fase 2
 
@@ -78,3 +79,4 @@ aponta para ela e diz **quando** voltar ao assunto.
 | Medir a variação entre VMs antes de commitar o baseline e decidir baseline por CPU. Resultado: dentro do mesmo modelo (EPYC 7763, 3 VMs) a razão varia no máximo 8,3%; entre quatro modelos (EPYC 7763, EPYC 9V45, Xeon 6973P-C, Xeon 8370C) varia até 30% (zlib), 22% (html) e 21% (paragraph). Decisão: baseline por modelo de CPU, um arquivo por modelo em `test/perf/baselines/`; CPU sem baseline só avisa | 2026-09-25 | 28f10e8, db3a518 |
 | A CLI `update_baseline.dart` não tinha teste automatizado próprio; ganhou `test/tool/perf_update_baseline_test.dart` ao adicionar `--out-dir` por TDD | 2026-09-25 | 28f10e8 |
 | Proteção de branch na `main` exigindo `analyze`, `test (min)`, `test (stable)`, `engine-linux` e `perf` (sem revisão obrigatória, sem exigir branch atualizada, admin pode passar por cima; force-push e exclusão bloqueados) | 2026-09-25 | configuração do repositório |
+| `encryption.xml` sem teto próprio de tamanho: é lido até `maxEntrySize` (256 MiB) e parseado de forma síncrona | 2026-09-26 | d07f676 |

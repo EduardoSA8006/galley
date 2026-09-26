@@ -229,7 +229,21 @@ exceção da fonte durante `open` (`FileSystemException`, `RangeError`) vira
    + 30 + compressedSize ≤ tamanho` e `uncompressedSize ≤ maxEntrySize`. Entrada
    que falha é mantida no índice como inválida: `fetch` dela lança
    `EpubContainerException(href)` com o motivo. Valores u64 acima de 2^53
-   (inteiro seguro também no dart2js) contam como fora de limite.
+   (inteiro seguro também no dart2js) contam como fora de limite; o extra
+   ZIP64 ausente ou curto demais para o campo pedido é um motivo à parte
+   (mesmo efeito, mensagem distinta).
+   **Dados sobrepostos:** o teto de tamanho acima é só por entrada; várias
+   entradas válidas (não-diretório) apontando para o mesmo local
+   header/stream comprimido dariam a um arquivo pequeno um jeito de
+   descomprimir o mesmo conteúdo várias vezes até estourar `maxEntrySize`
+   multiplicado pelo número de entradas. Por isso, depois da validação
+   acima, uma cópia das entradas válidas é ordenada por
+   `localHeaderOffset` (O(n log n), com a ordem do central directory como
+   desempate) e percorrida: toda entrada cujo offset invade o espaço da
+   última entrada **mantida** (`localHeaderOffset + 30 + compressedSize`)
+   também vira inválida, com `invalidReason: 'dados sobrepostos a outra
+   entrada'`; a primeira em ordem de offset permanece válida. Sem
+   diagnóstico novo.
 8. **Criptografia do ZIP:** entrada com o bit 0 da flag ligado lança, na
    abertura, `EpubEncryptedException(scheme: 'zip-encryption')`.
 9. **Fatal** (`EpubContainerException`): EOCD não encontrado; central directory
@@ -302,6 +316,14 @@ Na abertura do `ZipContainer`, depois do central directory e nesta ordem:
 | Algoritmo desconhecido (ou `EncryptionMethod` ausente, tratado como `''`) só sobre fontes | `FontObfuscation.unknown` + `fontObfuscationUnknown` (`warning`) |
 | `EncryptedData` sem `CipherReference` | Ignorado |
 
+- **Teto de tamanho:** `encryption.xml` e `rights.xml` têm um teto próprio,
+  `maxMetadataSize` (4 MiB), conferido pelo `uncompressedSize` da entrada no
+  central directory **antes** do `fetch` — livros reais têm poucos KiB, e ler
+  ou parsear um arquivo maior só serviria para custar tempo e memória na
+  abertura. Acima do teto: `ZipContainer` falha como XML inválido
+  (`unknown:encryption.xml-invalido` ou `unknown:rights.xml`, sem ler nem
+  parsear); `ProviderContainer` confere `bytes.length` depois do `read` e
+  emite `encryptionIgnored` (`details: {reason: 'too-large'}`) sem parsear.
 - **É fonte** quando a extensão, sem diferenciar maiúsculas, é `.ttf`, `.otf`,
   `.ttc`, `.otc`, `.woff` ou `.woff2`. A conferência pelo `media-type` do
   manifest é do sub-projeto 2.
@@ -356,6 +378,14 @@ static Future<ProviderContainer> open(EpubResourceProvider provider,
   ofuscação sobre fontes, com a mesma tabela de §6 para `idpf`, `adobe` e
   `unknown`. XML inválido emite `encryptionIgnored` (`info`, novo, `details:
   {reason}`), e `obfuscationOf` devolve `null` para todo caminho.
+- **Cifra de DRM sobre fonte é ignorada, não `unknown`:** uma entrada com
+  `lcpKey`, `adeptKey` ou algoritmo do namespace
+  `http://www.w3.org/2001/04/xmlenc#` sobre uma fonte não entra no mapa de
+  `obfuscationOf` e não emite `fontObfuscationUnknown` — o livro já chega
+  decifrado, então essa entrada só descreve a cifra original, não uma
+  ofuscação real. Algoritmo realmente desconhecido continua
+  `FontObfuscation.unknown` normalmente. O `ZipContainer` (`drmIsFatal:
+  true`) não muda: a mesma entrada ali segue fatal.
 - Sem `mimetype` nem CRC.
 
 ## 7. Documentos a atualizar
