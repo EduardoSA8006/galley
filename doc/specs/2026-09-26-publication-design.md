@@ -174,21 +174,26 @@ normalizado relativo à raiz do contêiner, ou `null` quando o `href` é inváli
 Não decodifica `%xx`.
 
 1. Esquema (`[a-zA-Z][a-zA-Z0-9+.-]*:` no início, ex.: `http:`, `mailto:`,
-   `data:`) → `null`. Contém `\u0000` → `null`.
+   `data:`) → `null`. Contém caractere de controle literal (`U+0000`–`U+001F`,
+   `U+007F`) em qualquer lugar, inclusive no fragmento → `null` (o OCF não
+   admite controle em nomes).
 2. Tira `?query` e `#fragmento` (o fragmento sai por `splitFragment`).
 3. Troca `\` por `/`.
 4. Resolve contra `baseDir` (diretório do documento que contém o `href`, sem `/`
    final; vazio na raiz); `href` que começa com `/` é relativo à raiz.
 5. Colapsa `.`, `..` e barras repetidas. Um `..` que sai da raiz → `null`. Um
-   segmento que revela esquema/letra de drive (`C:`…), ou que, tirados os
-   pontos e espaços finais, fica vazio sem ser exatamente `.` ou `..`
-   (`".. "`, `"..."`), também invalida o caminho inteiro (o que o Win32
-   enxergaria como `.`/`..` ao gravar em disco).
+   segmento com `:` em qualquer posição (o OCF proíbe `:` em nomes; cobre
+   esquema e letra de drive revelados, `C:`…, e fluxo alternativo do NTFS,
+   `a.xhtml::$DATA`), ou que, tirados os pontos e espaços finais, fica vazio
+   sem ser exatamente `.` ou `..` (`".. "`, `"..."`), também invalida o
+   caminho inteiro (o que o Win32 enxergaria como outro arquivo ou como
+   `.`/`..` ao gravar em disco).
 6. Caminho vazio → `null`.
 
 `(String path, String? fragment) splitFragment(String raw)` separa no primeiro
 `#`; fragmento vazio → `null`; o fragmento é decodificado de `%xx` de forma
-tolerante (fica cru se não decodificar).
+tolerante (fica cru se não decodificar, ou se o decodificado contém caractere
+de controle, `U+0000`–`U+001F`, `U+007F`).
 
 ### 5.2 `decodePath`
 
@@ -201,9 +206,9 @@ lança (overlong, sequência inválida), o segmento fica cru. `%2F` decodificado
 não é separador: um segmento que, decodificado, contém `/` também fica cru, e
 o mesmo vale para um segmento cujo decodificado contém caractere de controle
 (`U+0000`–`U+001F`, `U+007F`). Depois, **reaplica os passos 3–6** de §5.1 ao
-resultado. Se o resultado sai da raiz, fica vazio, ou revela um
-esquema/letra de drive ou um segmento só de pontos e espaços, devolve `null`
-(vale só a forma crua). Fecha a travessia por `%2e%2e` e mantém o contrato do
+resultado. Se o resultado sai da raiz, fica vazio, ou tem `:` (um `%3A`
+decodificado) ou um segmento só de pontos e espaços, devolve `null` (vale só
+a forma crua). Fecha a travessia por `%2e%2e` e mantém o contrato do
 contêiner (caminhos sem `\`, `%xx` e `..`).
 
 ### 5.3 Itens do manifest (orquestrador)

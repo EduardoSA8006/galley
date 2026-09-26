@@ -32,6 +32,21 @@ void main() {
       ('', '.../x', null),
       ('', 'a./b', 'a./b'),
       ('', 'a/../C:/Windows/win.ini', null),
+      // Controle literal em qualquer lugar (OCF: nomes sem controle).
+      ('', 'a\u0001b.xhtml', null),
+      ('', 'a\tb.xhtml', null),
+      ('', 'a\nb.xhtml', null),
+      ('', 'a\u001fb.xhtml', null),
+      ('', 'a\u007fb.xhtml', null),
+      ('', 'a.xhtml#x\u0001', null),
+      // Qualquer `:` no caminho resultante (OCF proíbe `:` em nomes).
+      ('', '1:x', null),
+      ('OEBPS', 'Text/1:x.xhtml', null),
+      ('', r'..::$DATA', null),
+      ('OEBPS', 'a.xhtml::\$DATA', null),
+      ('OEBPS', 'Text/a.xhtml#p:1', 'OEBPS/Text/a.xhtml'),
+      ('OEBPS', 'Text/a.xhtml?x=1:2', 'OEBPS/Text/a.xhtml'),
+      ('OEBPS', 'a\u00a0b.xhtml', 'OEBPS/a\u00a0b.xhtml'),
     ];
     for (final (base, raw, expected) in table) {
       test('"$raw" em "$base" → $expected', () {
@@ -52,6 +67,13 @@ void main() {
       expect(splitFragment('a.xhtml#se%C3%A7%C3%A3o'), ('a.xhtml', 'seção'));
       expect(splitFragment('a.xhtml#50%'), ('a.xhtml', '50%'));
       expect(splitFragment('a.xhtml#%E9'), ('a.xhtml', '%E9'));
+    });
+
+    test('fragmento que decodifica para controle fica cru', () {
+      expect(splitFragment('a.xhtml#%00'), ('a.xhtml', '%00'));
+      expect(splitFragment('a.xhtml#x%01y'), ('a.xhtml', 'x%01y'));
+      expect(splitFragment('a.xhtml#%7F'), ('a.xhtml', '%7F'));
+      expect(splitFragment('a.xhtml#%0A%20'), ('a.xhtml', '%0A%20'));
     });
 
     test('decodifica IRI: literal não ASCII misturado com %xx', () {
@@ -89,6 +111,9 @@ void main() {
       // Letra de drive revelada depois do decode/colapso.
       ('C%3a%5cx', null),
       (r'%5c%5c%3f%5cC%3a%5cx', null),
+      // `:` revelado pelo decode invalida a forma decodificada.
+      ('OEBPS/1%3Ax.xhtml', null),
+      ('OEBPS/a.xhtml%3A%3A%24DATA', null),
     ];
     for (final (input, expected) in table) {
       test('$input → $expected', () {

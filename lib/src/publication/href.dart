@@ -30,14 +30,16 @@ String basenameWithoutExtension(String path) {
 
 /// Caminho de [raw] relativo à raiz do contêiner, resolvido contra
 /// [baseDir] (diretório do documento que contém o `href`, sem `/` final;
-/// vazio na raiz). `null` se tem esquema, tem `\u0000`, sai da raiz, fica
-/// vazio, ou (depois do colapso) revela um esquema/letra de drive ou um
-/// segmento só de pontos e espaços. Tira `?query` e `#fragmento`, troca `\`
-/// por `/` e colapsa `.`, `..` e barras repetidas. Não decodifica `%xx`.
+/// vazio na raiz). `null` se tem esquema, tem caractere de controle literal
+/// (`U+0000`–`U+001F`, `U+007F`) em qualquer lugar, sai da raiz, fica vazio,
+/// ou (depois do colapso) tem `:` em algum segmento (o OCF proíbe `:` em
+/// nomes; cobre esquema e letra de drive revelados) ou um segmento só de
+/// pontos e espaços. Tira `?query` e `#fragmento`, troca `\` por `/` e
+/// colapsa `.`, `..` e barras repetidas. Não decodifica `%xx`.
 String? normalizeHref(String baseDir, String raw) {
   var s = raw.trim();
   if (_scheme.hasMatch(s)) return null;
-  if (s.contains('\u0000')) return null;
+  if (_hasControlChar(s)) return null;
   final hash = s.indexOf('#');
   if (hash >= 0) s = s.substring(0, hash);
   final query = s.indexOf('?');
@@ -50,14 +52,16 @@ String? normalizeHref(String baseDir, String raw) {
 
 /// Separa no primeiro `#`. Fragmento vazio → `null`; o fragmento é
 /// decodificado de `%xx` de forma tolerante a IRI (fica cru se não
-/// decodificar).
+/// decodificar, ou se o decodificado contém caractere de controle).
 (String, String?) splitFragment(String raw) {
   final hash = raw.indexOf('#');
   if (hash < 0) return (raw, null);
   final fragment = raw.substring(hash + 1);
+  if (fragment.isEmpty) return (raw.substring(0, hash), null);
+  final decoded = _tryDecode(fragment);
   return (
     raw.substring(0, hash),
-    fragment.isEmpty ? null : _tryDecode(fragment) ?? fragment,
+    decoded == null || _hasControlChar(decoded) ? fragment : decoded,
   );
 }
 
@@ -67,8 +71,8 @@ String? normalizeHref(String baseDir, String raw) {
 /// decodificado contém `/`, ou que decodificado contém caractere de
 /// controle (`U+0000`–`U+001F`, `U+007F`), fica cru — fecha `%00` truncando
 /// o caminho num provider ingênuo e `%2F` virando separador. `null` se o
-/// resultado sai da raiz, fica vazio, ou revela um esquema/letra de drive ou
-/// um segmento só de pontos e espaços.
+/// resultado sai da raiz, fica vazio, ou tem `:` ou um segmento só de pontos
+/// e espaços.
 String? decodePath(String normalized) {
   final segments = normalized.split('/');
   for (var i = 0; i < segments.length; i++) {
@@ -144,10 +148,11 @@ bool _hasControlChar(String s) {
 
 /// Colapsa `.`, `..` e barras repetidas; `null` se sai da raiz ou fica
 /// vazio. Um `/` inicial não muda nada (a raiz é a do contêiner). Um
-/// segmento que revela esquema/letra de drive (`C:`…), ou que, tirados os
-/// pontos e espaços finais, fica vazio sem ser exatamente `.` ou `..`
-/// (`".. "`, `"..."`, `". ."`), invalida o caminho inteiro: é o que o Win32
-/// enxergaria como `.`/`..` ao gravar em disco.
+/// segmento com `:` (esquema, letra de drive, fluxo alternativo do NTFS), ou
+/// que, tirados os pontos e espaços finais, fica vazio sem ser exatamente
+/// `.` ou `..` (`".. "`, `"..."`, `". ."`), invalida o caminho inteiro: é o
+/// que o Win32 enxergaria como outro arquivo ou como `.`/`..` ao gravar em
+/// disco.
 String? _collapse(String path) {
   final out = <String>[];
   for (final segment in path.split('/')) {
@@ -157,7 +162,7 @@ String? _collapse(String path) {
       out.removeLast();
       continue;
     }
-    if (_scheme.hasMatch(segment)) return null;
+    if (segment.contains(':')) return null;
     if (_isDotsAndSpacesOnly(segment)) return null;
     out.add(segment);
   }
