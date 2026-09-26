@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "flutter": "3.47.0",
+  "dart": "3.13.0",
+  "os": "linux",
+  "cpu": "AMD EPYC 9V74 80-Core Processor",
+  "createdAt": "2026-09-26T14:20:53.567245Z",
+  "sourceCommit": "914992935752b20050b51a2f222653302f3039d9",
+  "runner": "ubuntu-24.04",
+  "runs": 3,
+  "cases": {
+    "font.deobfuscate.idpf": {
+      "ratio": 0.6226924761686239,
+      "medianUs": 3323.679,
+      "calibrationUs": 5213.214
+    },
+    "html.parse.500kb": {
+      "ratio": 1.9257848443212826,
+      "medianUs": 10348.97,
+      "calibrationUs": 5194.334
+    },
+    "image.decode.target": {
+      "ratio": 1.7807698269521883,
+      "medianUs": 9252.612,
+      "calibrationUs": 5177.521
+    },
+    "paragraph.shape.1000": {
+      "ratio": 10.592644997364143,
+      "medianUs": 55456.174,
+      "calibrationUs": 5232.891
+    },
+    "zip.fetch.inflate.1mb": {
+      "ratio": 0.7550341559540148,
+      "medianUs": 4004.135,
+      "calibrationUs": 5196.95
+    },
+    "zip.open.800": {
+      "ratio": 1.0003457721823499,
+      "medianUs": 5320.41,
+      "calibrationUs": 5186.2
+    },
+    "zlib.inflate.1mb": {
+      "ratio": 0.9544344079194349,
+      "medianUs": 6600.828,
+      "calibrationUs": 6247.467
+    }
+  }
+}
