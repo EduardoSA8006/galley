@@ -47,23 +47,40 @@ isso é inteiramente problema dele.
 
 ### 2.2 Leitor de ZIP
 
-Próprio, cerca de 300 linhas. Toda a arquitetura repousa sobre acesso aleatório
-lazy, e nenhum pacote existente entrega essa forma.
+Próprio, em `lib/src/container/zip/`. Toda a arquitetura repousa sobre acesso
+aleatório lazy, e nenhum pacote existente entrega essa forma. Detalhes em
+[specs/2026-09-25-container-design.md](specs/2026-09-25-container-design.md) §5.
 
-- Lê o **end of central directory** e o **central directory** uma única vez na
-  abertura, montando `Map<String, ZipEntry>` com offset, tamanho comprimido,
-  tamanho original e método. Lê os últimos 64 KB do arquivo de uma vez para
-  cobrir o comentário do EOCD sem segunda ida ao disco
+- Lê o fim do arquivo (os últimos 65 577 bytes: o maior comentário do EOCD, o
+  EOCD e o locator ZIP64) numa leitura e o **central directory** inteiro
+  noutra, uma única vez na abertura, montando o índice por nome (exato e sem
+  diferenciar maiúsculas)
 - Suporta **ZIP64** para EOCD e central directory, porque arquivos acima de 4 GB
-  são raros mas arquivos com mais de 65 535 entradas existem
-- Infla uma entrada só quando pedida, direto para `Uint8List`
-- **Nunca** carrega o arquivo inteiro em memória
+  são raros mas arquivos com mais de 65 535 entradas existem; percorre o
+  central directory pelo tamanho, não pela contagem
+- **Prefixo** (EPUB colado depois de outro arquivo): todos os offsets recebem o
+  deslocamento, com diagnóstico `mimetypeIrregular` (`reason: prefix`)
+- **Nomes:** com o bit 11, UTF-8 tolerante; sem ele, UTF-8 se válido, senão
+  CP437. `\` vira `/`, `/` e `./` iniciais caem; diretórios ficam fora do índice
+- **Duplicatas:** vence a primeira entrada do central directory; as outras
+  emitem `zipDuplicateEntry`
+- `fetch` faz **uma** ida à fonte (local header e dados); `decode()` é `sync*`,
+  infla em fatias de 16 KiB e tem um passo a cada 64 KiB de saída
+- **Nunca** carrega o arquivo inteiro em memória (medido no teste de corpus)
+- `maxEntrySize` (256 MiB descomprimidos): entrada maior, ou saída maior que a
+  declarada, é ilegível; proteção contra zip bomb
+- **Dados sobrepostos:** o teto acima é só por entrada, então várias entradas
+  do central directory apontando para o mesmo local header/stream deflate
+  (zip bomb por sobreposição) também são cobertas: a partir da segunda, em
+  ordem de `localHeaderOffset`, ficam inválidas
 - Suporta `stored` (método 0) e `deflate` (método 8); qualquer outro método
-  levanta `EpubContainerException`
-- Ignora o local file header exceto para o tamanho do nome e do extra field, que
-  precisa pular para achar os dados; confia no central directory para tudo mais
-- Valida CRC-32 só em modo `strict` ([09](09-erros-diagnosticos.md) §5); em
-  produção, um CRC errado vira diagnóstico `zipCrcMismatch`
+  levanta `EpubContainerException` daquela entrada
+- Do local file header só usa o tamanho do nome e do extra field, que precisa
+  pular para achar os dados; tamanhos e CRC vêm sempre do central directory,
+  inclusive com data descriptor
+- **CRC-32 sempre verificado** durante o `decode()`: em produção, um CRC errado
+  (ou saída curta) vira diagnóstico `zipCrcMismatch`; em `strict`
+  ([09](09-erros-diagnosticos.md) §5), exceção
 
 Nota: o `mimetype` deve ser a primeira entrada e não comprimido. Se não for,
 emitimos diagnóstico mas seguimos, porque muitos arquivos reais violam isso.
@@ -110,7 +127,7 @@ Quando NAV e NCX coexistem (EPUB3 com NCX de compatibilidade), o NAV vence.
 | `href` com separador do Windows (`\`) | Normalizado para `/` |
 | `href` URL-encoded | Decodificado; tentativa dupla (cru e decodificado) |
 | `href` relativo ao OPF em subpasta | Resolvido contra o diretório do OPF, depois normalizado (`..` colapsado) |
-| Diferença de caixa entre manifest e ZIP | Segunda tentativa case-insensitive, com diagnóstico |
+| Diferença de caixa entre manifest e ZIP | Segunda tentativa case-insensitive, com diagnóstico `pathCaseMismatch` |
 | Item do manifest sem arquivo no ZIP | Seção de placeholder + `EpubDiagnostic.resourceMissing` |
 | Item só-imagem no spine (`image/*` no media-type) | Seção com um único `Block(kind: object)` |
 | Item com media-type não renderizável (PDF, áudio) | Seção de placeholder com o nome e o tipo, diagnóstico `unsupportedMediaType` |

@@ -33,6 +33,10 @@ const knownDiagnostics = {
   'viewportTooSmall',
   'fontObfuscationUnknown',
   'sectionTooLarge',
+  'zipDuplicateEntry',
+  'pathCaseMismatch',
+  'resourceUnreadable',
+  'encryptionIgnored',
 };
 
 /// Exceções fatais de doc/09 §2.

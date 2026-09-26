@@ -11,7 +11,7 @@ super personalizável.
 
 ```dart
 final doc = await EpubDocument.open(
-  source: FileEpubByteSource(file),
+  source: FileEpubByteSource(path),
   cache: FileEpubCacheStore(cacheDir),
 );
 

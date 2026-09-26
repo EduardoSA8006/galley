@@ -1,0 +1,192 @@
+// Exceções e DiagnosticSink (spec do contêiner §8).
+import 'package:flutter_test/flutter_test.dart';
+import 'package:galley/src/diagnostics/diagnostic.dart';
+import 'package:galley/src/diagnostics/exceptions.dart';
+
+void main() {
+  group('EpubException', () {
+    test('toString com e sem href', () {
+      expect(
+        EpubContainerException('CRC divergente', href: 'a.xhtml').toString(),
+        'EpubContainerException(a.xhtml): CRC divergente',
+      );
+      expect(
+        EpubContainerException('EOCD não encontrado').toString(),
+        'EpubContainerException: EOCD não encontrado',
+      );
+      expect(
+        EpubEncryptedException('DRM lcp', scheme: 'lcp').toString(),
+        'EpubEncryptedException: DRM lcp',
+      );
+    });
+
+    test('guarda cause e scheme', () {
+      const cause = FormatException('ruim');
+      final e = EpubEncryptedException(
+        'encryption.xml inválido',
+        scheme: 'unknown:encryption.xml-invalido',
+        cause: cause,
+      );
+      expect(e.cause, same(cause));
+      expect(e.scheme, 'unknown:encryption.xml-invalido');
+      expect(e, isA<EpubException>());
+    });
+  });
+
+  group('EpubDiagnosticCode', () {
+    test('sete códigos com a severidade padrão da spec', () {
+      final codes = {
+        EpubDiagnosticCode.mimetypeIrregular: EpubSeverity.info,
+        EpubDiagnosticCode.zipCrcMismatch: EpubSeverity.warning,
+        EpubDiagnosticCode.zipDuplicateEntry: EpubSeverity.info,
+        EpubDiagnosticCode.pathCaseMismatch: EpubSeverity.info,
+        EpubDiagnosticCode.fontObfuscationUnknown: EpubSeverity.warning,
+        EpubDiagnosticCode.encryptionIgnored: EpubSeverity.info,
+        EpubDiagnosticCode.resourceUnreadable: EpubSeverity.warning,
+      };
+      for (final MapEntry(key: code, value: severity) in codes.entries) {
+        expect(code.defaultSeverity, severity, reason: code.name);
+      }
+      expect(codes.keys.map((c) => c.name).toSet(), {
+        'mimetypeIrregular',
+        'zipCrcMismatch',
+        'zipDuplicateEntry',
+        'pathCaseMismatch',
+        'fontObfuscationUnknown',
+        'encryptionIgnored',
+        'resourceUnreadable',
+      });
+    });
+  });
+
+  group('EpubDiagnostic', () {
+    test('details é unmodifiable', () {
+      final d = EpubDiagnostic(
+        code: EpubDiagnosticCode.pathCaseMismatch,
+        severity: EpubSeverity.info,
+        message: 'caixa',
+        details: {'actual': 'A.xhtml'},
+      );
+      expect(() => d.details['x'] = 1, throwsUnsupportedError);
+    });
+  });
+
+  group('DiagnosticSink', () {
+    test('primeira emissão tem count 1 e a severidade padrão', () {
+      final sink = DiagnosticSink()
+        ..emit(
+          EpubDiagnosticCode.zipDuplicateEntry,
+          href: 'a.xhtml',
+          message: 'duplicada',
+          details: {'index': 3},
+        );
+      final d = sink.diagnostics.single;
+      expect(d.severity, EpubSeverity.info);
+      expect(d.details, {'index': 3, 'count': 1});
+    });
+
+    test(
+      'dedupe por (code, href): substitui na mesma posição e soma count',
+      () {
+        final sink = DiagnosticSink()
+          ..emit(EpubDiagnosticCode.pathCaseMismatch, href: 'a', message: '1')
+          ..emit(EpubDiagnosticCode.zipDuplicateEntry, href: 'a', message: '2')
+          ..emit(
+            EpubDiagnosticCode.pathCaseMismatch,
+            href: 'a',
+            message: '3',
+            details: {'actual': 'A'},
+          )
+          ..emit(EpubDiagnosticCode.pathCaseMismatch, href: 'b', message: '4');
+        final ds = sink.diagnostics;
+        expect(ds.map((d) => d.message), ['3', '2', '4']);
+        expect(ds[0].details, {'actual': 'A', 'count': 2});
+        expect(ds[2].details['count'], 1);
+      },
+    );
+
+    test('severity explícita vence a padrão', () {
+      final sink = DiagnosticSink()
+        ..emit(
+          EpubDiagnosticCode.zipDuplicateEntry,
+          message: 'x',
+          severity: EpubSeverity.warning,
+        );
+      expect(sink.diagnostics.single.severity, EpubSeverity.warning);
+    });
+
+    test('fora de strict, warning não lança', () {
+      final sink = DiagnosticSink()
+        ..emit(EpubDiagnosticCode.zipCrcMismatch, href: 'a', message: 'crc');
+      expect(sink.diagnostics.single.severity, EpubSeverity.warning);
+    });
+
+    test(
+      'strict registra e depois lança EpubContainerException em warning',
+      () {
+        final sink = DiagnosticSink(strict: true);
+        expect(
+          () => sink.emit(
+            EpubDiagnosticCode.zipCrcMismatch,
+            href: 'a.xhtml',
+            message: 'CRC divergente',
+          ),
+          throwsA(
+            isA<EpubContainerException>()
+                .having((e) => e.href, 'href', 'a.xhtml')
+                .having(
+                  (e) => e.message,
+                  'message',
+                  contains('zipCrcMismatch'),
+                ),
+          ),
+        );
+        expect(sink.diagnostics.single.code, EpubDiagnosticCode.zipCrcMismatch);
+      },
+    );
+
+    test('strict usa onStrict quando informado', () {
+      final sink = DiagnosticSink(strict: true);
+      expect(
+        () => sink.emit(
+          EpubDiagnosticCode.fontObfuscationUnknown,
+          message: 'fonte',
+          onStrict: (m) => EpubEncryptedException(m, scheme: 'teste'),
+        ),
+        throwsA(
+          isA<EpubEncryptedException>().having(
+            (e) => e.message,
+            'message',
+            'fontObfuscationUnknown: fonte',
+          ),
+        ),
+      );
+    });
+
+    test('strict: info nunca lança', () {
+      final sink = DiagnosticSink(strict: true)
+        ..emit(EpubDiagnosticCode.zipDuplicateEntry, message: 'x')
+        ..emit(EpubDiagnosticCode.pathCaseMismatch, message: 'y')
+        ..emit(EpubDiagnosticCode.encryptionIgnored, message: 'z');
+      expect(sink.diagnostics, hasLength(3));
+    });
+
+    test('strict promove mimetypeIrregular a warning e lança', () {
+      final sink = DiagnosticSink(strict: true);
+      expect(
+        () => sink.emit(EpubDiagnosticCode.mimetypeIrregular, message: 'm'),
+        throwsA(isA<EpubContainerException>()),
+      );
+      expect(sink.diagnostics.single.severity, EpubSeverity.warning);
+      final relaxed = DiagnosticSink()
+        ..emit(EpubDiagnosticCode.mimetypeIrregular, message: 'm');
+      expect(relaxed.diagnostics.single.severity, EpubSeverity.info);
+    });
+
+    test('diagnostics devolvido não altera o sink', () {
+      final sink = DiagnosticSink()
+        ..emit(EpubDiagnosticCode.zipDuplicateEntry, message: 'x');
+      expect(() => sink.diagnostics.clear(), throwsUnsupportedError);
+    });
+  });
+}

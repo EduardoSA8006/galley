@@ -1,5 +1,5 @@
-// Casos de desempenho da Fase 0: só primitivas das quais o motor vai
-// depender (spec §2.4). Rodar com:
+// Casos de desempenho: primitivas da Fase 0 (spec do harness §2.4) e o
+// contêiner da Fase 1 (spec do contêiner §10). Rodar com:
 //
 //   flutter test --tags perf --run-skipped test/perf
 //
@@ -8,14 +8,21 @@
 @Tags(['perf'])
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:galley/src/container/byte_source.dart';
+import 'package:galley/src/container/container.dart';
+import 'package:galley/src/container/font_obfuscation.dart';
+import 'package:galley/src/container/zip/zip_container.dart';
+import 'package:galley/src/diagnostics/diagnostic.dart';
 import 'package:html/parser.dart' as html;
 
 import '../../tool/corpus/lib/png.dart';
+import '../../tool/corpus/lib/zip_writer.dart';
 import '../../tool/perf/lib/perf_report.dart';
 import 'support/perf_harness.dart';
 import 'support/perf_inputs.dart';
@@ -76,12 +83,72 @@ List<PerfCase> _phase0Cases() {
   ];
 }
 
+List<PerfCase> _containerCases() {
+  late Uint8List spine800;
+  late ZipContainer inflateContainer;
+  late Uint8List font;
+  return [
+    PerfCase(
+      id: 'zip.open.800',
+      setUp: () async =>
+          spine800 = File('test/corpus/estrutura/spine-800-itens/book.epub')
+              .readAsBytesSync(),
+      runAsync: () async {
+        final c = await ZipContainer.open(
+          MemoryEpubByteSource(spine800),
+          sink: DiagnosticSink(),
+        );
+        _sink += c.paths.length;
+        await c.close();
+      },
+      innerIterations: 10, // ≈ 5 ms por amostra
+    ),
+    PerfCase(
+      id: 'zip.fetch.inflate.1mb',
+      setUp: () async {
+        // Contêiner reusado entre amostras de propósito (o harness não tem teardown).
+        final zip =
+            (ZipWriter()
+                  ..add(
+                    'mimetype',
+                    ascii.encode('application/epub+zip'),
+                    compress: false,
+                  )
+                  ..add('OEBPS/Text/grande.xhtml', proseBytes(1024 * 1024)))
+                .build();
+        inflateContainer = await ZipContainer.open(
+          MemoryEpubByteSource(zip),
+          sink: DiagnosticSink(),
+        );
+      },
+      runAsync: () async {
+        final r = (await inflateContainer.fetch('OEBPS/Text/grande.xhtml'))!;
+        for (final _ in r.decode()) {}
+        _sink += r.bytes.length;
+      },
+    ),
+    PerfCase(
+      id: 'font.deobfuscate.idpf',
+      setUp: () async => font = proseBytes(64 * 1024),
+      run: () => _sink += deobfuscateFont(
+        font,
+        FontObfuscation.idpf,
+        uniqueIdentifiers: const [
+          'urn:uuid:b7e2f1a0-4c3d-4e5f-8a9b-0c1d2e3f4a5b',
+        ],
+        identifiers: const [],
+      )!.length,
+      innerIterations: 400, // ≈ 5 ms por amostra
+    ),
+  ];
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   final results = <String, PerfCaseResult>{};
 
-  for (final c in _phase0Cases()) {
+  for (final c in [..._phase0Cases(), ..._containerCases()]) {
     test(c.id, () async {
       final r = await measureCase(c);
       results[c.id] = r;

@@ -23,6 +23,10 @@ aponta para ela e diz **quando** voltar ao assunto.
 | `combineBaseline` confere Flutter e casos entre execuções, mas não `dart`/`os`; herda do primeiro | Implementação do harness (2026-09-25) | Se o baseline passar a combinar runners diferentes |
 | Cobrir o EPYC 9V74 e outros modelos que aparecerem com baseline próprio (disparar o `perf-baseline` até cair neles) | Sub-tarefa 10b — baseline por modelo de CPU (2026-09-25) | Contínuo |
 | Versão do pacote `html` não travada para o perf (`/pubspec.lock` é ignorado): registrar as versões resolvidas dos pacotes medidos no `result.json` e avisar quando divergirem do baseline | Revisão final do harness (2026-09-25) | Fase 1 |
+| `S5.5` (`test/spike/s5_soft_hyphen_test.dart`) é uma razão de tempo e falhou uma vez sob carga local; agora que os spikes rodam no job `test` obrigatório, pode deixar a PR vermelha por ruído. Afirmar pela mediana de várias rodadas, ou marcar como perf | Implementação do contêiner (2026-09-26) | Na próxima vez que falhar no CI, ou junto com o sub-projeto 2 |
+| Contêiner em `strict`: `rights.xml` (ou `encryption.xml` com KeyInfo LCP) com CRC errado sai como `EpubContainerException(zipCrcMismatch)` em vez de `EpubEncryptedException`, contra a frase de [09](09-erros-diagnosticos.md) §4. Só afeta `strict` (testes). Ler os metadados com sink não estrito e reemitir o diagnóstico depois da checagem de DRM | Revisão final do contêiner (2026-09-26) | Sub-projeto 2 |
+| Teste do diagnóstico de prefixo do ZIP confere só `reason`, não `details.delta` (a asserção saiu com a mudança do diagnóstico para o `ZipContainer`) | Revisão final do contêiner (2026-09-26) | Sub-projeto 2 |
+| Endurecimento do contêiner abaixo dos tetos: `encryption.xml` válido de 4 MiB com aninhamento profundo ainda custa ~1 s e ~250 MiB (baixar o teto para 1 MiB?); entrada stored com `compressedSize` enorme e tamanho declarado pequeno lê o arquivo antes de recusar (conferir `compressedSize` com folga); um `compressedSize` corrompido invalida as entradas seguintes pela regra de sobreposição | Revisão final do contêiner (2026-09-26) | Sub-projeto 5 (worker), ou antes se aparecer caso real |
 
 ### Fase 1
 
@@ -35,6 +39,16 @@ aponta para ela e diz **quando** voltar ao assunto.
 | Cessão entre fatias por `MessageChannel` (ou `scheduler.postTask`) em vez de `Timer`, por causa do clamp de ~4,2 ms do navegador | [08](08-concorrencia-cache.md) §2; S9 | Fase 1 (pré-requisito da 1.0.x) |
 | SVG-invólucro desembrulhado e repaginação quando a dimensão da imagem chega | S7; [13](13-riscos-spikes-fases.md) §1 | Fase 1 |
 | Tamanho do pacote no web (inflate, SHA-1, CSS), teto de 300 KB minificado | [13](13-riscos-spikes-fases.md) §1.2 | Fase 1 |
+| Chave NFC no índice de nomes do contêiner: nomes do ZIP e caminhos pedidos comparados em NFC | [Spec do contêiner](specs/2026-09-25-container-design.md) §1.2 | Sub-projeto 4 (IR de seção), quando a normalização existir |
+| `tool/corpus/lib/hashes.dart` duplica o CRC-32 e o SHA-1 de `lib/src/container/`; unificar quando `tool/` puder importar o pacote | [Spec do contêiner](specs/2026-09-25-container-design.md) §7 | Antes da 1.0 |
+| `test/container/inflate_web_test.dart` só roda com `--platform chrome`; entra no CI junto com o job web | [Spec do contêiner](specs/2026-09-25-container-design.md) §7 | Com o job web (1.0.x) |
+| Regenerar os baselines por CPU com `zip.open.800`, `zip.fetch.inflate.1mb` e `font.deobfuscate.idpf` (disparar o `perf-baseline`); até lá aparecem como "novo, sem baseline" | [Spec do contêiner](specs/2026-09-25-container-design.md) §10 | Logo depois do merge da PR do contêiner |
+| `encryption.xml` em UTF-16 ou com `encoding` Latin-1 declarado é decodificado como UTF-8 (UTF-16 vira falso positivo `unknown:encryption.xml-invalido`) | Implementação do contêiner (2026-09-26) | Sub-projeto 4, junto com a detecção de encoding da IR |
+| `CipherReference` relativo ao diretório do OPF (em vez da raiz do contêiner) não casa com a entrada, e a fonte segue ofuscada sem diagnóstico | Implementação do contêiner (2026-09-26) | Sub-projeto 2 (Publicação, que conhece o diretório do OPF) |
+| `CipherReference` fora de `CipherData` e `RetrievalMethod` LCP fora de filho direto do `KeyInfo` (XML-Enc fora do esquema) não são detectados; nenhum produtor conhecido gera isso | Implementação do contêiner (2026-09-26) | Se aparecer um EPUB real assim |
+| `ProviderContainer` só aplica `maxEntrySize` depois que `provider.read` materializa o recurso inteiro, porque `EpubResourceProvider` não expõe tamanho nem leitura em fatias | Implementação do contêiner (2026-09-26) | Sub-projeto 6, ao revisar a API pública |
+| Os passos do `decode()` saem em rajada com taxa de compressão alta: uma fatia de 16 KiB pode gerar até 16 MiB de saída e ~56 ms sem ceder o isolate | Revisão final do contêiner (2026-09-26) | Sub-projeto 5 (worker) |
+| O fallback do EOCD64 assume 56 bytes colados ao locator (`eocdPos - locatorSize - eocd64Size`); prefixo com um extensible data sector entre o central directory e o locator faria essa busca falhar e o arquivo virar fatal | Revisão final do contêiner (2026-09-26) | Se aparecer um EPUB real assim |
 
 ### Fase 2
 
@@ -68,4 +82,5 @@ aponta para ela e diz **quando** voltar ao assunto.
 | Reformatar os spikes S5–S8 no formatter do Dart 3.13 | 2026-09-25 | c6d312a |
 | Medir a variação entre VMs antes de commitar o baseline e decidir baseline por CPU. Resultado: dentro do mesmo modelo (EPYC 7763, 3 VMs) a razão varia no máximo 8,3%; entre quatro modelos (EPYC 7763, EPYC 9V45, Xeon 6973P-C, Xeon 8370C) varia até 30% (zlib), 22% (html) e 21% (paragraph). Decisão: baseline por modelo de CPU, um arquivo por modelo em `test/perf/baselines/`; CPU sem baseline só avisa | 2026-09-25 | 28f10e8, db3a518 |
 | A CLI `update_baseline.dart` não tinha teste automatizado próprio; ganhou `test/tool/perf_update_baseline_test.dart` ao adicionar `--out-dir` por TDD | 2026-09-25 | 28f10e8 |
-| Proteção de branch na `main` exigindo `analyze`, `test (min)`, `test (stable)`, `engine-linux` e `perf` (sem revisão obrigatória, sem exigir branch atualizada, admin pode passar por cima; force-push e exclusão bloqueados) | 2026-09-25 | configuração do repositório |
+| Proteção de branch na `main` exigindo `analyze`, `test (min)`, `test (stable)`, `engine-linux` e `perf` vindos do GitHub Actions, com a PR em dia com a `main` antes do merge; vale também para admin; sem revisão obrigatória; force-push e exclusão bloqueados | 2026-09-25 (branch em dia e checks amarrados ao Actions em 2026-09-26) | configuração do repositório |
+| `encryption.xml` sem teto próprio de tamanho: é lido até `maxEntrySize` (256 MiB) e parseado de forma síncrona | 2026-09-26 | d07f676 |

@@ -42,7 +42,8 @@ cd example && flutter test integration_test/<arquivo>_test.dart -d linux
 ## PRs
 
 - A `main` é protegida: toda mudança entra por PR, com `analyze`,
-  `test (min)`, `test (stable)`, `engine-linux` e `perf` verdes.
+  `test (min)`, `test (stable)`, `engine-linux` e `perf` verdes e a branch
+  em dia com a `main` (use "Update branch" na PR, ou `git merge origin/main`).
 - Commits pequenos e com mensagem no formato `tipo(escopo): resumo`
   (`feat`, `fix`, `docs`, `perf`, `ci`, `chore`, `test`).
 - Texto (docs, comentários, mensagens) em português brasileiro;
