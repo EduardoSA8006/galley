@@ -117,12 +117,13 @@ EPUBs reais têm navegação incompleta. Quando o NAV/NCX não cobre todos os it
 do spine:
 
 1. Preserva a hierarquia da navegação para os itens que ela contém
-2. Inclui itens órfãos do spine (com `linear` verdadeiro e sem entrada, em
-   nenhum nível, que aponte para eles) como entradas de nível raiz marcadas
+2. Inclui itens órfãos do spine (com `linear` verdadeiro, `content` final
+   local e presente, e sem entrada, em nenhum nível, que aponte para o item ou
+   para o `content`) como entradas de nível raiz marcadas
    `synthesized`, logo depois da última entrada raiz, na ordem do TOC, cujo
    menor índice do spine (dela e dos descendentes) é anterior ao do órfão; sem
-   nenhuma, no início; órfãos no mesmo ponto ficam na ordem do spine. O título
-   é o nome do arquivo sem extensão; o primeiro heading da seção fica como
+   nenhuma, no início; órfãos no mesmo ponto ficam na ordem do spine. O alvo
+   é o `content.path` e o título, o nome desse arquivo sem extensão; o primeiro heading da seção fica como
    gancho para a IR (sub-projeto 4). Emite `tocReconciled` uma vez
 3. A ordem de leitura vem **sempre** do spine, nunca do TOC
 4. Itens com `linear="no"` ficam no spine (participam do progresso e podem ser
@@ -141,7 +142,7 @@ Quando NAV e NCX coexistem (EPUB3 com NCX de compatibilidade), o NAV vence.
 | `href` URL-encoded | Decodificado segmento a segmento; tentativa dupla (decodificado, depois cru); `%2e%2e` que sairia da raiz e `%2F` ficam crus |
 | `href` relativo ao OPF em subpasta | Resolvido contra o diretório do OPF, depois normalizado (`..` colapsado); `..` além da raiz recusa o `href` |
 | `href` recusado (esquema que não é `http:`/`https:`, fora da raiz, vazio) | Item `missing`, `resourceMissing` com `href: null` e `details: {id, raw}` |
-| `href` `http:`/`https:` | Item `remote`, sem diagnóstico |
+| `href` `http:`/`https:` | Item `remote`; sem diagnóstico fora do spine; quando o `content` final de um item do spine é remoto (sem `fallback` local), `resourceMissing` com `href` = a URL e `details: {id, reason: 'remote'}` |
 | Diferença de caixa entre manifest e ZIP | Segunda tentativa case-insensitive, com diagnóstico `pathCaseMismatch` |
 | Item do manifest sem arquivo no ZIP | Item `missing` com `resourceMissing` (`href` = caminho); seção de placeholder na IR |
 | Item só-imagem no spine (`image/*` no media-type) | Seção com um único `Block(kind: object)` |
