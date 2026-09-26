@@ -31,9 +31,11 @@ final class ZipContainer implements EpubContainer {
   final Map<String, FontObfuscation> _obfuscation = {};
   Future<void>? _closing;
 
-  /// Lê o central directory, confere o DRM e o `mimetype` (nesta ordem: DRM
-  /// é fatal e vem primeiro). Exceção da fonte vira [EpubContainerException]
-  /// com `cause`. Se a abertura falha, a fonte é fechada.
+  /// Lê o central directory, confere o DRM, o prefixo e o `mimetype` (nesta
+  /// ordem: DRM é fatal e vem primeiro, para não ser mascarado pelo
+  /// diagnóstico do prefixo em `strict`). Exceção da fonte vira
+  /// [EpubContainerException] com `cause`. Se a abertura falha, a fonte é
+  /// fechada.
   static Future<ZipContainer> open(
     EpubByteSource source, {
     required DiagnosticSink sink,
@@ -42,6 +44,7 @@ final class ZipContainer implements EpubContainer {
       final cd = await readCentralDirectory(source, sink: sink);
       final container = ZipContainer._(source, sink, cd);
       await container._checkEncryption();
+      container._checkPrefix();
       await container._checkMimetype();
       return container;
     } on Object {
@@ -200,14 +203,38 @@ final class ZipContainer implements EpubContainer {
     );
   }
 
+  /// §5.1 item 3: bytes antes do ZIP (EPUB colado depois de outro arquivo).
+  /// Roda depois do DRM (fatal) e antes do `mimetype`, para que um livro com
+  /// prefixo e DRM em `strict` falhe com o esquema, não com este diagnóstico.
+  void _checkPrefix() {
+    final delta = centralDirectory.delta;
+    if (delta <= 0) return;
+    _sink.emit(
+      EpubDiagnosticCode.mimetypeIrregular,
+      message: '$delta bytes antes do ZIP',
+      details: {'reason': 'prefix', 'delta': delta},
+    );
+  }
+
   /// Texto UTF-8 de uma entrada; `null` se ausente ou ilegível.
+  ///
+  /// Em `strict`, um `zipCrcMismatch` (CRC divergente ou saída curta) faz o
+  /// `DiagnosticSink` lançar dentro do `decode()`: essa exceção precisa
+  /// propagar, não virar falso DRM. Só erros de leitura/decodificação do
+  /// conteúdo em si (`EpubContainerException` que não veio do sink, e
+  /// `FormatException` de UTF-8) contam como "ilegível".
   Future<String?> _readText(String path) async {
     try {
       final pending = await fetch(path);
       if (pending == null) return null;
       for (final _ in pending.decode()) {}
       return utf8.decode(pending.bytes, allowMalformed: true);
-    } on EpubContainerException {
+    } on EpubContainerException catch (e) {
+      if (e.message.startsWith('${EpubDiagnosticCode.zipCrcMismatch.name}: ')) {
+        rethrow;
+      }
+      return null;
+    } on FormatException {
       return null;
     }
   }

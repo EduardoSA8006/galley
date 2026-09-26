@@ -261,6 +261,20 @@ void main() {
     expect(sink.diagnostics.single.details['reason'], 'unreadable');
   });
 
+  test('abertura que falha (fontObfuscationUnknown em strict) fecha o '
+      'provider', () async {
+    final p = _MapProvider({
+      'META-INF/encryption.xml': utf8.encode(
+        _encryption('urn:x-desconhecido', 'OEBPS/Fonts/a.otf'),
+      ),
+    });
+    await expectLater(
+      ProviderContainer.open(p, sink: DiagnosticSink(strict: true)),
+      throwsA(isA<EpubContainerException>()),
+    );
+    expect(p.closeCalls, 1);
+  });
+
   test('close fecha o provider uma vez e bloqueia fetch', () async {
     final p = _MapProvider({});
     final c = await ProviderContainer.open(p, sink: DiagnosticSink());

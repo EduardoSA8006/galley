@@ -112,6 +112,47 @@ void main() {
         _encrypted('lcp'),
       );
     });
+
+    test('DRM é checado antes do prefixo: LCP com prefixo em strict ainda '
+        'lança lcp', () async {
+      final zip = withPrefix(
+        (ZipWriter()
+              ..add('META-INF/license.lcpl', utf8.encode('{}'), compress: false)
+              ..add('mimetype', utf8.encode(epubMimetype), compress: false)
+              ..add('OEBPS/a.xhtml', prose(100)))
+            .build(),
+        64,
+      );
+      await expectLater(
+        _open(zip, sink: DiagnosticSink(strict: true)),
+        _encrypted('lcp'),
+      );
+    });
+
+    test('bit 0 (criptografia do ZIP) com prefixo em strict lança '
+        'zip-encryption, não o mimetypeIrregular do prefixo', () async {
+      final zip = withPrefix(
+        withFlagBits(
+          (ZipWriter()
+                ..add('mimetype', utf8.encode(epubMimetype), compress: false)
+                ..add('OEBPS/a.xhtml', prose(100)))
+              .build(),
+          1,
+          0x0001,
+        ),
+        64,
+      );
+      await expectLater(
+        _open(zip, sink: DiagnosticSink(strict: true)),
+        throwsA(
+          isA<EpubEncryptedException>().having(
+            (e) => e.scheme,
+            'scheme',
+            'zip-encryption',
+          ),
+        ),
+      );
+    });
   });
 
   group('encryption.xml', () {
@@ -410,6 +451,36 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('CRC errado em encryption.xml', () {
+    Uint8List badCrc() {
+      final zip = _book({'META-INF/encryption.xml': '<encryption/>'});
+      return patchCentralU32(zip, 2, cdCrc, 0);
+    }
+
+    test(
+      'strict: propaga zipCrcMismatch, não vira DRM falso (invalido)',
+      () async {
+        await expectLater(
+          _open(badCrc(), sink: DiagnosticSink(strict: true)),
+          throwsA(
+            isA<EpubContainerException>().having(
+              (e) => e.message,
+              'message',
+              contains('zipCrcMismatch'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('sem strict: abre com o warning (comportamento atual)', () async {
+      final sink = DiagnosticSink();
+      final c = await _open(badCrc(), sink: sink);
+      expect(c.obfuscationOf(_font), isNull);
+      expect(sink.diagnostics.single.code, EpubDiagnosticCode.zipCrcMismatch);
     });
   });
 

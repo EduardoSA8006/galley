@@ -25,55 +25,67 @@ final class ProviderContainer implements EpubContainer {
   Future<void>? _closing;
 
   /// Lê só as entradas de ofuscação de fonte de `encryption.xml`, se houver.
-  /// XML inválido ou ilegível emite `encryptionIgnored` e segue.
+  /// XML inválido ou ilegível emite `encryptionIgnored` e segue. Se a
+  /// abertura falha (só possível em `strict`, com `fontObfuscationUnknown`),
+  /// o provider é fechado antes de relançar, como o `ZipContainer` faz com a
+  /// fonte.
   static Future<ProviderContainer> open(
     EpubResourceProvider provider, {
     required DiagnosticSink sink,
   }) async {
     final container = ProviderContainer._(provider);
-    final Uint8List bytes;
     try {
-      if (!await provider.exists(_encryptionPath)) return container;
-      bytes = await provider.read(_encryptionPath);
-    } on Object catch (e) {
-      sink.emit(
-        EpubDiagnosticCode.encryptionIgnored,
-        href: _encryptionPath,
-        message: 'encryption.xml ilegível pelo provider; ofuscação ignorada',
-        details: {'reason': 'unreadable', 'exception': '$e'},
-      );
+      final Uint8List bytes;
+      try {
+        if (!await provider.exists(_encryptionPath)) return container;
+        bytes = await provider.read(_encryptionPath);
+      } on Object catch (e) {
+        sink.emit(
+          EpubDiagnosticCode.encryptionIgnored,
+          href: _encryptionPath,
+          message: 'encryption.xml ilegível pelo provider; ofuscação ignorada',
+          details: {'reason': 'unreadable', 'exception': '$e'},
+        );
+        return container;
+      }
+      if (bytes.length > maxMetadataSize) {
+        sink.emit(
+          EpubDiagnosticCode.encryptionIgnored,
+          href: _encryptionPath,
+          message:
+              'encryption.xml acima do teto de $maxMetadataSize bytes; '
+              'ofuscação ignorada',
+          details: {'reason': 'too-large'},
+        );
+        return container;
+      }
+      final text = utf8.decode(bytes, allowMalformed: true);
+      try {
+        container._obfuscation.addAll(
+          resolveEncryption(
+            parseEncryptionXml(text),
+            resolve: (uri) => uri,
+            sink: sink,
+            drmIsFatal: false,
+          ),
+        );
+      } on XmlException catch (e) {
+        sink.emit(
+          EpubDiagnosticCode.encryptionIgnored,
+          href: _encryptionPath,
+          message: 'encryption.xml não é XML válido; ofuscação ignorada',
+          details: {'reason': 'invalid-xml', 'exception': '$e'},
+        );
+      }
       return container;
+    } on Object {
+      try {
+        await provider.close();
+      } on Object {
+        // A falha original é a que importa.
+      }
+      rethrow;
     }
-    if (bytes.length > maxMetadataSize) {
-      sink.emit(
-        EpubDiagnosticCode.encryptionIgnored,
-        href: _encryptionPath,
-        message:
-            'encryption.xml acima do teto de $maxMetadataSize bytes; '
-            'ofuscação ignorada',
-        details: {'reason': 'too-large'},
-      );
-      return container;
-    }
-    final text = utf8.decode(bytes, allowMalformed: true);
-    try {
-      container._obfuscation.addAll(
-        resolveEncryption(
-          parseEncryptionXml(text),
-          resolve: (uri) => uri,
-          sink: sink,
-          drmIsFatal: false,
-        ),
-      );
-    } on XmlException catch (e) {
-      sink.emit(
-        EpubDiagnosticCode.encryptionIgnored,
-        href: _encryptionPath,
-        message: 'encryption.xml não é XML válido; ofuscação ignorada',
-        details: {'reason': 'invalid-xml', 'exception': '$e'},
-      );
-    }
-    return container;
   }
 
   /// O provider não lista seus recursos.

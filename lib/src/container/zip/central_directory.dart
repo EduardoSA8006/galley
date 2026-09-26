@@ -214,14 +214,6 @@ Future<CentralDirectory> readCentralDirectory(
       'central directory não cabe no arquivo (offset além do fim)',
     );
   }
-  if (delta > 0) {
-    sink.emit(
-      EpubDiagnosticCode.mimetypeIrregular,
-      message: '$delta bytes antes do ZIP',
-      details: {'reason': 'prefix', 'delta': delta},
-    );
-  }
-
   final cd = await _read(source, cdOffset + delta, cdSize);
   final entries = _markOverlaps(
     _parseEntries(cd, delta: delta, length: length),

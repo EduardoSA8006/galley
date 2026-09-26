@@ -80,11 +80,9 @@ void main() {
     });
 
     test('com prefixo: acha o EOCD64 antes do locator', () async {
-      final sink = DiagnosticSink();
-      final cd = await _read(withPrefix(z64, 64), sink: sink);
+      final cd = await _read(withPrefix(z64, 64));
       expect(cd.delta, 64);
       expect(cd.lookup('mimetype')!.entry.localHeaderOffset, 64);
-      expect(sink.diagnostics.single.details['reason'], 'prefix');
     });
 
     test('total de discos 0 e 1 aceitos; 2 é fatal', () async {
@@ -103,15 +101,14 @@ void main() {
   });
 
   group('prefixo', () {
-    test('offsets recebem delta e emite mimetypeIrregular', () async {
-      final sink = DiagnosticSink();
-      final cd = await _read(withPrefix(zip, 100), sink: sink);
-      expect(cd.delta, 100);
-      expect(cd.lookup('mimetype')!.entry.localHeaderOffset, 100);
-      final d = sink.diagnostics.single;
-      expect(d.code, EpubDiagnosticCode.mimetypeIrregular);
-      expect(d.details, {'reason': 'prefix', 'delta': 100, 'count': 1});
-    });
+    test(
+      'offsets recebem delta (o diagnóstico do prefixo é do ZipContainer)',
+      () async {
+        final cd = await _read(withPrefix(zip, 100));
+        expect(cd.delta, 100);
+        expect(cd.lookup('mimetype')!.entry.localHeaderOffset, 100);
+      },
+    );
 
     test('delta negativo é fatal', () async {
       final l = ZipLayout(zip);
