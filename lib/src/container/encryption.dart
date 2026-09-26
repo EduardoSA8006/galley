@@ -31,13 +31,17 @@ bool isFontPath(String path) {
   return dot >= 0 && _fontExtensions.contains(lower.substring(dot));
 }
 
-/// `CipherReference URI`: `%xx` decodificado (texto cru se inválido) e a
-/// normalização de nome do central directory.
+/// `CipherReference URI`: `%xx` decodificado (texto cru se inválido — inclui
+/// `%xx` malformado e `%xx` que decodifica para UTF-8 inválido, como
+/// percent-encoding Latin-1 de produtor) e a normalização de nome do
+/// central directory.
 String normalizeCipherReference(String uri) {
   String decoded;
   try {
     decoded = Uri.decodeComponent(uri);
   } on ArgumentError {
+    decoded = uri;
+  } on FormatException {
     decoded = uri;
   }
   return normalizeEntryName(decoded);
@@ -68,26 +72,39 @@ final class EncryptedItem {
 /// Itens de `encryption.xml`, em ordem de documento. Lê por nome local, em
 /// qualquer prefixo ou namespace. `EncryptedData` sem `CipherReference` é
 /// ignorado. [XmlException] se o XML for inválido.
+///
+/// Navega pela estrutura do XML-Enc por **filhos diretos** (`findElements`),
+/// nunca por descendentes (`findAllElements`) fora da busca inicial pelos
+/// `EncryptedData`: `CipherReference` é filho de `CipherData`, filho direto
+/// de `EncryptedData`; `KeyInfo` são filhos diretos de `EncryptedData`;
+/// `RetrievalMethod` é filho direto de `KeyInfo`. Isso evita custo quadrático
+/// com `EncryptedData` aninhado e evita ler o `CipherReference` de um
+/// `EncryptedKey` dentro do `KeyInfo` como se fosse o do `EncryptedData`.
 List<EncryptedItem> parseEncryptionXml(String text) {
   final doc = XmlDocument.parse(text);
   final items = <EncryptedItem>[];
   for (final data in doc.findAllElements('EncryptedData', namespaceUri: '*')) {
-    final reference = data
-        .findAllElements('CipherReference', namespaceUri: '*')
+    final cipherData = data
+        .findElements('CipherData', namespaceUri: '*')
+        .firstOrNull;
+    final reference = cipherData
+        ?.findElements('CipherReference', namespaceUri: '*')
         .firstOrNull
         ?.getAttribute('URI');
     if (reference == null) continue;
     final method = data
         .findElements('EncryptionMethod', namespaceUri: '*')
         .firstOrNull;
-    final keyInfos = data.findAllElements('KeyInfo', namespaceUri: '*');
+    final keyInfos = data
+        .findElements('KeyInfo', namespaceUri: '*')
+        .toList(growable: false);
     items.add(
       EncryptedItem(
         algorithm: method?.getAttribute('Algorithm') ?? '',
         uri: normalizeCipherReference(reference),
         lcpKey: keyInfos.any(
           (k) => k
-              .findAllElements('RetrievalMethod', namespaceUri: '*')
+              .findElements('RetrievalMethod', namespaceUri: '*')
               .any((r) => r.getAttribute('Type') == lcpContentKeyType),
         ),
         adeptKey: keyInfos.any(

@@ -94,6 +94,24 @@ void main() {
       };
       await expectLater(_open(_book(meta)), _encrypted('lcp'));
     });
+
+    test('DRM é checado antes do mimetype: LCP com mimetype fora de ordem em '
+        'strict ainda lança lcp', () async {
+      final zip =
+          (ZipWriter()
+                ..add(
+                  'META-INF/license.lcpl',
+                  utf8.encode('{}'),
+                  compress: false,
+                )
+                ..add('OEBPS/a.xhtml', prose(100))
+                ..add('mimetype', utf8.encode(epubMimetype), compress: false))
+              .build();
+      await expectLater(
+        _open(zip, sink: DiagnosticSink(strict: true)),
+        _encrypted('lcp'),
+      );
+    });
   });
 
   group('encryption.xml', () {
@@ -230,7 +248,8 @@ void main() {
 
     test('BOM UTF-8 antes da declaração XML não torna o XML inválido', () async {
       final xml =
-          '﻿${_encryption([_data(_font, algorithm: idpfObfuscationAlgorithm)])}';
+          '﻿'
+          '${_encryption([_data(_font, algorithm: idpfObfuscationAlgorithm)])}';
       final c = await _open(_book({'META-INF/encryption.xml': xml}));
       expect(c.obfuscationOf(_font), FontObfuscation.idpf);
     });
@@ -306,6 +325,57 @@ void main() {
         _encrypted('unknown:$_aes'),
       );
     });
+
+    test('20 000 níveis de EncryptedData aninhado não são quadráticos', () {
+      const depth = 20000;
+      final buffer = StringBuffer(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" '
+        'xmlns:enc="http://www.w3.org/2001/04/xmlenc#">',
+      );
+      for (var i = 0; i < depth; i++) {
+        buffer.write(
+          '<enc:EncryptedData>'
+          '<enc:EncryptionMethod Algorithm="$idpfObfuscationAlgorithm"/>'
+          '<enc:CipherData>'
+          '<enc:CipherReference URI="OEBPS/Fonts/f$i.ttf"/>'
+          '</enc:CipherData>',
+        );
+      }
+      for (var i = 0; i < depth; i++) {
+        buffer.write('</enc:EncryptedData>');
+      }
+      buffer.write('</encryption>');
+      final stopwatch = Stopwatch()..start();
+      final items = parseEncryptionXml(buffer.toString());
+      stopwatch.stop();
+      expect(items.length, depth);
+      // Folgado de propósito: só para pegar regressão quadrática (o custo
+      // linear é bem menor que 1 s; o quadrático não termina nessa ordem).
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 1)));
+    });
+
+    test('CipherReference de fonte dentro de KeyInfo/EncryptedKey não engana: '
+        'AES sobre cap01.xhtml continua fatal', () async {
+      const keyInfo =
+          '<ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">'
+          '<enc:EncryptedKey>'
+          '<enc:CipherData>'
+          '<enc:CipherReference URI="$_font"/>'
+          '</enc:CipherData>'
+          '</enc:EncryptedKey>'
+          '</ds:KeyInfo>';
+      await expectLater(
+        withEncryption([_data(_text, algorithm: _aes, keyInfo: keyInfo)]),
+        throwsA(
+          isA<EpubEncryptedException>().having(
+            (e) => e.scheme,
+            'scheme',
+            startsWith('unknown:'),
+          ),
+        ),
+      );
+    });
   });
 
   group('isFontPath e normalizeCipherReference', () {
@@ -333,5 +403,42 @@ void main() {
       );
       expect(normalizeCipherReference('a%zz.ttf'), 'a%zz.ttf');
     });
+
+    test(
+      '%xx que decodifica para UTF-8 inválido fica cru (FormatException)',
+      () {
+        for (final raw in [
+          'a%FF.ttf',
+          'a%C3.ttf',
+          'a%C3%28.ttf',
+          'a%ED%A0%80.ttf',
+          'fonte%E9.ttf',
+        ]) {
+          expect(normalizeCipherReference(raw), raw, reason: raw);
+        }
+      },
+    );
+
+    test(
+      'encryption.xml com %xx Latin-1 de produtor abre sem exceção crua',
+      () async {
+        final zip = _book(
+          {
+            'META-INF/encryption.xml': _encryption([
+              _data(
+                'OEBPS/Fonts/fonte%E9.ttf',
+                algorithm: idpfObfuscationAlgorithm,
+              ),
+            ]),
+          },
+          extra: {'OEBPS/Fonts/fonte%E9.ttf': noise(100)},
+        );
+        final c = await _open(zip);
+        expect(
+          c.obfuscationOf('OEBPS/Fonts/fonte%E9.ttf'),
+          FontObfuscation.idpf,
+        );
+      },
+    );
   });
 }

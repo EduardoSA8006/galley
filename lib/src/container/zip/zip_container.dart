@@ -31,9 +31,9 @@ final class ZipContainer implements EpubContainer {
   final Map<String, FontObfuscation> _obfuscation = {};
   Future<void>? _closing;
 
-  /// Lê o central directory, confere o `mimetype` e o DRM. Exceção da fonte
-  /// vira [EpubContainerException] com `cause`. Se a abertura falha, a fonte
-  /// é fechada.
+  /// Lê o central directory, confere o DRM e o `mimetype` (nesta ordem: DRM
+  /// é fatal e vem primeiro). Exceção da fonte vira [EpubContainerException]
+  /// com `cause`. Se a abertura falha, a fonte é fechada.
   static Future<ZipContainer> open(
     EpubByteSource source, {
     required DiagnosticSink sink,
@@ -41,8 +41,8 @@ final class ZipContainer implements EpubContainer {
     try {
       final cd = await readCentralDirectory(source, sink: sink);
       final container = ZipContainer._(source, sink, cd);
-      await container._checkMimetype();
       await container._checkEncryption();
+      await container._checkMimetype();
       return container;
     } on Object {
       try {
