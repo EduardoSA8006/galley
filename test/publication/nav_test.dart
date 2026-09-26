@@ -28,6 +28,35 @@ int _depth(List<NavEntry> entries) {
 int _count(List<NavEntry> entries) =>
     entries.fold(0, (n, e) => n + 1 + _count(e.children));
 
+/// [unit] repetido até [bytes].
+String _fill(String unit, [int bytes = 1 << 20]) =>
+    unit * (bytes ~/ unit.length);
+
+/// [unit] com o índice da repetição, até [bytes].
+String _seq(String Function(int) unit, [int bytes = 1 << 20]) {
+  final out = StringBuffer();
+  for (var i = 0; out.length < bytes; i++) {
+    out.write(unit(i));
+  }
+  return out.toString();
+}
+
+/// Um NAV com uma entrada seguido de [tail]: o sumário tem de sair inteiro.
+String _navThen(String tail) => _html(
+  '<nav epub:type="toc"><ol><li><a href="a.xhtml">A</a></li></ol></nav>$tail',
+);
+
+/// Parse de [text] com corte, rápido, sem perder o NAV que vem antes.
+void _expectCutFast(String text) {
+  expect(htmlWorkCut(text), isNotNull);
+  final sw = Stopwatch()..start();
+  final nav = parseNav(text);
+  sw.stop();
+  expect(nav.truncated, isTrue);
+  expect(_shape(nav.toc), ['A|a.xhtml']);
+  expect(sw.elapsed, lessThan(const Duration(seconds: 5)));
+}
+
 void main() {
   test('toc aninhado com ol e ul', () {
     final nav = parseNav(
@@ -190,6 +219,81 @@ void main() {
     );
   });
 
+  test('li sem fechamento num ol só: um li fecha o anterior, sem corte', () {
+    final items = '<li><a href="x.xhtml">t</a>' * 20000;
+    final nav = parseNav(_html('<nav epub:type="toc"><ol>$items</ol></nav>'));
+    expect(nav.toc, hasLength(20000));
+    expect(nav.truncated, isFalse);
+  });
+
+  group('formas hostis de 1 MiB: o corte segue o parser HTML5', () {
+    // Cada uma deixava o html.parse quadrático porque o corte não via o que
+    // o parser vê (200 KB levavam de 5 s a mais de 60 s).
+    final forms = <String, String>{
+      '<!--> fecha o comentário': '<!-->${_fill('<div>')}',
+      '<!---> fecha o comentário': '<!--->${_fill('<div>')}',
+      '--!> fecha o comentário': '<!-- x --!>${_fill('<div>')}-->',
+      '</li> ignorado com ol no meio': _fill('<li><ol></li>'),
+      '</span> ignorado com div (special) no meio': _fill('<span><div></span>'),
+      'adoption agency deixa o div aberto (b)': _fill('<b><div></b>'),
+      'adoption agency deixa o div aberto (a)': _fill('<a><div></a>'),
+      'reconstrução da formatação ativa (div)': _seq(
+        (i) => '<div><b x="$i"></div>',
+      ),
+      'reconstrução da formatação ativa (p)': _seq((i) => '<p><b x="$i"></p>'),
+    };
+    for (final MapEntry(key: name, value: body) in forms.entries) {
+      test(name, () => _expectCutFast(_navThen(body)));
+    }
+  });
+
+  group('formas hostis de 256 KiB fora do modelo antigo', () {
+    const k256 = 1 << 18;
+    final forms = <String, String>{
+      '> e </div> dentro de valor entre aspas': _fill(
+        '<div title="></div>">',
+        k256,
+      ),
+      'comentário com > antes do fim': _fill('<div><!-- > </div> -->', k256),
+      '</ e <? são comentários falsos até o >': _fill(
+        '<div></ </div><? </div>',
+        k256,
+      ),
+      'nome do fechamento vai até whitespace, / ou >': _fill(
+        '<div></div">',
+        k256,
+      ),
+      'fechamento de nome qualquer para em li e dd': _fill(
+        '<span><li></span><span><dd></span>',
+        k256,
+      ),
+      'iframe ignorado dentro de select':
+          '<select><iframe></select>${_fill('<div>', k256)}</iframe>',
+      'script com <!--<script> não fecha no primeiro </script>': _fill(
+        '<div><script><!--<script></script></div></script>',
+        k256,
+      ),
+      'foster parenting procura a tabela entre os irmãos':
+          '<table>${_fill('x<i></i>', k256)}',
+      'input sem type=hidden também vai por foster parenting':
+          '<table>${_fill('<input>', k256)}',
+      'textarea em SVG: região ambígua cobra o pior token':
+          '<svg>${_fill('</h1><textarea>', k256)}',
+      'texto com formatação ativa fora do topo':
+          '<b>${'<div>' * 3000}<span>${_fill('x&amp;', k256)}',
+      'option em SVG é estrangeiro e não fecha option':
+          '<svg>${_fill('<option><</script>', k256)}',
+      '</h1> testa o escopo de cada cabeçalho':
+          '<b>${'<div>' * 200}<span>${_fill('--!></h1>', k256)}',
+      'nome de tag longo (concatenado caractere a caractere)':
+          '<${'a' * k256}>',
+      'DOCTYPE longo': '<!DOCTYPE html PUBLIC "${'a' * k256}">',
+    };
+    for (final MapEntry(key: name, value: body) in forms.entries) {
+      test(name, () => _expectCutFast(_navThen(body)));
+    }
+  });
+
   group('htmlWorkCut', () {
     test('documento comum cabe inteiro', () {
       expect(
@@ -198,10 +302,28 @@ void main() {
       );
     });
 
-    test('comentário, doctype, void e /> não empilham', () {
-      final text =
-          '<!DOCTYPE html><!-- <div><div> --><br><img src="x"><div/>' * 1000;
+    test('comentário, doctype e void não empilham', () {
+      final text = '<!DOCTYPE html><!-- <div><div> --><br><img src="x">' * 1000;
       expect(htmlWorkCut(text, budget: 20000), isNull);
+    });
+
+    test('/> não fecha elemento não vazio (o HTML5 ignora a barra)', () {
+      expect(htmlWorkCut('<div/>' * 1000, budget: 20000), isNotNull);
+    });
+
+    test('> e </div> em valor entre aspas não terminam a tag', () {
+      expect(
+        htmlWorkCut('<div title="></div>">' * 1000, budget: 20000),
+        isNotNull,
+      );
+      expect(
+        htmlWorkCut('<div title="a>b"></div>' * 1000, budget: 20000),
+        isNull,
+      );
+    });
+
+    test('isindex conta os seis nós que o parser cria', () {
+      expect(htmlWorkCut('<isindex>' * 1000, budget: 100000), isNotNull);
     });
 
     test('fechamento sem abertura não desempilha a pilha real', () {
