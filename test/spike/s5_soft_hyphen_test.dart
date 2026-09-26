@@ -187,19 +187,28 @@ void main() {
       return sw.elapsedMicroseconds / 200;
     }
 
-    // Intercalado, 3 rodadas, para reduzir ruído.
+    // Intercalado (A, B, A, B, …), 15 rodadas: a mediana só se move se a
+    // maioria das rodadas for afetada por ruído, o que estabiliza a razão
+    // sob carga (3 rodadas deixava um único pico de SO decidir a mediana;
+    // visto 1,45 sob stress-ng --cpu 12 e um pico isolado de 1,79 com duas
+    // suítes inteiras em paralelo, com 9 rodadas). A folga de 1.6 (era 1.5)
+    // cobre a cauda rara que sobra mesmo com mais rodadas, sem abrir mão do
+    // que o spike prova: SHY não deveria multiplicar o custo do shaping.
+    const rounds = 15;
     final a = <double>[], b = <double>[];
-    for (var r = 0; r < 3; r++) {
+    for (var r = 0; r < rounds; r++) {
       a.add(bench(plain));
       b.add(bench(hyphenated));
     }
     a.sort();
     b.sort();
+    final medianA = a[rounds ~/ 2];
+    final medianB = b[rounds ~/ 2];
     print(
-      'S5.5 2000 chars @360px, 200 layouts, mediana de 3: '
-      'sem SHY=${a[1].toStringAsFixed(0)} µs, com $shyCount SHY='
-      '${b[1].toStringAsFixed(0)} µs, razão=${(b[1] / a[1]).toStringAsFixed(2)}',
+      'S5.5 2000 chars @360px, 200 layouts, mediana de $rounds: '
+      'sem SHY=${medianA.toStringAsFixed(0)} µs, com $shyCount SHY='
+      '${medianB.toStringAsFixed(0)} µs, razão=${(medianB / medianA).toStringAsFixed(2)}',
     );
-    expect(b[1] / a[1], lessThan(1.5));
+    expect(medianB / medianA, lessThan(1.6));
   });
 }
