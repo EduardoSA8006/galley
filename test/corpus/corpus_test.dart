@@ -37,6 +37,8 @@ const knownDiagnostics = {
   'pathCaseMismatch',
   'resourceUnreadable',
   'encryptionIgnored',
+  'navIgnored',
+  'spineItemDuplicate',
 };
 
 /// Exceções fatais de doc/09 §2.

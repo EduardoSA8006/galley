@@ -59,6 +59,66 @@ void main() {
     });
   });
 
+  group('códigos da Publicação', () {
+    test('oito códigos com a severidade de doc/09 §3', () {
+      final codes = {
+        EpubDiagnosticCode.resourceMissing: EpubSeverity.warning,
+        EpubDiagnosticCode.spineItemUnresolved: EpubSeverity.warning,
+        EpubDiagnosticCode.unsupportedMediaType: EpubSeverity.warning,
+        EpubDiagnosticCode.encodingFallback: EpubSeverity.info,
+        EpubDiagnosticCode.tocReconciled: EpubSeverity.info,
+        EpubDiagnosticCode.coverHeuristic: EpubSeverity.info,
+        EpubDiagnosticCode.navIgnored: EpubSeverity.info,
+        EpubDiagnosticCode.spineItemDuplicate: EpubSeverity.info,
+      };
+      for (final MapEntry(key: code, value: severity) in codes.entries) {
+        expect(code.defaultSeverity, severity, reason: code.name);
+        expect(code.toString(), code.name);
+      }
+      expect(codes.keys.map((c) => c.name).toSet(), {
+        'resourceMissing',
+        'spineItemUnresolved',
+        'unsupportedMediaType',
+        'encodingFallback',
+        'tocReconciled',
+        'coverHeuristic',
+        'navIgnored',
+        'spineItemDuplicate',
+      });
+    });
+
+    test('EpubPackageException: toString, href e cause', () {
+      const cause = FormatException('xml');
+      final e = EpubPackageException(
+        'OPF ausente',
+        href: 'a.opf',
+        cause: cause,
+      );
+      expect(e.toString(), 'EpubPackageException(a.opf): OPF ausente');
+      expect(e.cause, same(cause));
+      expect(e, isA<EpubException>());
+    });
+
+    test('strict: onStrict da Publicação lança EpubPackageException', () {
+      final sink = DiagnosticSink(strict: true);
+      expect(
+        () => sink.emit(
+          EpubDiagnosticCode.resourceMissing,
+          href: 'OEBPS/a.xhtml',
+          message: 'sem arquivo',
+          onStrict: (m) => EpubPackageException(m, href: 'OEBPS/a.xhtml'),
+        ),
+        throwsA(
+          isA<EpubPackageException>().having(
+            (e) => e.message,
+            'message',
+            'resourceMissing: sem arquivo',
+          ),
+        ),
+      );
+    });
+  });
+
   group('EpubDiagnostic', () {
     test('details é unmodifiable', () {
       final d = EpubDiagnostic(
