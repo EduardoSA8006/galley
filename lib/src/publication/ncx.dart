@@ -49,13 +49,16 @@ final class _Count {
 }
 
 List<NavEntry> _points(XmlElement parent, String local, int depth, _Count c) {
-  if (depth > maxNavDepth) {
-    c.truncated = true;
-    return const [];
-  }
   final out = <NavEntry>[];
   for (final e in parent.childElements) {
     if (e.name.local != local) continue;
+    // Só marca truncado se existe um navPoint/pageTarget além do limite (não
+    // em toda chamada recursiva, mesmo sem filho algum) — como o NAV faz em
+    // lib/src/publication/nav.dart:179.
+    if (depth > maxNavDepth) {
+      c.truncated = true;
+      break;
+    }
     if (c.count >= maxNavEntries) {
       c.truncated = true;
       break;

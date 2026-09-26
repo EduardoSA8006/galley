@@ -109,6 +109,47 @@ void main() {
     expect(many.truncated, isTrue);
   });
 
+  test('64 níveis exatos: sem corte, profundidade 64', () {
+    var nested = '';
+    for (var i = 0; i < 64; i++) {
+      nested = _point('N$i', 'n.xhtml', children: nested);
+    }
+    final deep = parseNcx(_ncx('<navMap>$nested</navMap>'));
+    expect(_depth(deep.toc), maxNavDepth);
+    expect(deep.truncated, isFalse);
+  });
+
+  test('65 níveis: corte, profundidade continua 64', () {
+    var nested = '';
+    for (var i = 0; i < 65; i++) {
+      nested = _point('N$i', 'n.xhtml', children: nested);
+    }
+    final deep = parseNcx(_ncx('<navMap>$nested</navMap>'));
+    expect(_depth(deep.toc), maxNavDepth);
+    expect(deep.truncated, isTrue);
+  });
+
+  test('exatamente maxNavEntries no navMap: sem corte', () {
+    final ncx = parseNcx(
+      _ncx('<navMap>${_point('x', 'x.xhtml') * maxNavEntries}</navMap>'),
+    );
+    expect(ncx.toc, hasLength(maxNavEntries));
+    expect(ncx.truncated, isFalse);
+  });
+
+  test('limite do pageList: 100 001 pageTarget corta', () {
+    String target(String label) =>
+        '<pageTarget><navLabel><text>$label</text></navLabel>'
+        '<content src="c.xhtml"/></pageTarget>';
+    final ncx = parseNcx(
+      _ncx(
+        '<navMap/><pageList>${target('p') * (maxNavEntries + 1)}</pageList>',
+      ),
+    );
+    expect(ncx.pageList, hasLength(maxNavEntries));
+    expect(ncx.truncated, isTrue);
+  });
+
   group('foco de revisão', () {
     test('DOCTYPE do NCX 2005-1 (EPUB2)', () {
       final ncx = parseNcx(
