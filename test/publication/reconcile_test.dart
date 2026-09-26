@@ -130,4 +130,45 @@ void main() {
     expect(out[1].synthesized, isFalse);
     expect(sw.elapsed, lessThan(const Duration(seconds: 2)));
   });
+
+  test('spine com caminho repetido: só o primeiro índice conta', () {
+    // Duas entradas do spine apontando para o mesmo arquivo (o `idref`
+    // difere, mas o `item.path` é igual); a guarda `spineIndex[...] == i`
+    // evita órfão duplicado para a mesma posição.
+    final dup = ManifestItem(
+      id: 'dup',
+      path: 'OEBPS/dup.xhtml',
+      mediaType: 'application/xhtml+xml',
+    );
+    final other = ManifestItem(
+      id: 'other',
+      path: 'OEBPS/other.xhtml',
+      mediaType: 'application/xhtml+xml',
+    );
+    final spine = [
+      SpineItem(idref: 'dup1', item: dup, content: dup, linear: true),
+      SpineItem(idref: 'dup2', item: dup, content: dup, linear: true),
+      SpineItem(idref: 'other', item: other, content: other, linear: true),
+    ];
+    final out = reconcileToc(const [], spine, sink: DiagnosticSink());
+    expect(out, hasLength(2));
+    expect(out.map((e) => e.target!.path), [
+      'OEBPS/dup.xhtml',
+      'OEBPS/other.xhtml',
+    ]);
+  });
+
+  test(
+    'órfão dentro de uma parte aninhada vai para a raiz, depois da parte',
+    () {
+      final out = reconcileToc(
+        [
+          NavPoint(title: 'P1', children: [_entry('a'), _entry('c')]),
+        ],
+        _spine(['a', 'b', 'c']),
+        sink: DiagnosticSink(),
+      );
+      expect(_titles(out), ['P1', '+b']);
+    },
+  );
 }

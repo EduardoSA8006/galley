@@ -16,6 +16,9 @@ import 'model.dart';
 /// índice `i` entra logo depois da última raiz, na ordem do TOC, cujo menor
 /// índice do spine (dela e dos descendentes) é menor que `i`; sem nenhuma,
 /// no início. Emite `tocReconciled` uma vez, se houver órfão.
+///
+/// Sem órfão, devolve a mesma instância de [toc] recebida (`identical`);
+/// com órfão, devolve uma lista nova.
 List<NavPoint> reconcileToc(
   List<NavPoint> toc,
   List<SpineItem> spine, {

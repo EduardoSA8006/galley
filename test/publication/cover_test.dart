@@ -5,13 +5,15 @@ import 'package:galley/src/publication/cover.dart';
 import 'package:galley/src/publication/model.dart';
 import 'package:galley/src/publication/opf.dart';
 
-OpfDocument _opf({String? coverId}) => parseOpf(
+OpfDocument _opf({String? coverId}) => _opfAt('content.opf', coverId: coverId);
+
+OpfDocument _opfAt(String opfPath, {String? coverId}) => parseOpf(
   '<package><metadata>'
   '${coverId == null ? '' : '<meta name="cover" content="$coverId"/>'}'
   '</metadata><manifest><item id="c1" href="c1.xhtml" '
   'media-type="application/xhtml+xml"/></manifest>'
   '<spine><itemref idref="c1"/></spine></package>',
-  opfPath: 'content.opf',
+  opfPath: opfPath,
   sink: DiagnosticSink(),
 );
 
@@ -102,6 +104,64 @@ void main() {
       'Images/cover2.jpg',
     );
     expect(sink.diagnostics.single.code, EpubDiagnosticCode.coverHeuristic);
+  });
+
+  test('passo 1 exige imagem: cover-image em XHTML é pulado, heurística acha a '
+      'imagem', () {
+    final sink = DiagnosticSink();
+    final manifest = _manifest([
+      _item(
+        'texto',
+        'Text/cover.xhtml',
+        mediaType: 'application/xhtml+xml',
+        properties: {'cover-image'},
+      ),
+      _item('img', 'Images/frente-cover.jpg'),
+    ]);
+    expect(findCover(_opf(), manifest, sink: sink), 'Images/frente-cover.jpg');
+    expect(sink.diagnostics.single.code, EpubDiagnosticCode.coverHeuristic);
+  });
+
+  test('passo 2 exige imagem: meta cover para um item não imagem cai para a '
+      'heurística', () {
+    final sink = DiagnosticSink();
+    final manifest = _manifest([
+      _item('cover', 'OEBPS/cover.xhtml', mediaType: 'application/xhtml+xml'),
+      _item('img1', 'Images/cover.jpg'),
+    ]);
+    expect(
+      findCover(_opf(coverId: 'cover'), manifest, sink: sink),
+      'Images/cover.jpg',
+    );
+    expect(sink.diagnostics.single.code, EpubDiagnosticCode.coverHeuristic);
+  });
+
+  test('meta cover por href (content sem id que case)', () {
+    final sink = DiagnosticSink();
+    final manifest = _manifest([
+      _item('x', 'OEBPS/images/capa.jpg'),
+      _item('y', 'OEBPS/images/outra.jpg'),
+    ]);
+    expect(
+      findCover(
+        _opfAt('OEBPS/content.opf', coverId: 'images/capa.jpg'),
+        manifest,
+        sink: sink,
+      ),
+      'OEBPS/images/capa.jpg',
+    );
+    expect(sink.diagnostics, isEmpty);
+  });
+
+  test('empate da heurística: prefere o nome exatamente "cover", não a ordem '
+      'do manifest', () {
+    final sink = DiagnosticSink();
+    final manifest = _manifest([
+      _item('a', 'Images/back-cover.jpg'),
+      _item('b', 'Images/cover.jpg'),
+    ]);
+    expect(findCover(_opf(), manifest, sink: sink), 'Images/cover.jpg');
+    expect(sink.diagnostics.single.details['id'], 'b');
   });
 
   test('nenhum: null', () {

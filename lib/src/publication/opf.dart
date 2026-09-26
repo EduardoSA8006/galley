@@ -68,6 +68,7 @@ final class OpfReference {
 /// O que o orquestrador precisa do OPF.
 final class OpfDocument {
   OpfDocument({
+    required this.opfPath,
     required this.version,
     required this.metadata,
     required List<String> identifiers,
@@ -84,6 +85,11 @@ final class OpfDocument {
        items = List.unmodifiable(items),
        itemrefs = List.unmodifiable(itemrefs),
        guide = List.unmodifiable(guide);
+
+  /// Caminho do OPF no contêiner (o `opfPath` de [parseOpf]); usado para
+  /// resolver `href` relativos a ele, como o do `<meta name="cover">`
+  /// (spec §8.2, correção da Tarefa 9).
+  final String opfPath;
 
   /// Atributo `version` do `<package>`, cru (`''` se ausente).
   final String version;
@@ -237,6 +243,7 @@ OpfDocument parseOpf(
     uniqueIdentifierId: _attr(root, 'unique-identifier'),
   );
   return OpfDocument(
+    opfPath: opfPath,
     version: root.getAttribute('version', namespaceUri: '*') ?? '',
     metadata: meta.metadata,
     identifiers: meta.identifiers,
