@@ -765,9 +765,9 @@ void main() {
       // autor): só o dono do `id` "a" (o primeiro creator, "Autor 0") de
       // fato consulta os refinamentos e vira colaborador; os outros 19 999,
       // sem acesso aos refinamentos do dono, caem no padrão e viram autor.
-      // Se a busca por refinamentos ainda fosse quadrática (sem o `_owner`
-      // por id), o resultado seria o mesmo — só o tempo reprovaria; por
-      // isso a asserção de conteúdo é o que prova que só o dono usa.
+      // Sem o `_owner` por id, os 20 000 creators consultariam os
+      // refinamentos de `#a` e todos virariam colaboradores; a asserção
+      // abaixo prova que só o dono os recebe.
       expect(m.contributors, ['Autor 0']);
       expect(m.authors, hasLength(19999));
       expect(m.raw.containsKey('role'), isFalse);
