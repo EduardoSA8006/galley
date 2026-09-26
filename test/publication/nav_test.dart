@@ -276,6 +276,88 @@ void main() {
     });
   });
 
+  group('referência numérica fora de faixa', () {
+    // O package:html faz int.parse dos dígitos sem limite: acima de 2^63
+    // (ou 2^63 em hex) lançava FormatException, que escapava de parseNav.
+    String entry(String a) => '<li>$a</li>';
+    List<String> titles(String body) =>
+        parseNav(_html('<nav epub:type="toc"><ol>$body</ol></nav>')).toc
+            .map((e) => e.title)
+            .toList();
+
+    test('decimal e hex fora de faixa viram U+FFFD; zeros à esquerda não', () {
+      expect(
+        titles(
+          entry('<a href="a">A&#99999999999999999999;B</a>') +
+              entry('<a href="b">&#x110000;</a>') +
+              entry('<a href="c">&#x0000000000000041;</a>') +
+              entry('<a href="d">&#xffffffffffffffff;</a>'),
+        ),
+        ['A\uFFFDB', '\uFFFD', 'A', '\uFFFD'],
+      );
+    });
+
+    test('título que mistura referências válidas e inválidas', () {
+      expect(
+        titles(
+          entry(
+            '<a href="a">&#65;&#x10FFFF0;&#x42;'
+            '&#9999999999999999999999&amp;&#x43</a>',
+          ),
+        ),
+        ['A\uFFFDB\uFFFD&C'],
+      );
+    });
+
+    test('dentro de atributo, com e sem aspas', () {
+      final nav = parseNav(
+        _html(
+          '<nav epub:type="toc"><ol>'
+          '<li><a href="c&#99999999999999999999;.xhtml">T</a></li>'
+          "<li><a href='x' title='&#xFFFFFFFFFFFFFFFFF;'><img/></a></li>"
+          '<li><a href=u&#x110000000000;>U</a></li></ol></nav>',
+        ),
+      );
+      expect(nav.toc.map((e) => e.href), ['c\uFFFD.xhtml', 'x', 'u\uFFFD']);
+      expect(nav.toc[1].title, '\uFFFD');
+    });
+
+    test('sem exceção em RCDATA, SVG e CDATA ambíguo', () {
+      const big = '&#99999999999999999999;';
+      for (final body in [
+        '<title>$big</title>',
+        '<textarea>$big</textarea>',
+        '<svg><style>$big</style><title>$big</title></svg>',
+        '<svg><style>a<b $big</style></svg>',
+        '<svg><foreignObject><div><![CDATA[>$big]]></div></foreignObject></svg>',
+        '<math><mi>$big</mi></math>',
+        '<a title="$big',
+        '<a title=$big',
+        '</a title="$big">',
+      ]) {
+        expect(() => parseNav(_navThen(body)), returnsNormally, reason: body);
+      }
+    });
+
+    test(
+      'só a referência muda: comentário, RAWTEXT e não referência ficam',
+      () {
+        const big = '&#99999999999999999999;';
+        final work = htmlWorkCut(
+          '<p>$big&#99999999999999999999x&#;&#x;&#xZ;&#x0000000000000041;'
+          '<!-- $big --><script>"$big"</script><style>$big</style>'
+          '<title>$big</title></p>',
+        );
+        expect(
+          work.text,
+          '<p>&#xFFFD;&#xFFFD;x&#;&#x;&#xZ;&#x0000000000000041;'
+          '<!-- $big --><script>"$big"</script><style>$big</style>'
+          '<title>&#xFFFD;</title></p>',
+        );
+      },
+    );
+  });
+
   test('li sem fechamento num ol só: um li fecha o anterior, sem corte', () {
     final items = '<li><a href="x.xhtml">t</a>' * 20000;
     final nav = parseNav(_html('<nav epub:type="toc"><ol>$items</ol></nav>'));

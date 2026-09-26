@@ -494,6 +494,10 @@ final class _WorkModel {
   /// Terminou em `/>` fora de valor de atributo (preenchido por [tagEnd]).
   bool selfClosing = false;
 
+  /// Início e fim das referências fora de faixa nos atributos da tag que
+  /// [tagEnd] acabou de ler; reescritas só se a tag não for cortada.
+  final List<int> pendingReferences = [];
+
   int get depthCost => (stack.length + 1) * (formatting + 1);
 
   /// Custo de um token de texto: o parser reconstrói a formatação ativa.
@@ -555,6 +559,64 @@ final class _WorkModel {
     return (text: buffer.toString(), cut: cut);
   }
 
+  /// Fim (depois do `;`, se houver) da referência numérica que começa no `&`
+  /// em [at] se o valor passa de U+10FFFF, ou -1. O tokenizador consome
+  /// todos os dígitos e faz `int.parse` deles, que lança acima de 2^63; acima
+  /// de U+10FFFF ele já daria U+FFFD, então trocar por `&#xFFFD;` não muda
+  /// o resultado. Zeros à esquerda não contam.
+  int badReferenceEnd(int at) {
+    if (at + 2 >= n || text.codeUnitAt(at + 1) != 0x23) return -1;
+    var p = at + 2;
+    final hex = text.codeUnitAt(p) | 0x20 == 0x78;
+    if (hex) p++;
+    final start = p;
+    var value = 0;
+    while (p < n) {
+      final c = text.codeUnitAt(p);
+      final int digit;
+      if (c >= 0x30 && c <= 0x39) {
+        digit = c - 0x30;
+      } else if (hex && (c | 0x20) >= 0x61 && (c | 0x20) <= 0x66) {
+        digit = (c | 0x20) - 0x61 + 10;
+      } else {
+        break;
+      }
+      if (value <= 0x10FFFF) value = value * (hex ? 16 : 10) + digit;
+      p++;
+    }
+    if (p == start || value <= 0x10FFFF) return -1;
+    return p < n && text.codeUnitAt(p) == 0x3B ? p + 1 : p;
+  }
+
+  void rewriteReference(int at, int end) {
+    (out ??= StringBuffer())
+      ..write(text.substring(copied, at))
+      ..write('&#xFFFD;');
+    copied = end;
+  }
+
+  /// Reescreve as referências fora de faixa em [from, [to).
+  void rewriteReferences(int from, int to) {
+    var k = from;
+    while (true) {
+      if (nextAmp < k) nextAmp = find('&', k);
+      if (nextAmp >= to) return;
+      final e = badReferenceEnd(nextAmp);
+      if (e >= 0) {
+        rewriteReference(nextAmp, e);
+        k = e;
+      } else {
+        k = nextAmp + 1;
+      }
+    }
+  }
+
+  void applyPendingReferences() {
+    for (var k = 0; k < pendingReferences.length; k += 2) {
+      rewriteReference(pendingReferences[k], pendingReferences[k + 1]);
+    }
+  }
+
   /// `<x …/>` (o `/` em `gt - 1`) vira `<x …></x>`.
   void rewriteSelfClosing(String name, int gt) {
     (out ??= StringBuffer())
@@ -567,8 +629,9 @@ final class _WorkModel {
 
   /// Cobra o texto de [segment] até [end]: o início (dois tokens: espaços e
   /// resto), foster parenting se houver não whitespace, e cada `&` ou NUL
-  /// (que partem o texto em até três tokens).
-  bool textUpTo(int end) {
+  /// (que partem o texto em até três tokens). Com [references], o `&` que
+  /// abre uma referência numérica fora de faixa é reescrito.
+  bool textUpTo(int end, {bool references = true}) {
     if (end <= segment) return true;
     if (!segmentCharged) {
       segmentCharged = true;
@@ -595,6 +658,13 @@ final class _WorkModel {
       if (at >= end) break;
       if (!charge(3 * textTokenCost, at)) return false;
       from = at + 1;
+      if (references && at == nextAmp) {
+        final e = badReferenceEnd(at);
+        if (e >= 0) {
+          rewriteReference(at, e);
+          from = e;
+        }
+      }
     }
     textScanned = end;
     return true;
@@ -635,7 +705,7 @@ final class _WorkModel {
     }
     final gt = tagEnd(p);
     if (gt < 0) {
-      charge(nameCost(length), lt);
+      if (charge(nameCost(length), lt)) applyPendingReferences();
       return -1;
     }
     final name = tagName(lt + 1, p);
@@ -654,6 +724,7 @@ final class _WorkModel {
       cost += (stack.length + 2) * (formatting + 2) * _endTagWeight(name);
     }
     if (!charge(cost, lt)) return -1;
+    applyPendingReferences();
     nodes += 1 + formatting;
     if (rewrite) {
       rewriteSelfClosing(name, gt);
@@ -670,7 +741,7 @@ final class _WorkModel {
       open(name);
       segment = gt + 1;
       segmentCharged = fosterCharged = false;
-      textUpTo(n);
+      textUpTo(n, references: false);
       return -1;
     }
     if (_rawText.contains(name)) {
@@ -679,6 +750,7 @@ final class _WorkModel {
         // Sem `<` até o fechamento, as duas leituras só veem texto e o
         // mesmo fechamento (o `<title>` de um ícone SVG).
         if (!hasLessThan(gt + 1, close)) {
+          rewriteReferences(gt + 1, close);
           open(name);
           return close;
         }
@@ -691,6 +763,10 @@ final class _WorkModel {
         if (nextCommentOpen < gt + 1) nextCommentOpen = find('<!--', gt + 1);
         open(nextCommentOpen < close ? _opaque : name);
       } else {
+        // RCDATA resolve referências; RAWTEXT não.
+        if (name == 'title' || name == 'textarea') {
+          rewriteReferences(gt + 1, close);
+        }
         open(name);
       }
       return close;
@@ -712,7 +788,7 @@ final class _WorkModel {
     }
     final gt = tagEnd(p);
     if (gt < 0) {
-      charge(nameCost(length), lt);
+      if (charge(nameCost(length), lt)) applyPendingReferences();
       return -1;
     }
     final name = tagName(lt + 2, p);
@@ -723,6 +799,7 @@ final class _WorkModel {
       nodes++;
     }
     if (!charge(cost, lt)) return -1;
+    applyPendingReferences();
     close(name);
     return gt + 1;
   }
@@ -769,7 +846,11 @@ final class _WorkModel {
       if (!charge(1, lt)) return -1;
       final close = find(']]>', lt + 9);
       // Sem `<` até o `]]>`, CDATA e comentário falso só escondem texto.
-      if (hasLessThan(lt + 9, close) && opaqueRegion(lt + 9, close) < 0) {
+      if (!hasLessThan(lt + 9, close)) {
+        // Lido como comentário falso, o que vem depois do primeiro `>` é
+        // texto, com referências.
+        rewriteReferences(lt + 9, close);
+      } else if (opaqueRegion(lt + 9, close) < 0) {
         return -1;
       }
       return close >= n ? -1 : close + 3;
@@ -811,7 +892,11 @@ final class _WorkModel {
     var k = from;
     while (true) {
       final lt = text.indexOf('<', k);
-      if (lt < 0 || lt >= to) return to;
+      if (lt < 0 || lt >= to) {
+        rewriteReferences(k, to);
+        return to;
+      }
+      rewriteReferences(k, lt);
       if (nextGt < lt) nextGt = find('>', lt);
       if (!charge(depthCost * 24 + nameCost(nextGt - lt), lt)) return -1;
       nodes++;
@@ -846,6 +931,7 @@ final class _WorkModel {
   /// tokenizador, valores entre aspas inteiros), ou -1 no fim do texto.
   int tagEnd(int p) {
     selfClosing = false;
+    pendingReferences.clear();
     const beforeName = 0;
     const attrName = 1;
     const afterName = 2;
@@ -888,16 +974,38 @@ final class _WorkModel {
         case beforeValue:
           if (c == 0x3E) return q;
           if (c == 0x22 || c == 0x27) {
-            final quote = text.indexOf(c == 0x22 ? '"' : "'", q + 1);
-            if (quote < 0) return -1;
+            var quote = text.indexOf(c == 0x22 ? '"' : "'", q + 1);
+            // Sem a aspa de fechamento, o valor vai até o fim do texto (e as
+            // referências dele são lidas antes de a tag ser descartada).
+            final unterminated = quote < 0;
+            if (unterminated) quote = n;
+            var from = q + 1;
+            while (true) {
+              if (nextAmp < from) nextAmp = find('&', from);
+              if (nextAmp >= quote) break;
+              final e = badReferenceEnd(nextAmp);
+              if (e >= 0) pendingReferences.addAll([nextAmp, e]);
+              from = nextAmp + 1;
+            }
+            if (unterminated) return -1;
             q = quote;
             state = afterQuoted;
           } else if (!_isSpace(c)) {
             state = unquoted;
+            continue;
           }
         case unquoted:
           if (c == 0x3E) return q;
-          if (_isSpace(c)) state = beforeName;
+          if (_isSpace(c)) {
+            state = beforeName;
+          } else if (c == 0x26) {
+            final e = badReferenceEnd(q);
+            if (e >= 0) {
+              pendingReferences.addAll([q, e]);
+              q = e;
+              continue;
+            }
+          }
         case afterQuoted:
           if (c == 0x3E) return q;
           if (c == 0x2F) {
