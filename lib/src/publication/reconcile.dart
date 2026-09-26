@@ -11,11 +11,13 @@ import 'href.dart';
 import 'model.dart';
 
 /// [toc] com os órfãos do spine inseridos como entradas raiz
-/// `synthesized`. Órfão: item com `linear` verdadeiro cujo `item.path`
-/// nenhuma entrada, em qualquer nível, tem como `target.path`. O órfão de
-/// índice `i` entra logo depois da última raiz, na ordem do TOC, cujo menor
-/// índice do spine (dela e dos descendentes) é menor que `i`; sem nenhuma,
-/// no início. Emite `tocReconciled` uma vez, se houver órfão.
+/// `synthesized`. Órfão: item com `linear` verdadeiro, local e presente (nem
+/// ele nem o `content` são `missing` ou `remote`: o `path` desses é o `href`
+/// cru), cujo `item.path` e cujo `content.path` nenhuma entrada, em qualquer
+/// nível, tem como `target.path`. O órfão de índice `i` entra logo depois da
+/// última raiz, na ordem do TOC, cujo menor índice do spine (dela e dos
+/// descendentes, casando por `item.path` ou `content.path`) é menor que `i`;
+/// sem nenhuma, no início. Emite `tocReconciled` uma vez, se houver órfão.
 ///
 /// Sem órfão, devolve a mesma instância de [toc] recebida (`identical`);
 /// com órfão, devolve uma lista nova.
@@ -27,6 +29,11 @@ List<NavPoint> reconcileToc(
   final spineIndex = <String, int>{};
   for (var i = 0; i < spine.length; i++) {
     spineIndex.putIfAbsent(spine[i].item.path, () => i);
+  }
+  // O `content` do fallback também identifica a seção: uma entrada para
+  // `b.xhtml` cobre o item `a.foo` do spine cujo `content` é `b.xhtml`.
+  for (var i = 0; i < spine.length; i++) {
+    spineIndex.putIfAbsent(spine[i].content.path, () => i);
   }
   final covered = <String>{};
   // Menor índice do spine por raiz (spine.length = sem alvo no spine).
@@ -47,7 +54,9 @@ List<NavPoint> reconcileToc(
   final orphans = <int>[
     for (var i = 0; i < spine.length; i++)
       if (spine[i].linear &&
+          _isLocal(spine[i]) &&
           !covered.contains(spine[i].item.path) &&
+          !covered.contains(spine[i].content.path) &&
           spineIndex[spine[i].item.path] == i)
         i,
   ];
@@ -91,3 +100,11 @@ List<NavPoint> reconcileToc(
   );
   return out;
 }
+
+/// Item e `content` locais e presentes: só então `item.path` é um caminho
+/// normalizado que pode virar `NavTarget.path`.
+bool _isLocal(SpineItem s) =>
+    !s.item.missing &&
+    !s.item.remote &&
+    !s.content.missing &&
+    !s.content.remote;

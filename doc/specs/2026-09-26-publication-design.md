@@ -434,14 +434,18 @@ viram `unreadable`.
 ### 7.6 `reconcileToc`
 
 `List<NavPoint> reconcileToc(List<NavPoint> toc, List<SpineItem> spine, {required DiagnosticSink sink})`:
-- **Órfão:** item do spine com `linear` verdadeiro cujo caminho (`item.path`)
-  nenhuma entrada do TOC, em qualquer nível, tem como `target.path`. Itens com
-  `linear: false` nunca são órfãos, mas entradas existentes que apontam para eles
-  são mantidas.
+- **Órfão:** item do spine com `linear` verdadeiro, local e presente — nem o
+  item nem o `content` são `missing` ou `remote`, porque o `path` desses é o
+  `href` cru (§5.3) e nunca pode virar `target.path` — cujo caminho
+  (`item.path`) e cujo `content.path` nenhuma entrada do TOC, em qualquer
+  nível, tem como `target.path`: uma entrada para o `content` do `fallback`
+  (`b.xhtml`) cobre o item do spine (`a.foo`). Itens com `linear: false` nunca
+  são órfãos, mas entradas existentes que apontam para eles são mantidas.
 - Cada órfão vira entrada raiz com `synthesized: true`, `target:
   NavTarget(item.path, null)` e título = nome do arquivo sem extensão.
 - **Posição:** para cada entrada raiz existente, `primeira(e)` = menor índice do
-  spine entre os `target.path` dela e dos descendentes (sem alvo no spine →
+  spine entre os `target.path` dela e dos descendentes, casando com o
+  `item.path` ou o `content.path` de cada item (sem alvo no spine →
   infinito). O órfão de índice `i` entra logo depois da última entrada raiz, **na
   ordem do TOC**, com `primeira(e) < i`; se não houver nenhuma, no início. Órfãos
   que caem no mesmo ponto ficam na ordem do spine. As entradas existentes não

@@ -788,6 +788,59 @@ void main() {
     });
   });
 
+  group('reconciliação (§7.6)', () {
+    test('item missing ou remote do spine nunca vira órfão', () async {
+      final hostile = [
+        '../../../etc/passwd',
+        'http://evil.example/a.xhtml',
+        r'C:\Windows\win.ini',
+        'a&#x1;b.xhtml',
+        'x&#x0;y.xhtml',
+        'file:///etc/passwd',
+        'nao-existe.xhtml',
+      ];
+      final (p, _) = await _read({
+        'OEBPS/content.opf': opfXml(
+          items: [
+            item('c1', 'Text/c1.xhtml'),
+            for (final (i, h) in hostile.indexed) item('h$i', h),
+          ],
+          itemrefs: [
+            itemref('c1'),
+            for (var i = 0; i < hostile.length; i++) itemref('h$i'),
+          ],
+        ),
+        'OEBPS/Text/c1.xhtml': chapter,
+        'OEBPS/a\u0001b.xhtml': chapter,
+      });
+      expect(p.spine, hasLength(1 + hostile.length));
+      expect(p.toc.map((e) => (e.target, e.synthesized)), [
+        (const NavTarget('OEBPS/Text/c1.xhtml'), true),
+      ]);
+    });
+
+    test('NAV que aponta para o content do fallback cobre o item', () async {
+      final (p, sink) = await _read({
+        'OEBPS/content.opf': opfXml(
+          items: [
+            item('nav', 'nav.xhtml', properties: 'nav'),
+            item('a', 'a.foo', mediaType: 'application/x-foo', fallback: 'b'),
+            item('b', 'b.xhtml'),
+          ],
+          itemrefs: [itemref('a')],
+        ),
+        'OEBPS/nav.xhtml': navXml(tocNav([('Cap B', 'b.xhtml')])),
+        'OEBPS/a.foo': [1],
+        'OEBPS/b.xhtml': chapter,
+      });
+      expect(p.spine.single.content.id, 'b');
+      expect(p.toc.map((e) => (e.title, e.target, e.synthesized)), [
+        ('Cap B', const NavTarget('OEBPS/b.xhtml'), false),
+      ]);
+      expect(_codes(sink), isNot(contains('tocReconciled')));
+    });
+  });
+
   group('fatais (§9.1)', () {
     test('container.xml ausente', () async {
       await expectLater(

@@ -171,4 +171,75 @@ void main() {
       expect(_titles(out), ['P1', '+b']);
     },
   );
+
+  test('item missing ou remote nunca vira órfão, qualquer que seja o path', () {
+    // O path de um item missing/remote é o href cru (spec §5.3): nunca pode
+    // virar NavTarget.path.
+    final hostile = <(String, bool)>[
+      ('../../../etc/passwd', false),
+      ('http://evil.example/a.xhtml', true),
+      (r'C:\Windows\win.ini', false),
+      ('x\u0000y.xhtml', false),
+      ('OEBPS/nao-existe.xhtml', false),
+    ];
+    final ok = ManifestItem(
+      id: 'ok',
+      path: 'OEBPS/ok.xhtml',
+      mediaType: 'application/xhtml+xml',
+    );
+    final spine = [
+      for (final (i, (path, remote)) in hostile.indexed)
+        () {
+          final item = ManifestItem(
+            id: 'h$i',
+            path: path,
+            mediaType: 'application/xhtml+xml',
+            missing: !remote,
+            remote: remote,
+          );
+          return SpineItem(
+            idref: 'h$i',
+            item: item,
+            content: item,
+            linear: true,
+          );
+        }(),
+      SpineItem(idref: 'ok', item: ok, content: ok, linear: true),
+    ];
+    final sink = DiagnosticSink();
+    final out = reconcileToc(const [], spine, sink: sink);
+    expect(out.map((e) => e.target!.path), ['OEBPS/ok.xhtml']);
+    expect(sink.diagnostics.single.details['orphans'], 1);
+  });
+
+  test('entrada que aponta para o content do fallback cobre o item', () {
+    final a = ManifestItem(
+      id: 'a',
+      path: 'OEBPS/a.foo',
+      mediaType: 'application/x-foo',
+      fallback: 'b',
+    );
+    final b = ManifestItem(
+      id: 'b',
+      path: 'OEBPS/b.xhtml',
+      mediaType: 'application/xhtml+xml',
+    );
+    final c = ManifestItem(
+      id: 'c',
+      path: 'OEBPS/c.xhtml',
+      mediaType: 'application/xhtml+xml',
+    );
+    final spine = [
+      SpineItem(idref: 'c', item: c, content: c, linear: true),
+      SpineItem(idref: 'a', item: a, content: b, linear: true),
+    ];
+    final toc = [
+      NavPoint(title: 'B', target: const NavTarget('OEBPS/b.xhtml')),
+    ];
+    final sink = DiagnosticSink();
+    final out = reconcileToc(toc, spine, sink: sink);
+    // "a" é coberto por "B"; "c" (índice 0) entra antes de "B" (índice 1).
+    expect(_titles(out), ['+c', 'B']);
+    expect(sink.diagnostics.single.details['orphans'], 1);
+  });
 }
