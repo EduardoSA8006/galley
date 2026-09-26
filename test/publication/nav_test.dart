@@ -283,6 +283,20 @@ void main() {
     expect(nav.truncated, isFalse);
   });
 
+  test('SVG e MathML nas entradas (title, style, CDATA) não cortam', () {
+    const svg =
+        '<li><a href="c.xhtml"><svg><title>i</title><style>.a{fill:red}'
+        '</style><path d="M0 0h8v8z"/></svg> C</a></li>';
+    const math =
+        '<li><a href="m.xhtml">S <math><mi>x</mi><annotation>x^2'
+        '</annotation><mtext><![CDATA[y]]></mtext></math></a></li>';
+    final nav = parseNav(
+      _html('<nav epub:type="toc"><ol>${(svg + math) * 3000}</ol></nav>'),
+    );
+    expect(nav.toc, hasLength(6000));
+    expect(nav.truncated, isFalse);
+  });
+
   group('formas hostis de 1 MiB: o corte segue o parser HTML5', () {
     // Cada uma deixava o html.parse quadrático porque o corte não via o que
     // o parser vê (200 KB levavam de 5 s a mais de 60 s).

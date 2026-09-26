@@ -676,6 +676,12 @@ final class _WorkModel {
     if (_rawText.contains(name)) {
       final close = rawTextEnd(name, gt + 1);
       if (ambiguous > 0) {
+        // Sem `<` até o fechamento, as duas leituras só veem texto e o
+        // mesmo fechamento (o `<title>` de um ícone SVG).
+        if (!hasLessThan(gt + 1, close)) {
+          open(name);
+          return close;
+        }
         open(_opaque);
         return opaqueRegion(gt + 1, close);
       }
@@ -762,7 +768,10 @@ final class _WorkModel {
     if (foreign > 0 && text.startsWith('[CDATA[', lt + 2)) {
       if (!charge(1, lt)) return -1;
       final close = find(']]>', lt + 9);
-      if (opaqueRegion(lt + 9, close) < 0) return -1;
+      // Sem `<` até o `]]>`, CDATA e comentário falso só escondem texto.
+      if (hasLessThan(lt + 9, close) && opaqueRegion(lt + 9, close) < 0) {
+        return -1;
+      }
       return close >= n ? -1 : close + 3;
     }
     return bogus(lt, lt + 2);
@@ -785,6 +794,13 @@ final class _WorkModel {
     nodes++;
     final gt = find('>', from);
     return gt >= n ? -1 : gt + 1;
+  }
+
+  /// Há `<` em [from, [to])? (A busca para no primeiro, que é no máximo o
+  /// `<` do fechamento em [to]: cada índice é lido uma vez.)
+  bool hasLessThan(int from, int to) {
+    final lt = text.indexOf('<', from);
+    return lt >= 0 && lt < to;
   }
 
   /// Onde o parser pode ou não ver tags: cada `<` empilha uma entrada opaca,
