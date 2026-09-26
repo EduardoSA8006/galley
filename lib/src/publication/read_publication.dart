@@ -127,7 +127,7 @@ final class _Reader {
     if (nav != null && nav.toc.isNotEmpty) {
       toc = _points(nav.toc, navPath!);
     } else if (ncx != null) {
-      toc = _points(ncx.toc, ncxPath!);
+      toc = _points(ncx.toc, ncxPath!, selfFragment: false);
     } else {
       toc = const [];
     }
@@ -135,7 +135,7 @@ final class _Reader {
     if (nav != null && nav.pageList.isNotEmpty) {
       pageList = _points(nav.pageList, navPath!);
     } else if (ncx != null) {
-      pageList = _points(ncx.pageList, ncxPath!);
+      pageList = _points(ncx.pageList, ncxPath!, selfFragment: false);
     } else {
       pageList = const [];
     }
@@ -469,12 +469,17 @@ final class _Reader {
 
   // --- Alvos (spec §5.4) ---
 
-  List<NavPoint> _points(List<NavEntry> entries, String documentPath) => [
-    for (final e in entries) _point(e, documentPath),
+  List<NavPoint> _points(
+    List<NavEntry> entries,
+    String documentPath, {
+    bool selfFragment = true,
+  }) => [
+    for (final e in entries)
+      _point(e, documentPath, selfFragment: selfFragment),
   ];
 
-  /// Com [selfFragment] falso (o `guide` do OPF), `#frag` fica sem alvo: o
-  /// OPF não é documento de leitura.
+  /// Com [selfFragment] falso (o `guide` do OPF e o NCX), `#frag` fica sem
+  /// alvo: nem o OPF nem o NCX são documentos de leitura.
   NavPoint _point(
     NavEntry entry,
     String documentPath, {
@@ -487,7 +492,11 @@ final class _Reader {
           : basenameWithoutExtension(target.path),
       target: target,
       type: entry.type,
-      children: _points(entry.children, documentPath),
+      children: _points(
+        entry.children,
+        documentPath,
+        selfFragment: selfFragment,
+      ),
     );
   }
 

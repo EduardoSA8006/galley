@@ -233,9 +233,10 @@ Para cada item, a partir do `href` cru e do diretório do OPF:
 Os parsers devolvem o `href` **cru** de cada entrada; o orquestrador resolve
 contra o diretório do documento que contém a entrada (NAV ou NCX):
 - `href` com esquema → `target: null`, sem diagnóstico.
-- `href` só com fragmento (`#frag`) → o próprio documento (caminho do NAV ou NCX)
-  com o fragmento. Não vale para o `guide` do OPF (§6.3): o OPF não é
-  documento de leitura, então `#frag` sozinho fica sem alvo (`target: null`).
+- `href` só com fragmento (`#frag`) no NAV → o próprio NAV (caminho do NAV)
+  com o fragmento. Não vale para o NCX nem para o `guide` do OPF (§6.3):
+  nenhum dos dois é documento de leitura, então `#frag` sozinho fica sem alvo
+  (`target: null`).
 - Senão, `normalizeHref` e casamento com o `path` de algum item do manifest, nesta
   ordem: forma decodificada exata, forma crua exata, decodificada sem diferenciar
   maiúsculas, crua sem diferenciar maiúsculas — a mesma caixa dobrada do

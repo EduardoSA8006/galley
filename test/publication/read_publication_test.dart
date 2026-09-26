@@ -766,6 +766,34 @@ void main() {
       ]);
     });
 
+    test('NCX com href só de fragmento: sem alvo, como o guide', () async {
+      final (p, _) = await _read(
+        _book({
+          'OEBPS/nav.xhtml': null,
+          'OEBPS/content.opf': opfXml(
+            items: [
+              item('ncx', 'toc.ncx', mediaType: ncxType),
+              item('c1', 'Text/c1.xhtml'),
+            ],
+            itemrefs: [itemref('c1')],
+            spineAttributes: ' toc="ncx"',
+          ),
+          'OEBPS/toc.ncx': ncxXml(
+            [('Aqui', '#x'), ('Um', 'Text/c1.xhtml#s1')],
+            pageList:
+                '<pageList><pageTarget><navLabel><text>1</text></navLabel>'
+                '<content src="#p1"/></pageTarget></pageList>',
+          ),
+        }),
+      );
+      expect(p.ncxPath, 'OEBPS/toc.ncx');
+      expect(p.toc.map((e) => (e.title, e.target)), [
+        ('Aqui', null),
+        ('Um', const NavTarget('OEBPS/Text/c1.xhtml', 's1')),
+      ]);
+      expect(p.pageList.map((e) => (e.title, e.target)), [('1', null)]);
+    });
+
     test('NCX acima do teto: too-large, TOC sintetizado', () async {
       final (p, sink) = await _read(
         _book({
