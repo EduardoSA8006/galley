@@ -233,6 +233,29 @@ void main() {
       expect(p.manifest['c1']!.mediaType, 'application/xhtml+xml');
       expect(p.spine.single.kind, SectionKind.xhtml);
     });
+
+    test('item que é o próprio OPF com outra caixa é missing', () async {
+      final (p, sink) = await _read(
+        _book({
+          'OEBPS/content.opf': opfXml(
+            items: [
+              item('c1', 'Text/c1.xhtml'),
+              item(
+                'opf',
+                'CONTENT.OPF',
+                mediaType: 'application/oebps-package+xml',
+              ),
+            ],
+            itemrefs: [itemref('c1')],
+          ),
+        }),
+      );
+      final opf = p.manifest['opf']!;
+      expect(opf.missing, isTrue);
+      expect(opf.path, 'OEBPS/CONTENT.OPF', reason: 'o path guardado fica');
+      final d = _only(sink, EpubDiagnosticCode.resourceMissing);
+      expect((d.href, d.details['reason']), ('OEBPS/CONTENT.OPF', 'opf'));
+    });
   });
 
   group('spine e fallback (§6.3, §6.4)', () {
@@ -343,6 +366,86 @@ void main() {
               .having((e) => e.message, 'message', 'spine vazio'),
         ),
       );
+    });
+
+    test('mesmo arquivo com outra caixa: spineItemDuplicate', () async {
+      final (p, sink) = await _read(
+        _book({
+          'OEBPS/content.opf': opfXml(
+            items: [item('a', 'Text/c1.xhtml'), item('b', 'TEXT/C1.XHTML')],
+            itemrefs: [itemref('a'), itemref('b')],
+          ),
+        }),
+      );
+      expect(p.manifest['b']!.path, 'OEBPS/TEXT/C1.XHTML');
+      expect(p.manifest['b']!.missing, isFalse);
+      expect(p.spine.map((s) => s.idref), ['a']);
+      expect(
+        _only(sink, EpubDiagnosticCode.spineItemDuplicate).details['idref'],
+        'b',
+      );
+    });
+
+    test('alvo casa com o item do spine, não com o de outra caixa', () async {
+      // O manifest traz primeiro a grafia que o spine descarta; o alvo
+      // exato dela vai para o item que ficou no spine, e ninguém é órfão.
+      final (p, sink) = await _read(
+        _book({
+          'OEBPS/content.opf': opfXml(
+            items: [
+              item('nav', 'nav.xhtml', properties: 'nav'),
+              item('b', 'TEXT/C1.XHTML'),
+              item('a', 'Text/c1.xhtml'),
+            ],
+            itemrefs: [itemref('a'), itemref('b')],
+          ),
+          'OEBPS/nav.xhtml': navXml(tocNav([('Um', 'TEXT/C1.XHTML')])),
+        }),
+      );
+      expect(p.spine.map((s) => s.idref), ['a']);
+      expect(p.toc.single.target, const NavTarget('OEBPS/Text/c1.xhtml'));
+      expect(_codes(sink), ['spineItemDuplicate']);
+    });
+
+    test('remoto nunca é content: fallback pula a imagem remota', () async {
+      final (p, sink) = await _read(
+        _book({
+          'OEBPS/content.opf': opfXml(
+            items: [
+              item('pdf', 'a.pdf', mediaType: 'application/pdf', fallback: 'r'),
+              item(
+                'r',
+                'https://ex.com/capa.png',
+                mediaType: 'image/png',
+                fallback: 'c1',
+              ),
+              item('c1', 'Text/c1.xhtml'),
+            ],
+            itemrefs: [itemref('pdf')],
+          ),
+          'OEBPS/a.pdf': [1],
+        }),
+      );
+      expect(p.spine.single.content.id, 'c1');
+      expect(_codes(sink), isNot(contains('unsupportedMediaType')));
+    });
+
+    test('XHTML remoto no spine vai ao fallback local', () async {
+      final (p, _) = await _read(
+        _book({
+          'OEBPS/content.opf': opfXml(
+            items: [
+              item('r', 'https://ex.com/c.xhtml', fallback: 'c1'),
+              item('c1', 'Text/c1.xhtml'),
+            ],
+            itemrefs: [itemref('r')],
+          ),
+        }),
+      );
+      final s = p.spine.single;
+      expect(s.item.id, 'r');
+      expect(s.item.remote, isTrue);
+      expect(s.content.id, 'c1');
     });
   });
 
@@ -587,6 +690,28 @@ void main() {
         'too-large',
       );
     });
+
+    test('guide com href só de fragmento: sem alvo', () async {
+      final (p, _) = await _read(
+        _book({
+          'OEBPS/content.opf': opfXml(
+            items: [
+              item('nav', 'nav.xhtml', properties: 'nav'),
+              item('c1', 'Text/c1.xhtml'),
+            ],
+            itemrefs: [itemref('c1')],
+            extra:
+                '<guide><reference type="toc" title="Aqui" href="#x"/>'
+                '<reference type="text" title="Começo" '
+                'href="Text/c1.xhtml"/></guide>',
+          ),
+        }),
+      );
+      expect(p.landmarks.map((l) => (l.title, l.target)), [
+        ('Aqui', null),
+        ('Começo', const NavTarget('OEBPS/Text/c1.xhtml')),
+      ]);
+    });
   });
 
   group('fatais (§9.1)', () {
@@ -753,14 +878,21 @@ void main() {
           return readPublication(c, sink: sink);
         }
 
+        final strict = DiagnosticSink(strict: true);
         await expectLater(
-          run(DiagnosticSink(strict: true)),
+          run(strict),
           throwsA(
-            isA<EpubContainerException>().having(
-              (e) => e.message,
-              'message',
-              startsWith('zipCrcMismatch: '),
-            ),
+            isA<EpubContainerException>()
+                .having(
+                  (e) => e.message,
+                  'message',
+                  startsWith('zipCrcMismatch: '),
+                )
+                .having(
+                  (e) => identical(e, strict.lastStrictException),
+                  'é a lançada pelo sink',
+                  isTrue,
+                ),
           ),
         );
         final relaxed = DiagnosticSink();
@@ -773,6 +905,42 @@ void main() {
         expect(_codes(relaxed), ['zipCrcMismatch']);
       },
     );
+
+    test('exceção de terceiro com a mensagem de um warning registrado é falha '
+        'do fetch, não do sink', () async {
+      final sink = DiagnosticSink(strict: true);
+      // Sink reaproveitado: um warning já registrado, cuja exceção quem
+      // o usou antes capturou.
+      expect(
+        () => sink.emit(
+          EpubDiagnosticCode.resourceMissing,
+          href: 'x',
+          message: 'x',
+        ),
+        throwsA(isA<EpubContainerException>()),
+      );
+      final impostor = EpubContainerException(
+        'resourceMissing: x',
+        href: 'OEBPS/nav.xhtml',
+      );
+      final container = await ProviderContainer.open(
+        MapProvider(_book(), readThrows: {'OEBPS/nav.xhtml': impostor}),
+        sink: sink,
+      );
+      await expectLater(
+        readPublication(container, sink: sink),
+        throwsA(
+          isA<EpubPackageException>()
+              .having(
+                (e) => e.message,
+                'message',
+                startsWith('resourceUnreadable: '),
+              )
+              .having((e) => e.href, 'href', 'OEBPS/nav.xhtml')
+              .having((e) => e.cause, 'cause', same(impostor)),
+        ),
+      );
+    });
   });
 
   group('ProviderContainer', () {

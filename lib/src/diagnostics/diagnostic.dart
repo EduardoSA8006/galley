@@ -146,8 +146,15 @@ final class DiagnosticSink {
   final List<EpubDiagnostic> _items = [];
   final Map<(String, String?), int> _index = {};
 
+  EpubException? _lastStrictException;
+
   /// Em ordem de primeira emissão.
   List<EpubDiagnostic> get diagnostics => List.unmodifiable(_items);
+
+  /// A última exceção que [emit] lançou em [strict] (`null` se nenhuma). Quem
+  /// captura uma [EpubException] sabe, por identidade, se ela veio do sink ou
+  /// de outra fonte, sem depender da mensagem.
+  EpubException? get lastStrictException => _lastStrictException;
 
   /// Registra um diagnóstico. A repetição de `(code, href)` substitui a
   /// instância anterior, na mesma posição, com `details['count']` somado.
@@ -185,7 +192,10 @@ final class DiagnosticSink {
     }
     if (strict && effective == EpubSeverity.warning) {
       final text = '${code.name}: $message';
-      throw (onStrict ?? (m) => EpubContainerException(m, href: href))(text);
+      final exception =
+          (onStrict ?? (m) => EpubContainerException(m, href: href))(text);
+      _lastStrictException = exception;
+      throw exception;
     }
   }
 }

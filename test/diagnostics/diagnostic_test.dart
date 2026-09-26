@@ -223,6 +223,28 @@ void main() {
       );
     });
 
+    test('lastStrictException é a instância lançada, e só em strict', () {
+      final relaxed = DiagnosticSink()
+        ..emit(EpubDiagnosticCode.zipCrcMismatch, href: 'a', message: 'crc');
+      expect(relaxed.lastStrictException, isNull);
+
+      final sink = DiagnosticSink(strict: true)
+        ..emit(EpubDiagnosticCode.pathCaseMismatch, href: 'a', message: 'i');
+      expect(sink.lastStrictException, isNull, reason: 'info não lança');
+      Object? thrown;
+      try {
+        sink.emit(
+          EpubDiagnosticCode.fontObfuscationUnknown,
+          message: 'fonte',
+          onStrict: (m) => EpubEncryptedException(m, scheme: 'teste'),
+        );
+      } on EpubException catch (e) {
+        thrown = e;
+      }
+      expect(thrown, isNotNull);
+      expect(identical(sink.lastStrictException, thrown), isTrue);
+    });
+
     test('strict: info nunca lança', () {
       final sink = DiagnosticSink(strict: true)
         ..emit(EpubDiagnosticCode.zipDuplicateEntry, message: 'x')

@@ -104,17 +104,19 @@ Future<ZipContainer> openZip(
 );
 
 /// Provider em memória. [failingRead] lança em `read`; [failingExists]
-/// lança em `exists`.
+/// lança em `exists`; [readThrows] lança o objeto dado em `read`.
 final class MapProvider implements EpubResourceProvider {
   MapProvider(
     Map<String, Object?> files, {
     this.failingRead = const {},
     this.failingExists = const {},
+    this.readThrows = const {},
   }) : files = epubFiles(files);
 
   final Map<String, List<int>> files;
   final Set<String> failingRead;
   final Set<String> failingExists;
+  final Map<String, Object> readThrows;
   bool closed = false;
 
   @override
@@ -127,6 +129,8 @@ final class MapProvider implements EpubResourceProvider {
 
   @override
   Future<Uint8List> read(String href) async {
+    final thrown = readThrows[href];
+    if (thrown != null) throw thrown;
     if (failingRead.contains(href)) {
       throw FileSystemException('read falhou', href);
     }

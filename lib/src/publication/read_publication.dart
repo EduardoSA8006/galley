@@ -50,7 +50,9 @@ final class _Reader {
   late final String opfDir;
   final Map<String, ManifestItem> manifest = {};
 
-  /// `path` → item, exato e em minúsculas (o primeiro vence), para os alvos.
+  /// `path` → item, exato e em minúsculas, para os alvos. Os dois apontam
+  /// para o item canônico da caixa dobrada: o do spine, se algum item do
+  /// spine tem o caminho; senão o primeiro do manifest.
   final Map<String, ManifestItem> _byPath = {};
   final Map<String, ManifestItem> _byLowerPath = {};
 
@@ -59,12 +61,13 @@ final class _Reader {
     required String message,
     String? href,
     Map<String, Object?> details = const {},
+    Object? cause,
   }) => sink.emit(
     code,
     message: message,
     href: href,
     details: details,
-    onStrict: (m) => EpubPackageException(m, href: href),
+    onStrict: (m) => EpubPackageException(m, href: href, cause: cause),
   );
 
   Future<EpubPublication> read() async {
@@ -77,14 +80,10 @@ final class _Reader {
     for (final item in opf.items) {
       manifest[item.id] = await _resolveItem(item);
     }
-    for (final item in manifest.values) {
-      if (item.remote) continue;
-      _byPath.putIfAbsent(item.path, () => item);
-      _byLowerPath.putIfAbsent(item.path.toLowerCase(), () => item);
-    }
     _checkFontObfuscation();
 
     final spine = _spine(opf);
+    _indexPaths(spine);
 
     // NAV e NCX (spec §7).
     NavDocument? nav;
@@ -149,6 +148,7 @@ final class _Reader {
           _point(
             NavEntry(title: r.title.trim(), href: r.href, type: r.type),
             opfPath,
+            selfFragment: false,
           ),
       ];
     }
@@ -261,7 +261,8 @@ final class _Reader {
     }
     final candidates = _candidates(normalized);
     final preferred = candidates.first;
-    final isOpf = candidates.contains(opfPath);
+    final opfLower = opfPath.toLowerCase();
+    final isOpf = candidates.any((c) => c.toLowerCase() == opfLower);
     if (isOpf || _pointsToDirectory(href)) {
       _emit(
         EpubDiagnosticCode.resourceMissing,
@@ -328,14 +329,37 @@ final class _Reader {
     }
   }
 
+  /// Monta [_byPath] e [_byLowerPath]. A caixa é dobrada com
+  /// `toLowerCase`, o critério do `ZipContainer` (`CentralDirectory.lookup`):
+  /// duas grafias do mesmo caminho são o mesmo arquivo, e o alvo de qualquer
+  /// uma vai para o item que o spine manteve.
+  void _indexPaths(List<SpineItem> spine) {
+    for (final s in spine) {
+      if (s.item.remote) continue;
+      _byLowerPath.putIfAbsent(s.item.path.toLowerCase(), () => s.item);
+    }
+    for (final item in manifest.values) {
+      if (item.remote) continue;
+      _byLowerPath.putIfAbsent(item.path.toLowerCase(), () => item);
+    }
+    for (final item in manifest.values) {
+      if (item.remote) continue;
+      _byPath.putIfAbsent(
+        item.path,
+        () => _byLowerPath[item.path.toLowerCase()]!,
+      );
+    }
+  }
+
   // --- Spine (spec §6.3, §6.4) ---
 
   List<SpineItem> _spine(OpfDocument opf) {
     final spine = <SpineItem>[];
+    // Caminhos vistos com a caixa dobrada, como o contêiner os casa.
     final paths = <String>{};
     for (final ref in opf.itemrefs) {
       final item = manifest[ref.idref]!;
-      if (!paths.add(item.path)) {
+      if (!paths.add(item.path.toLowerCase())) {
         _emit(
           EpubDiagnosticCode.spineItemDuplicate,
           href: opfPath,
@@ -359,8 +383,9 @@ final class _Reader {
     return spine;
   }
 
+  /// Pode ser o `content` de uma seção: local, presente e `xhtml`/`image`.
   static bool _renderable(ManifestItem item) =>
-      !item.missing && item.kind != SectionKind.unsupported;
+      !item.missing && !item.remote && item.kind != SectionKind.unsupported;
 
   ManifestItem _content(ManifestItem item) {
     if (_renderable(item)) return item;
@@ -416,12 +441,15 @@ final class _Reader {
       }
       bytes = _drain(pending);
     } on EpubException catch (e) {
-      if (_raisedBySink(e)) rethrow;
+      // A exceção do sink em strict propaga como está; é reconhecida por
+      // identidade, nunca pela mensagem.
+      if (identical(e, sink.lastStrictException)) rethrow;
       _emit(
         EpubDiagnosticCode.resourceUnreadable,
         href: item.path,
         message: '${isNav ? 'NAV' : 'NCX'} ilegível',
         details: {'reason': 'unreadable', 'exception': '$e'},
+        cause: e,
       );
       _navIgnored(item.path, 'unreadable', exception: e);
       return null;
@@ -429,24 +457,20 @@ final class _Reader {
     return decodeXml(bytes, path: item.path, sink: sink, htmlMeta: isNav);
   }
 
-  /// A exceção veio do [sink] em `strict` (a mensagem é a de um warning
-  /// registrado), e não do `fetch`/`decode()`.
-  bool _raisedBySink(EpubException e) =>
-      sink.strict &&
-      sink.diagnostics.any(
-        (d) =>
-            d.severity == EpubSeverity.warning &&
-            e.message == '${d.code.name}: ${d.message}',
-      );
-
   // --- Alvos (spec §5.4) ---
 
   List<NavPoint> _points(List<NavEntry> entries, String documentPath) => [
     for (final e in entries) _point(e, documentPath),
   ];
 
-  NavPoint _point(NavEntry entry, String documentPath) {
-    final target = _target(entry.href, documentPath);
+  /// Com [selfFragment] falso (o `guide` do OPF), `#frag` fica sem alvo: o
+  /// OPF não é documento de leitura.
+  NavPoint _point(
+    NavEntry entry,
+    String documentPath, {
+    bool selfFragment = true,
+  }) {
+    final target = _target(entry.href, documentPath, selfFragment);
     return NavPoint(
       title: entry.title.isNotEmpty || target == null
           ? entry.title
@@ -457,12 +481,14 @@ final class _Reader {
     );
   }
 
-  NavTarget? _target(String? href, String documentPath) {
+  NavTarget? _target(String? href, String documentPath, bool selfFragment) {
     if (href == null) return null;
     final raw = href.trim();
     if (hasScheme(raw)) return null;
     final (_, fragment) = splitFragment(raw);
-    if (raw.startsWith('#')) return NavTarget(documentPath, fragment);
+    if (raw.startsWith('#')) {
+      return selfFragment ? NavTarget(documentPath, fragment) : null;
+    }
     final normalized = normalizeHref(dirnameOf(documentPath), raw);
     if (normalized == null) return null;
     final decoded = decodePath(normalized);
