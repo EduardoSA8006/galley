@@ -223,7 +223,9 @@ Future<CentralDirectory> readCentralDirectory(
   }
 
   final cd = await _read(source, cdOffset + delta, cdSize);
-  final entries = _parseEntries(cd, delta: delta, length: length);
+  final entries = _markOverlaps(
+    _parseEntries(cd, delta: delta, length: length),
+  );
   return CentralDirectory._(
     entries: entries,
     length: length,
@@ -367,6 +369,61 @@ List<ZipEntry> _parseEntries(
     p = end;
   }
   return entries;
+}
+
+/// Zip bomb por sobreposição: várias entradas do central directory
+/// apontando para o mesmo local header/stream comprimido, cada uma
+/// reivindicando o `uncompressedSize` cheio. Depois de ordenar uma cópia
+/// (só entradas válidas e não-diretório) por `localHeaderOffset`
+/// (O(n log n), com o índice original como desempate para estabilidade),
+/// percorre em ordem: toda entrada cujo offset invade o espaço da última
+/// entrada **mantida** (`localHeaderOffset + 30 + compressedSize`) vira
+/// inválida; a primeira em ordem de offset (e, empatada, em ordem do
+/// central directory) é a que fica.
+List<ZipEntry> _markOverlaps(List<ZipEntry> entries) {
+  final candidates =
+      <int>[
+        for (var i = 0; i < entries.length; i++)
+          if (entries[i].invalidReason == null && !entries[i].isDirectory) i,
+      ]..sort((a, b) {
+        final byOffset = entries[a].localHeaderOffset.compareTo(
+          entries[b].localHeaderOffset,
+        );
+        return byOffset != 0 ? byOffset : a.compareTo(b);
+      });
+
+  final overlapping = <int>{};
+  ZipEntry? kept;
+  for (final i in candidates) {
+    final e = entries[i];
+    if (kept != null &&
+        e.localHeaderOffset <
+            kept.localHeaderOffset + 30 + kept.compressedSize) {
+      overlapping.add(i);
+    } else {
+      kept = e;
+    }
+  }
+  if (overlapping.isEmpty) return entries;
+
+  return [
+    for (var i = 0; i < entries.length; i++)
+      if (overlapping.contains(i))
+        ZipEntry(
+          name: entries[i].name,
+          rawName: entries[i].rawName,
+          nameLength: entries[i].nameLength,
+          flags: entries[i].flags,
+          method: entries[i].method,
+          compressedSize: entries[i].compressedSize,
+          uncompressedSize: entries[i].uncompressedSize,
+          localHeaderOffset: entries[i].localHeaderOffset,
+          crc32: entries[i].crc32,
+          invalidReason: 'dados sobrepostos a outra entrada',
+        )
+      else
+        entries[i],
+  ];
 }
 
 /// Bit 11: UTF-8 tolerante. Sem ele: UTF-8 se válido, senão CP437.

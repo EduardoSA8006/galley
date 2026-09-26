@@ -244,6 +244,47 @@ void main() {
     });
   });
 
+  group('dados sobrepostos', () {
+    test('duas entradas apontando para o mesmo local header: a segunda em '
+        'ordem de offset (aqui, a mesma ordem do CD) fica inválida; a '
+        'primeira continua válida', () async {
+      final l = ZipLayout(zip);
+      final overlapped = patchCentralU32(zip, 2, cdLocalOffset, l.local[1]);
+      final cd = await _read(overlapped);
+      expect(cd.lookup('META-INF/container.xml')!.entry.invalidReason, isNull);
+      expect(
+        cd.lookup('OEBPS/cap01.xhtml')!.entry.invalidReason,
+        'dados sobrepostos a outra entrada',
+      );
+    });
+
+    test('ZIP legítimo não ganha nenhuma entrada sobreposta', () async {
+      final cd = await _read(zip);
+      expect(cd.entries.where((e) => e.invalidReason != null), isEmpty);
+    });
+
+    test(
+      '1000 entradas apontando para o mesmo local header: < 200 ms',
+      () async {
+        final w = ZipWriter();
+        for (var i = 0; i < 1000; i++) {
+          w.add('f$i.txt', const [0], compress: false);
+        }
+        final many = w.build();
+        final base = ZipLayout(many).local[0];
+        var overlapped = many;
+        for (var i = 1; i < 1000; i++) {
+          overlapped = patchCentralU32(overlapped, i, cdLocalOffset, base);
+        }
+        final stopwatch = Stopwatch()..start();
+        final cd = await _read(overlapped);
+        stopwatch.stop();
+        expect(cd.entries.where((e) => e.invalidReason != null).length, 999);
+        expect(stopwatch.elapsedMilliseconds, lessThan(200));
+      },
+    );
+  });
+
   test('contagem divergente não é fatal', () async {
     final cd = await _read(withEocdCount(zip, 99));
     expect(cd.paths, hasLength(3));

@@ -157,6 +157,24 @@ void main() {
       },
     );
 
+    test('entradas com dados sobrepostos: a segunda fica inválida, a '
+        'primeira lê normalmente', () async {
+      final l = ZipLayout(mixed);
+      final overlapped = patchCentralU32(mixed, 2, cdLocalOffset, l.local[1]);
+      final c = await _open(overlapped);
+      await expectLater(
+        c.fetch('OEBPS/Images/a.png'),
+        throwsA(
+          isA<EpubContainerException>().having(
+            (e) => e.message,
+            'message',
+            'dados sobrepostos a outra entrada',
+          ),
+        ),
+      );
+      expect(await _read((await c.fetch('OEBPS/Text/cap01.xhtml'))!), chapter);
+    });
+
     test(
       'falha da fonte no fetch vira EpubContainerException com cause',
       () async {
