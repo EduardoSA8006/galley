@@ -87,8 +87,8 @@ final class OpfDocument {
        guide = List.unmodifiable(guide);
 
   /// Caminho do OPF no contêiner (o `opfPath` de [parseOpf]); usado para
-  /// resolver `href` relativos a ele, como o do `<meta name="cover">`
-  /// (spec §8.2, correção da Tarefa 9).
+  /// resolver `href` relativos a ele, como o do `<meta name="cover">` com
+  /// `href` no lugar do id (spec §8.2).
   final String opfPath;
 
   /// Atributo `version` do `<package>`, cru (`''` se ausente).

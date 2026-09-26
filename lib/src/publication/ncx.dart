@@ -53,8 +53,8 @@ List<NavEntry> _points(XmlElement parent, String local, int depth, _Count c) {
   for (final e in parent.childElements) {
     if (e.name.local != local) continue;
     // Só marca truncado se existe um navPoint/pageTarget além do limite (não
-    // em toda chamada recursiva, mesmo sem filho algum) — como o NAV faz em
-    // lib/src/publication/nav.dart:179.
+    // em toda chamada recursiva, mesmo sem filho algum) — como o `_list` do
+    // NAV (nav.dart) faz.
     if (depth > maxNavDepth) {
       c.truncated = true;
       break;
