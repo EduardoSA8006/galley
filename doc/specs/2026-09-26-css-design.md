@@ -94,14 +94,14 @@ letra do desenho aprovado estão marcadas **(muda o desenho)**.
 | 12 | Lista de seletores: um seletor **inválido** pela gramática (inclusive pseudo-classe ou pseudo-elemento fora da lista fechada de §6.3) descarta a regra inteira, como no CSS; um seletor **válido fora do subconjunto** cai sozinho, com `cssRuleIgnored`, e os outros da lista continuam valendo **(controlador; muda o desenho)** | §6.3 |
 | 13 | Teto novo de 4 MiB de CSS por seção, somando `PendingResource.size` das folhas de arquivo antes do `decode()`, além do teto de 1 MiB por folha; `<style>` tem teto próprio em unidades de código | §9.3, §11 |
 | 14 | O limite de 20 000 regras conta seletores (entradas do índice), não blocos | §11 |
-| 15 | Cache de folhas parseadas por caminho e por texto de `<style>`, LRU com teto de 8 Mi unidades de código de fonte, com entradas negativas (ausente, grande demais, ilegível); **todos** os diagnósticos da carga da folha ficam na entrada e são reemitidos a cada seção que a aplica | §9.6 |
+| 15 | Cache de folhas parseadas por caminho e por texto de `<style>`, LRU com teto de 8 Mi unidades de código de fonte, com entradas negativas (ausente, grande demais, ilegível); a entrada guarda só o que o **CSS** emite (o `encodingFallback` de `decodeCss`, os `CssIssue`, a falta), reemitido no sink da seção a cada seção que aplica a folha | §9.6 |
 | 16 | Diagnósticos de parse agregados por folha: no máximo um `cssRuleIgnored` por motivo e um `stylesheetMediaIgnored` por folha e por seção, com `details.discarded` | §12.1 |
 | 17 | Elemento abaixo da profundidade 256 recebe o estilo "herdado puro" do pai (herdadas copiadas, não herdadas no valor inicial), sem casar regras **(muda o desenho)** | §10.2 |
 | 18 | Esgotado o orçamento, a folha padrão, as dicas e o `style=""` continuam valendo (nenhum é casamento de seletor do livro, e o custo deles por elemento é constante) **(muda o desenho)** | §10.6 |
 | 19 | A lista de folhas para a chave leva o hash FNV-1a 64 dos bytes de cada arquivo (em `lib/src/container/fnv1a64.dart`, exato na VM e no JS) e o texto de cada `<style>` | §9.7 |
 | 20 | `computeStyles` escreve o resultado num `CascadeResult` passado pelo chamador (o gerador `sync*` só cede `void`), e tem a variante `computeStylesSync` | §10.1 |
 | 21 | `recordOrigins` (só testes): `SectionStyles.originOf` diz a origem da declaração vencedora, para o corpus checar "itálico salvo sobrescrita" | §10.1, §14.1 |
-| 22 | O texto de `<style>` é lido como dado de caractere do XML: seções CDATA ficam literais e, fora delas, as entidades predefinidas e as referências numéricas são decodificadas (o `package:html` trata `<style>` como texto cru e deixaria `div &gt; p` literal) | §9.1 |
+| 22 | O texto de `<style>` é lido como dado de caractere do XML: seções CDATA ficam literais e, fora delas, as entidades predefinidas e as referências numéricas são decodificadas (o `package:html` trata `<style>` como texto cru e deixaria `div &gt; p` literal); exceção: `<!-- -->` não é tirado como comentário, fica para o tokenizador do CSS, como no HTML (§7.5) | §9.1 |
 | 23 | O parse das folhas roda no prólogo assíncrono do loader, sem ceder; se o sub-projeto 5 medir fatia acima do tolerado, vira `sync*` | §9.5, [14](../14-pendencias.md) |
 | 24 | `text-decoration` entra na Classe 2, com `underline` e `lineThrough` (o resto ignorado), pela **propagação** do CSS, que não é herança **(controlador; muda o desenho)** | §3, §7.1, §8.1, §10.5 |
 | 25 | `media` que não casa ganha código próprio, `stylesheetMediaIgnored` (`info`), fora dos motivos de `stylesheetIgnored`, que fica sempre `warning` **(controlador; muda o desenho)** | §12.1 |
@@ -111,8 +111,12 @@ letra do desenho aprovado estão marcadas **(muda o desenho)**.
 | 29 | Recuperação de erro pelo modelo atual do CSS Syntax ("consume a block's contents"): regra e at-rule aninhadas são parseadas e descartadas com `cssRuleIgnored` `nested-rule` **(controlador)** | §5.3 |
 | 30 | `mediaMatches` recebe tokens; `not <tipo>` com tipo que não é `all`/`screen` casa (como no navegador); vírgula dentro de parênteses não separa queries | §5 |
 | 31 | O elemento em andamento quando o orçamento acaba recomeça só com a folha padrão, as dicas e o `style=""`, como os seguintes | §10.6 |
-| 32 | `DiagnosticSink.capture` grava os diagnósticos emitidos durante um trecho síncrono, para o cache reemiti-los; o `fetch` do contêiner passa a documentar que emite os seus antes do primeiro `await` | §9.6 |
+| 32 | O loader recebe o sink **da seção** (onde emite) e o sink **do contêiner** (parâmetro `containerSink`: o `EpubContainer` não expõe o dele); a exceção de `strict` que atravessa `fetch`/`decode()` é reconhecida por `identical(e, containerSink.lastStrictException)`; os diagnósticos do contêiner ficam no sink dele, uma vez por publicação, sem reemissão; `decodeCss` emite num sink temporário, cuja lista vai para a entrada do cache (sem `DiagnosticSink.capture`) **(controlador)** | §9, §9.6 |
 | 33 | A subárvore de `<template>` fica fora da coleta e da cascata **(muda o desenho, que pedia todos os elementos no mapa)** | §9.1, §10.2 |
+| 34 | Identificador (tipo, classe, `id`, nome de atributo) e valor de atributo no seletor com no máximo 256 unidades de código; acima disso, o seletor fica fora do subconjunto. Do lado do elemento, hash e minúsculas de cada classe, do `id` e do nome saem uma vez, ao montar o `ElementInfo` **(controlador)** | §6.3, §10.2, §10.4 |
+| 35 | A tentativa de declaração para no ponto em que a falha já é certa (sem `ident` ou sem `:`; primeiro `{}` de topo depois de outro conteúdo; primeiro token depois de um `{}` inicial), com o mesmo resultado do algoritmo do CSS Syntax, que varre até o `;` antes de decidir e fica quadrático **(controlador)** | §5.3 |
+| 36 | O teto de 64 folhas é reservado no `tentar`, antes do `fetch` e da recursão, e devolvido se a folha falta: numa cadeia de `@import` a lista não passa de 64 **(controlador)** | §9.5 |
+| 37 | `@import` com `layer`/`supports()` vai para `stylesheetIgnored` com `reason: 'unsupported-import'`, não para `stylesheetMediaIgnored` **(controlador)** | §5.2, §12.1 |
 
 ## 2. Arquivos
 
@@ -128,13 +132,11 @@ letra do desenho aprovado estão marcadas **(muda o desenho)**.
 | `lib/src/css/cascade.dart` | `computeStyles`, `computeStylesSync`, `CascadeResult`, `SectionStyles` (§10) |
 | `lib/src/css/computed_style.dart` | `ComputedStyle`, `EmEdges`, `CssLength` e os enums de §3 |
 | `lib/src/container/fnv1a64.dart` | `Fnv1a64` (§9.7) |
-| `lib/src/container/container.dart` | só documentação: o `fetch` emite os diagnósticos dele antes do primeiro `await` (§9.6) |
-| `lib/src/diagnostics/diagnostic.dart` | + `unsupportedLayout`, `stylesheetIgnored`, `stylesheetMediaIgnored`, `cssRuleIgnored` (§12); + `DiagnosticSink.capture` (§9.6) |
+| `lib/src/diagnostics/diagnostic.dart` | + `unsupportedLayout`, `stylesheetIgnored`, `stylesheetMediaIgnored`, `cssRuleIgnored` (§12) |
 | `lib/src/diagnostics/exceptions.dart` | + `EpubSectionParseException` (§12.3) |
 
-Testes em `test/css/` (§14), `test/container/fnv1a64_test.dart` e um caso de
-`capture` em `test/diagnostics/`. `lib/src/css/` não importa `dart:io`,
-`dart:ui` nem `package:flutter`.
+Testes em `test/css/` (§14) e `test/container/fnv1a64_test.dart`.
+`lib/src/css/` não importa `dart:io`, `dart:ui` nem `package:flutter`.
 
 ## 3. Modelo
 
@@ -437,9 +439,11 @@ avaliar característica nenhuma:
 ### 5.2 `@import`
 
 - Forma: `@import <string> | url(<…>) [lista de media]? ;`. O href sai cru.
-- Com `layer`, `layer(…)` ou `supports(…)` no prelúdio → ignorado como
-  `stylesheetMediaIgnored` (a condição não é avaliada, e ignorar o `@import` é
-  o lado seguro).
+- Com `layer`, `layer(…)` ou `supports(…)` no prelúdio → ignorado,
+  `stylesheetIgnored` `unsupported-import` (`warning`, `href` = a folha que
+  importa, `details.import` = o href cru) **(controlador, #37)**: a condição
+  não é avaliada, e ignorar o `@import` é o lado seguro; não é media, então
+  não vai para `stylesheetMediaIgnored`.
 - Media que não casa → ignorado, `stylesheetMediaIgnored`.
 - **Posição** (a regra do `@import` do CSS Cascade 4): um `@import` só vale
   **no nível de topo** e se nenhuma regra de estilo **válida** nem at-rule
@@ -465,15 +469,40 @@ avaliar característica nenhuma:
   `;` ou `}` do nível do bloco (blocos `{}`, `()` e `[]` no meio são consumidos
   inteiros), com `!important` (o par `delim !` + `ident important`, sem
   caixa, espaço e comentário no meio aceitos) no fim. O nome é comparado em
-  minúsculas ASCII. A declaração **falha** se não começa por `ident`, não tem
-  `:`, tem `badString` ou `badUrl` no valor, ou tem um bloco `{}` no nível de
-  topo do valor junto com outro conteúdo (o CSS Syntax só aceita `{}` como o
-  valor inteiro, e só em propriedade customizada).
-- Se a declaração falha, os mesmos tokens são relidos como **regra qualificada
-  aninhada**, que no aninhamento para no `;`: se ela tem prelúdio e bloco, é
-  consumida inteira e descartada, `cssRuleIgnored` `nested-rule` (o galley
-  não implementa CSS Nesting); se chega ao `;` ou ao `}` sem bloco, é lixo:
-  descartada até ali, `cssRuleIgnored` `parse-error`. O resto do bloco segue.
+  minúsculas ASCII.
+- **Quando a tentativa falha, e onde ela para** **(controlador, #35)**. No CSS
+  Syntax atual, "consume a declaration" devolve nada (a) sem `ident` ou sem
+  `:` — depois de "consume the remnants of a bad declaration", que varre até o
+  `;` ou o `}` do bloco —, e (b), no passo que examina o valor, quando o valor
+  tem um bloco `{}` de topo e **também** outro conteúdo que não é espaço (um
+  `{}` só é aceito como o valor inteiro de uma propriedade que não é
+  customizada, e em customizada vale qualquer coisa); então "consume a
+  block's contents" restaura a marca e relê os mesmos tokens como regra
+  qualificada aninhada, que para no `;`. Seguido ao pé da letra, isso é
+  quadrático: em `p { a:b{} a:b{} … }` sem `;`, cada tentativa varre o resto
+  do bloco até o `}` antes de falhar, e depois só um `a:b{}` é consumido como
+  regra. O galley para **no ponto em que a falha já é certa**, com o mesmo
+  resultado:
+  - sem `ident` no começo, ou sem `:` depois do nome → falha ali, sem varrer os
+    "remnants" (o que eles consumiriam é jogado fora pelo restore de qualquer
+    jeito);
+  - nome que não é customizado e primeiro `{}` de topo **depois** de outro
+    conteúdo → falha ao fechar esse bloco;
+  - nome que não é customizado, valor que **começa** por `{}` → falha no
+    primeiro token que não é espaço depois dele (se vier `;`/`}`, a declaração
+    é sintaticamente válida e só é descartada por não estar na tabela).
+  Propriedade customizada (`--x`) vai sempre até o `;`/`}` e é descartada em
+  silêncio (sucesso sintático, sem releitura). `badString` ou `badUrl` no valor
+  deixam a declaração inválida: ela vai até o `;`/`}` e é descartada,
+  `cssRuleIgnored` `parse-error`, sem releitura — a regra qualificada do CSS
+  Syntax consumiria os mesmos tokens e não devolveria nada, porque um `{}`
+  depois de conteúdo já teria parado a tentativa antes.
+- Se a declaração falha, os tokens que ela consumiu são relidos como **regra
+  qualificada aninhada**, que no aninhamento para no `;`: se ela tem prelúdio
+  e bloco, é consumida inteira e descartada, `cssRuleIgnored` `nested-rule` (o
+  galley não implementa CSS Nesting); se chega ao `;` ou ao `}` sem bloco, é
+  lixo: descartada até ali, `cssRuleIgnored` `parse-error`. O resto do bloco
+  segue.
 - Propriedade fora da tabela (§7), propriedade customizada (`--x`) e valor fora
   do aceito → declaração descartada **em silêncio** (é a classe "ignorado" de
   [03](../03-camada-a-ir.md) §6, e reportar cada uma inundaria o canal).
@@ -490,6 +519,7 @@ Casos fechados (cada um com teste, §14):
 | `p { @media screen { font-weight: bold } font-style: italic }` | at-rule aninhada com bloco → `nested-rule`; `font-style` vale; `font-weight` não |
 | `@media screen { @import "x.css"; p { font-style: italic } }` | o `@import` não está no topo → `late-import`, nada é buscado; a regra de `p` vale |
 | `p { font-style: italic; @foo; font-weight: bold }` | `@foo;` some em silêncio; as duas declarações valem |
+| `p { a:b{} a:b{} … a:b{} }` (100 000 vezes, sem `;`), e o mesmo em `style=""` | cada tentativa falha ao fechar o seu `{}` e cada `a:b{}` vira uma regra aninhada (`nested-rule`, agregado); linear (§5.5), com teste hostil em §14.3 |
 
 ### 5.4 Aninhamento
 
@@ -504,8 +534,12 @@ pilha cresce no máximo até o número de aberturas do trecho.
 
 - Cada token é pedido ao tokenizador uma vez; o reconsumo é de um token só.
   A tentativa de declaração guarda os tokens dela num buffer, e a releitura
-  como regra aninhada (§5.3) usa esse buffer: cada token é examinado no máximo
-  duas vezes.
+  como regra aninhada (§5.3) usa esse buffer. Como a tentativa para no ponto
+  em que falha (§5.3), ela nunca consome além do que a regra aninhada vai
+  consumir — no máximo o bloco `{}` que a fez falhar e um token depois dele —,
+  então cada token é examinado **no máximo duas vezes**, e o buffer é
+  descartado a cada item. Sem a parada antecipada a frase seria falsa: a
+  tentativa varreria o resto do bloco a cada item.
 - O prelúdio de cada regra é juntado uma vez numa lista (soma ≤ tokens da
   folha) e entregue a `parseSelectorList`; o valor de cada declaração, idem,
   a `parseDeclaration`. Nenhum dos dois volta ao texto.
@@ -522,6 +556,7 @@ pilha cresce no máximo até o número de aberturas do trecho.
 ```dart
 const int maxCompoundsPerSelector = 32;
 const int maxSimpleSelectorsPerCompound = 32;   // (controlador, #27)
+const int maxSelectorIdentifierLength = 256;    // tipo, classe, id, nome e valor de atributo (#34)
 
 enum CssCombinator { descendant, child, adjacent }
 
@@ -581,6 +616,13 @@ SelectorListParse parseSelectorList(List<CssToken> prelude);
 | `:first-child`, `:last-child` | primeiro/último entre os irmãos-elemento |
 | `:nth-child(n)` | `n` token `number` **inteiro** (`isInteger`), com sinal opcional (`+3` vale 3), contado a partir de 1 entre os irmãos-elemento. A faixa é conferida no `double` antes de virar `int`: `n` < 1 ou > 2^30 guarda 0 e nunca casa. `:nth-child(3.0)` é **inválido** (o An+B só aceita inteiro) |
 
+O argumento de `:nth-child()` segue a microsintaxe An+B do CSS Syntax Level 3
+§6, que é definida **sobre tokens**, não sobre texto: `2n-1` chega como **uma**
+`dimension` (número 2, unidade `n-1`), `-n+3` como `ident` `-n` seguido de
+`number` `+3`, `n` como `ident`, `+n` como `delim +` e `ident n`. O parser
+reconhece essas formas pelos tokens, como o CSS Syntax manda, e só a forma
+"um `number` inteiro" está no subconjunto.
+
 Nomes de atributo comparados em minúsculas ASCII no namespace HTML (o
 `package:html` já os baixa) e exatos fora dele; valores sempre exatos.
 
@@ -621,7 +663,13 @@ desenho)**:
   flag `i`/`s`;
 - tipo com namespace (`svg|rect`, `*|p`, `|p`) e atributo `[*|a]`;
 - mais de 32 compostos, ou um composto com mais de 32 seletores simples
-  (`.a.b.c…`) **(controlador, #27)**.
+  (`.a.b.c…`) **(controlador, #27)**;
+- identificador (tipo, classe, `id`, nome de atributo) ou valor de atributo
+  com mais de `maxSelectorIdentifierLength` (256) unidades de código
+  **(controlador, #34)**: o maior do corpus tem 65
+  (`.epub-type-contains-word-se-image-color-depth-black-on-transparent`, do
+  Standard Ebooks); acima de 256, o custo de
+  hash e de comparação por passo (§10.4) deixaria de ser constante.
 
 **Pseudo-classes reconhecidas** (nome sem caixa): `first-child`, `last-child`,
 `only-child`, `first-of-type`, `last-of-type`, `only-of-type`, `nth-child()`,
@@ -838,6 +886,9 @@ O que o galley faz diferente do navegador, de propósito, e fica em
 - **`unsupportedLayout` fundido.** O dedupe do `DiagnosticSink` por (código,
   `href`) junta `float` e `position` da mesma seção num registro, com os
   `details` do último (§12.1).
+- **`<!-- -->` dentro de `<style>`** é aplicado como CSS, e não tirado como
+  comentário do XML (§9.1), ao contrário do resto da leitura do `<style>` como
+  dado de caractere.
 - `rem` como `em`, `ex`/`ch` como 0,5em, `%` sobre 30em (§7.2); recuo de lista
   por `padding-left` em livro `rtl` (§8.1); filhos de `flex`/`grid` sem
   "blocoficação" (acima).
@@ -982,19 +1033,24 @@ final class StyleSheetCache {
 }
 
 /// Junta as folhas de [document] (a seção em [sectionPath]). Não fecha o
-/// contêiner. Nunca lança por causa do CSS; a exceção do [sink] em `strict`
-/// propaga como está.
+/// contêiner. Nunca lança por causa do CSS; a exceção de `strict` do [sink]
+/// ou do [containerSink] propaga como está.
 ///
-/// Pré-condição: [sink] é o mesmo `DiagnosticSink` com que [container] foi
-/// aberto. É o que faz a exceção de `strict` que o contêiner lança no
-/// `decode()` (por exemplo `zipCrcMismatch`) ser reconhecida por identidade
-/// (§9.3); com dois sinks, ela viraria `resourceUnreadable`.
+/// [sink]: o sink **da seção**, onde o CSS emite (o conjunto por seção de
+/// doc/09 §3.1; como ele entra no agregado do documento é do sub-projeto 4).
+/// [containerSink]: o sink com que [container] foi aberto. O `EpubContainer`
+/// não o expõe (a interface tem `paths`, `exists`, `fetch`, `obfuscationOf` e
+/// `close`; o `ZipContainer` e o `PendingResource` guardam o sink em campo
+/// privado), então ele vem por parâmetro. Só serve para reconhecer, por
+/// identidade, a exceção de `strict` que o contêiner lança no `decode()`
+/// (por exemplo `zipCrcMismatch`, §9.3); o loader nunca emite nele.
 Future<SectionSheets> loadSectionSheets(
   EpubContainer container,
   Document document, {
   required String sectionPath,
   required StyleSheetCache cache,
   required DiagnosticSink sink,
+  required DiagnosticSink containerSink,
 });
 
 /// Bytes de uma folha para texto (§9.4).
@@ -1002,8 +1058,10 @@ String decodeCss(Uint8List bytes, {required String path, required DiagnosticSink
 ```
 
 O placeholder de seção do sub-projeto 4, que captura as exceções da seção
-para degradá-la, precisa do mesmo cuidado: relançar por identidade
-(`identical(e, sink.lastStrictException)`) antes de converter.
+para degradá-la, precisa do mesmo cuidado: relançar por identidade quando a
+exceção é a última de **qualquer um** dos dois sinks (`identical(e,
+sink.lastStrictException) || identical(e, containerSink.lastStrictException)`)
+antes de converter.
 
 ### 9.1 Coleta
 
@@ -1026,8 +1084,12 @@ em qualquer ponto da árvore (`head` ou `body`), **sem descer em `<template>`**
   fica literal (sem os marcadores); fora de CDATA, `&lt;`, `&gt;`, `&amp;`,
   `&quot;`, `&apos;`, `&#N;` e `&#xH;` são decodificados (referência fora de
   faixa, surrogate ou `&#0;` → U+FFFD; outra entidade fica literal). Assim
-  `div &gt; p` vira `div > p`, como num leitor XML. `<!--`/`-->` são tratados
-  pelo tokenizador. Texto acima de `maxStyleElementLength` →
+  `div &gt; p` vira `div > p`, como num leitor XML. **Exceção:** num leitor
+  XML, `<!-- … -->` dentro de `<style>` é comentário e o conteúdo some; aqui
+  ele fica no texto e vai ao tokenizador do CSS, que trata `<!--` e `-->` como
+  `cdo`/`cdc` e aplica o que está entre eles — o comportamento do HTML e dos
+  leitores que parseiam EPUB como HTML, e o que o autor do velho truque
+  `<style><!-- p {…} --></style>` quer (§7.5). Texto acima de `maxStyleElementLength` →
   `stylesheetIgnored` `too-large` (`href` = a seção).
 - `type` diferente (`text/less`) → ignorado em silêncio (não é CSS).
 
@@ -1062,8 +1124,8 @@ Nada fora do contêiner é tocado: `fetch` é a única leitura.
   e tem o teto próprio em unidades de código (§9.1), sem somar os dois.
 - `decode()` drenado inteiro; o `EpubException` que o `fetch` ou o `decode()`
   lançarem é reconhecido **por identidade**: `identical(e,
-  sink.lastStrictException)` → propaga (é o `strict`, por exemplo
-  `zipCrcMismatch`); senão `resourceUnreadable` (`warning`, `href` = caminho,
+  containerSink.lastStrictException)` → propaga (é o `strict` do contêiner,
+  por exemplo `zipCrcMismatch`); senão `resourceUnreadable` (`warning`, `href` = caminho,
   `details: {reason: 'unreadable', exception}`) e a folha é pulada. O contêiner
   só lança `EpubException` (o `ProviderContainer` embrulha a exceção do
   provider).
@@ -1089,8 +1151,11 @@ ordem do CSS Syntax §3.2, sem o passo do documento que referencia:
 
 ### 9.5 Ordem, `@import` e tetos
 
-Para cada `<link>` e `<style>`, na ordem de coleta (§9.1), o loader chama
-`aplicar` com profundidade 0 (a folha de topo) e pilha vazia:
+Na ordem de coleta (§9.1), cada `<link>` passa por `tentar` com profundidade
+0 (a folha de topo), pilha vazia e `from` = a seção; cada `<style>` reserva
+uma vaga e vai direto a `aplicar`, com profundidade 0 (os `@import` dele
+resolvem contra a pasta da seção). `reservadas` conta as folhas já anexadas
+**e** as em andamento **(controlador, #36)**:
 
 ```
 tentar(href, base, profundidade, pilha, from):             # <link> e @import
@@ -1099,18 +1164,21 @@ tentar(href, base, profundidade, pilha, from):             # <link> e @import
   resolver (§9.2) → candidatos normalizados (sem fetch); recusado/remoto → resourceMissing; fim
   se profundidade > maxImportDepth → stylesheetIgnored depth; fim
   se algum candidato, em minúsculas, está na pilha → stylesheetIgnored cycle; fim
-  se já há maxSheetsPerSection folhas aplicadas → stylesheetIgnored limit (sheets); fim
-  ler pelo cache (§9.6) ou por fetch (§9.3); falta → o diagnóstico dela; fim
+  se reservadas == maxSheetsPerSection → stylesheetIgnored limit (sheets); fim
+  reservadas += 1                                     # a vaga é desta folha, antes do fetch e da recursão
+  ler pelo cache (§9.6) ou por fetch (§9.3); falta → reservadas -= 1; o diagnóstico dela; fim
   aplicar(folha, profundidade, pilha + candidatos + [caminho real], em minúsculas)
 
 aplicar(folha, profundidade, pilha):
   para cada @import válido da folha (§5.2), em ordem:
     tentar(import.href, dirnameOf(caminho da folha), profundidade + 1, pilha, folha)
-  anexar a folha a SectionSheets.sheets
+  anexar a folha a SectionSheets.sheets              # ocupa a vaga reservada
 ```
 
-`<style>` passa direto a `aplicar` (sem `fetch`, sem tentativa), depois do
-teto de folhas; os `@import` dele resolvem contra a pasta da seção.
+Reservar no `tentar`, e não contar só as anexadas, é o que fecha o teto numa
+cadeia: sem isso, A → B → … com oito níveis em andamento veria só as folhas
+já anexadas e a lista chegaria a 64 + 8. Com a reserva, `sheets` nunca passa
+de 64.
 
 Profundidade, tetos e ciclo são checados **pelo caminho normalizado, antes do
 `fetch`** **(controlador, #28)**: um ciclo, um `@import` além da profundidade
@@ -1121,11 +1189,11 @@ níveis (2 candidatos e o caminho real por nível).
   cada `@import` que chega a `tentar`, achado ou não, do cache ou não. Sem
   ele, 250 000 `@import` de um arquivo ausente ou grande demais dariam 250 000
   `fetch` (ou consultas ao cache) numa seção.
-- **Folhas:** `maxSheetsPerSection` (64) conta toda folha anexada — `<link>`,
-  `<style>` e `@import` —, inclusive repetidas. Uma folha importada duas vezes
-  aplica duas vezes (desenho), e o teto fecha o leque exponencial (A importa B
-  duas vezes, B importa C duas vezes…) e a folha vazia ligada 100 000 vezes:
-  `sheets` e `cacheKey` nunca passam de 64 entradas.
+- **Folhas:** `maxSheetsPerSection` (64) conta toda folha reservada —
+  `<link>`, `<style>` e `@import` —, inclusive repetidas. Uma folha importada
+  duas vezes aplica duas vezes (desenho), e o teto fecha o leque exponencial
+  (A importa B duas vezes, B importa C duas vezes…) e a folha vazia ligada
+  100 000 vezes: `sheets` e `cacheKey` nunca passam de 64 entradas.
 
 `href` dos diagnósticos de `depth`, `cycle` e `limit`: o caminho da folha não
 aplicada (o candidato preferido), com `details.from` = a folha que importa (ou
@@ -1139,41 +1207,36 @@ custou ~11 ms no protótipo (§11), e o sub-projeto 5 decide se vira `sync*`.
 dupla é consultado antes do `fetch`), uma de duas entradas **(decisão da spec,
 #15)**:
 
-- **positiva:** `StyleSheet`, caminho real, `bytesHash`, `PendingResource.size`
-  e os diagnósticos gravados na carga;
+- **positiva:** `StyleSheet` (com os `CssIssue`), caminho real, `bytesHash`,
+  `PendingResource.size` e o `encodingFallback` de `decodeCss`, se houve;
 - **negativa:** o motivo da falta — ausente (nenhum candidato achado),
-  `too-large`, ilegível — e os diagnósticos gravados na carga.
+  `too-large`, ilegível (com o texto da exceção).
 
 E guarda `StyleSheet` por texto de `<style>` (o parse não resolve `href`, então
 a mesma folha serve a seções em pastas diferentes). LRU, com teto de
 `maxCachedStyleSource` unidades de código somadas (entrada negativa conta 0);
 a folha maior que o teto não entra. Uma falta de cache custa só uma releitura.
 
-**Reemissão.** O conjunto de diagnósticos de uma seção não pode depender de a
-folha ter vindo do cache ([09](../09-erros-diagnosticos.md) §3.1). Por isso a
-entrada guarda **todos** os diagnósticos da carga, não só os `CssIssue`:
+**Dois sinks, e o que cada um recebe** **(controlador, #32)**:
 
-- os que o próprio `fetch` e o `decode()` emitem no sink (`pathCaseMismatch`,
-  `zipCrcMismatch`), gravados por `DiagnosticSink.capture` **(decisão da spec,
-  #32)** em volta da **chamada** de `fetch` (o `ZipContainer` emite o
-  `pathCaseMismatch` antes do primeiro `await`, e o contrato de
-  `EpubContainer.fetch` passa a dizer isso) e da drenagem do `decode()`;
-- o `encodingFallback` de `decodeCss`, gravado pelo mesmo `capture`;
-- os `CssIssue` do parse, que já ficam na `StyleSheet`.
+- O **sink do contêiner** recebe o que o contêiner emite — `pathCaseMismatch`
+  no `fetch`, `zipCrcMismatch` no `decode()` —, **uma vez por publicação**,
+  quando a folha é lida de fato. Não há reemissão: são diagnósticos do
+  recurso, não da seção, e o cache existe justamente para não reler.
+- O **sink da seção** recebe o que o **CSS** emite, e é isso que a entrada do
+  cache guarda para reemitir, de modo que o conjunto por seção de
+  [09](../09-erros-diagnosticos.md) §3.1 não dependa de a folha ter vindo do
+  cache: o `encodingFallback` de `decodeCss`, os `CssIssue` do parse e a falta
+  (`resourceMissing`, `stylesheetIgnored` `too-large`, `resourceUnreadable`),
+  esta montada de novo com o `href` e o `from` da seção atual.
 
-Numa seção que acha a folha no cache, o loader reemite tudo, com o `href`
-original e os `details` sem o `count` (que o sink soma de novo). As entradas
-negativas reemitem o que gravaram e mais o diagnóstico da falta, montado de
-novo com o `from` da seção atual. Em `strict`, um warning na primeira carga
-lança antes de a entrada existir; então o cache nunca reemite um warning em
-`strict`.
-
-```dart
-/// Chama [body] e devolve, na ordem, os diagnósticos que [emit] registrou
-/// durante ele (inclusive repetições do mesmo (código, href)). Síncrono:
-/// nenhuma outra tarefa emite no meio. A exceção de [body] propaga.
-List<EpubDiagnostic> capture(void Function() body);
-```
+`decodeCss` é síncrono e emite num `DiagnosticSink()` **temporário**, não
+estrito, criado pelo loader para a chamada (o único diagnóstico possível é o
+`encodingFallback`, `info`); a lista dele vai para a entrada e é emitida no
+sink da seção, na primeira carga e em cada acerto. Por isso
+`DiagnosticSink.capture` não é necessário, e nenhum contrato novo é pedido ao
+`fetch`. Em `strict`, um warning da falta lança no sink da seção, como na
+primeira carga.
 
 ### 9.7 Lista de folhas para a chave
 
@@ -1210,8 +1273,8 @@ sub-projeto 5 o reaproveita para a chave da seção.
   verificação de ciclo é O(1) por tentativa, e vem antes do `fetch`.
 - O teto de 4 MiB por seção limita os bytes que o parse pode receber de uma
   seção nova, e o de 1 MiB por folha evita drenar uma entrada enorme.
-- A reemissão do cache custa O(diagnósticos gravados), que é limitado pela
-  agregação por folha (§12.1).
+- A reemissão do cache custa O(`CssIssue` + 1) por folha aplicada, limitado
+  pela agregação por folha (§12.1).
 
 ## 10. Índice de regras e cascata
 
@@ -1259,7 +1322,12 @@ para cada filho-elemento, um `ElementInfo` (privado): nome em minúsculas, se é
 do namespace HTML, `id`, classes num **`Set<String>`** (tokens por espaço
 ASCII: `class="a a"` vira `{a}`, e o teste de classe de um composto é O(1),
 não um `contains` numa lista), o índice (base 1) entre os irmãos-elemento, o
-total deles e o quadro do pai. A caminhada não desce em `<template>` (#33): o
+total deles e o quadro do pai. Ao montar o `ElementInfo`, cada identificador
+do elemento — o nome, o `id` e cada classe — é baixado para minúsculas e tem
+o `hashCode` calculado **uma vez**: esses dois valores ficam no `ElementInfo`
+e servem ao filtro de Bloom (entrada e saída) e às consultas a balde, que
+nunca refazem hash de texto do elemento (#34). A caminhada não desce em
+`<template>` (#33): o
 `template` recebe estilo (`display: none` da folha padrão), os descendentes
 dele não. `:first-child`, `:last-child`, `:nth-child(n)` e `+`
 (o irmão anterior é `infos[i - 1]`) ficam O(1).
@@ -1357,9 +1425,34 @@ custa um passo (§10.6).
 
 Ordem dos testes num composto: `id`, tipo, classes, atributos,
 pseudo-classes (o mais barato e mais seletivo primeiro); cada seletor simples
-testado custa um passo. A comparação de valor de atributo é uma igualdade de
-`String`, limitada pelo tamanho do valor na folha (e a folha, pelos 4 MiB da
-seção).
+testado custa um passo.
+
+**Por que cada passo é O(1)** **(controlador, #34)**. Três operações dependem
+do tamanho de uma `String`: calcular `hashCode`, comparar com `==` e baixar a
+caixa. No dart2js o `hashCode` de `String` não fica em cache (é recalculado a
+cada chamada, em O(tamanho)), então nenhuma delas pode tocar texto sem limite
+dentro de um passo:
+
+- **Lado do seletor:** tipo, classe, `id`, nome e valor de atributo têm no
+  máximo 256 unidades de código (§6.3), e os hashes do seletor (baldes e
+  Bloom) são calculados uma vez, no parse. Um passo que faz hash de um
+  identificador do seletor (o `Set.contains` da classe, o `attributes[nome]`)
+  custa ≤ 256.
+- **Lado do elemento:** a classe ou o `id` do elemento podem ser enormes (um
+  `class` de 1 MiB). O `==` com o identificador do seletor para no primeiro
+  caractere diferente e, com tamanhos diferentes, nem começa: custa ≤ 256
+  (com um só lado limitado, o `==` é limitado). O hash e as minúsculas do
+  elemento saem uma vez por elemento, ao montar o `ElementInfo` (§10.2), e
+  entram no contador de cessão pelo tamanho (um passo a cada 64 unidades de
+  código lidas); nenhum passo de casamento refaz hash de texto do elemento. O
+  `Set<String>` das classes guarda as strings do elemento, cujo hash é
+  calculado ao inserir; o `contains` faz hash do lado do seletor.
+- **Valor de atributo:** `attributes[nome]` faz hash do nome do seletor
+  (≤ 256); o `==` com o valor do elemento, ≤ 256.
+
+Um `.x…` ou um `[a="…"]` de 1 MiB no seletor fica fora do subconjunto no
+parse (linear), e um elemento com `class` de 1 MiB custa O(1 MiB) uma vez, ao
+entrar na caminhada: o caso hostil de §14.3 cobre os dois.
 
 ### 10.5 Cascata
 
@@ -1415,8 +1508,9 @@ Com `recordOrigins`, a origem do vencedor de cada slot fica num mapa paralelo
 
 Dois contadores **(controlador, #27)**:
 
-- **Cessão** — conta **todo** o trabalho: cada elemento visitado, cada token de
-  classe lido ao montar o `ElementInfo`, cada consulta a balde, cada candidato
+- **Cessão** — conta **todo** o trabalho: cada elemento visitado, cada 64
+  unidades de código de nome, `id` e `class` lidas ao montar o `ElementInfo`
+  (partir, baixar a caixa, fazer hash), cada consulta a balde, cada candidato
   considerado, cada seletor simples testado, cada declaração aplicada, da
   folha padrão, das dicas, do `style=""` e do livro. A cada
   `cascadeYieldSteps` desses passos, `yield`, no padrão do `decode()` do
@@ -1463,7 +1557,10 @@ desfaz. Como o `DiagnosticSink` deduplica por (código, `href`), `float` e
   quando o pai é visitado (a passada pelos `nodes` do pai soma, no total, o
   número de nós), e os tokens de classe entram na cessão.
 - As classes do elemento são um `Set`: `class="a a a …"` não visita o balde
-  `a` N vezes, e o teste de classe é O(1). O mesmo `id` em muitos elementos é
+  `a` N vezes, e o teste de classe é O(1). Identificadores do seletor têm no
+  máximo 256 unidades de código e os do elemento têm hash e minúsculas
+  calculados uma vez por elemento (§10.4): nenhum passo toca texto sem
+  limite. O mesmo `id` em muitos elementos é
   só uma consulta O(1) por elemento.
 - **Todo** o trabalho das regras do livro paga orçamento: consulta a balde,
   candidato (aceito ou rejeitado pelo Bloom), seletor simples, declaração. Um
@@ -1499,8 +1596,9 @@ repositório; a tarefa de desempenho do plano refaz com o código real):
 | `style=""` | 8 KiB | 78 caracteres (562 atributos) | 100× o real |
 | Compostos por seletor | 32 | 6 (`hgroup > h2 + p + p + p + p`) | limita o retrocesso |
 | Seletores simples por composto | 32 **(controlador, #27)** | 3 | torna O(1) cada teste de composto contado no orçamento |
+| Identificador ou valor de atributo no seletor | 256 unidades de código (`maxSelectorIdentifierLength`) **(controlador, #34)** | 65 (`.epub-type-contains-word-se-image-color-depth-black-on-transparent`); nos elementos, 73 | mantém O(1) o hash e a comparação dentro de um passo (§10.4) |
 | Profundidade de casamento | 256 | 7 | o filtro de Bloom e o descendente sobem no máximo 256 |
-| Orçamento | 2^24 passos das regras do livro (consultas a balde, candidatos, seletores simples, declarações, §10.6) | ~1 M no capítulo de 200 mil palavras (1,2 MB, 3 749 elementos) com a folha do SE (0,85 M em testes de composto e 0,17 M em candidatos, contados no protótipo); ~0,3 M em `song-of-myself` | ~16× o maior real; 2^24 passos sintéticos custaram 23 ms (limite inferior); o custo real por passo sai da tarefa de desempenho, e os testes hostis travam o teto em tempo |
+| Orçamento | 2^24 passos das regras do livro (consultas a balde, candidatos, seletores simples, declarações, §10.6) | ~1,1 M (6,7%) no capítulo de 200 mil palavras (1,2 MB, 3 749 elementos) com a folha do SE; ~0,33 M (2%) em `song-of-myself` | ~15× o maior real. **Como foi medido:** o protótipo conta, por elemento, uma consulta por balde (tipo, universal, `id`, cada classe), um passo por candidato e, por candidato, um passo por seletor simples de **todos** os compostos do seletor — sem as declarações aplicadas e sem as tentativas repetidas em ancestrais do descendente, que o contador real soma e a tarefa de desempenho mede; o número anterior (~1 M, 16×) contava só compostos. 2^24 passos sintéticos custaram 30 ms (limite inferior); o custo real por passo sai da tarefa de desempenho, e os testes hostis travam o teto em tempo |
 | Cessão | 4 096 passos de todo o trabalho (§10.6) | — | lote pequeno o bastante para a fatia de 4 ms de [08](../08-concorrencia-cache.md) §2 mesmo com passo caro, grande o bastante para o `yield` não pesar |
 | Cache de folhas | 8 Mi unidades de código **(decisão da spec, #15)** | 106 KB (o corpus inteiro) | 8 folhas no teto por publicação |
 | Amostra em `details` | 64 unidades de código | — | como a data crua da Publicação |
@@ -1519,8 +1617,8 @@ do `navIgnored` (`details.reason`).
 
 | Código | Severidade | `href` | `details` | Quando |
 |---|---|---|---|---|
-| `stylesheetIgnored` | warning | a folha ignorada ou cortada; a seção para `<style>`, `style=""`, `dom-depth` e `budget` | `reason`; `from` (quem referencia, em `depth`/`cycle`/`limit`); `limit` (`sheets`, `attempts`, `bytes`, `rules`, `nesting`, `dom-depth`); `import` (href cru, em `late-import`); `source: 'style-attribute'` | folha (ou parte dela) perdida por limite, ciclo ou posição; ver `reason` abaixo |
-| `stylesheetMediaIgnored` | info | a folha ignorada (`<link>`, `@import`); a seção para `<style>`; a folha que contém, para blocos `@media` | `media` (a lista, truncada em 64); `discarded` (blocos `@media` agregados, §5.1) | `media` que não casa, ou `@import` com `layer`/`supports()` (§5.2, §9.1) **(controlador, #25)** |
+| `stylesheetIgnored` | warning | a folha ignorada ou cortada; a seção para `<style>`, `style=""`, `dom-depth` e `budget` | `reason`; `from` (quem referencia, em `depth`/`cycle`/`limit`); `limit` (`sheets`, `attempts`, `bytes`, `rules`, `nesting`, `dom-depth`); `import` (href cru, em `late-import` e `unsupported-import`); `source: 'style-attribute'` | folha (ou parte dela) perdida por limite, ciclo ou posição; ver `reason` abaixo |
+| `stylesheetMediaIgnored` | info | a folha ignorada (`<link>`, `@import`); a seção para `<style>`; a folha que contém, para blocos `@media` | `media` (a lista, truncada em 64); `discarded` (blocos `@media` agregados, §5.1) | `media` que não casa (§5.1, §5.2, §9.1) **(controlador, #25)** |
 | `cssRuleIgnored` | info | a folha; a seção para `style=""` | `reason`; `sample` (prelúdio ou seletor truncado em 64); `discarded`; `source` | regra, seletor ou declaração descartada |
 | `unsupportedLayout` | warning | a seção | `property` (`float`, `position`, `columns`, `writing-mode`), `value` | valor degradado venceu a cascata (§10.7) |
 
@@ -1541,6 +1639,7 @@ folha. Um código `info` separado deixa `stylesheetIgnored` sempre `warning`.
 | `depth` | `@import` além da profundidade 8 |
 | `limit` | teto de folhas, de tentativas, de bytes por seção, de seletores, de aninhamento ou de profundidade de DOM (`details.limit`) |
 | `late-import` | `@import` fora de posição: depois de regra, dentro de `@media` ou de bloco de estilo (§5.2, §5.3) |
+| `unsupported-import` | `@import` com `layer`, `layer(…)` ou `supports(…)` (§5.2) |
 | `budget` | orçamento da cascata esgotado |
 
 `reason` de `cssRuleIgnored`: `parse-error` (sintaxe: prelúdio inválido,
@@ -1553,8 +1652,9 @@ seção. É o `count` do `DiagnosticSink` que soma as seções. (`count` é rese
 do sink; por isso `discarded`.)
 
 Reusados: `resourceMissing` (§9.2), `resourceUnreadable` (§9.3),
-`encodingFallback` (§9.4), e os do contêiner reemitidos pelo cache
-(`pathCaseMismatch`, `zipCrcMismatch`, §9.6). O `DiagnosticSink` deduplica por
+`encodingFallback` (§9.4), no sink da seção. Os do contêiner
+(`pathCaseMismatch`, `zipCrcMismatch`) ficam no sink do contêiner, uma vez por
+publicação, sem reemissão (§9.6). O `DiagnosticSink` deduplica por
 (código, `href`): dois motivos de `stylesheetIgnored` na mesma folha viram um
 registro, com os `details` do último — ambos `warning`, e com `strict` o
 primeiro já lançou; fora dele, o conjunto de códigos, que é o que o corpus
@@ -1583,10 +1683,11 @@ href)` **(decisão da spec, #1)**: a exceção já está na taxonomia de
 `stylesheetIgnored` lançam `EpubSectionParseException` com o nome do código na
 mensagem (`stylesheetMediaIgnored`, `cssRuleIgnored` e `encodingFallback` são
 `info` e não lançam);
-a exceção do sink que atravessa o `fetch`/`decode()` (por exemplo
-`zipCrcMismatch` do contêiner) propaga como está, reconhecida por identidade
-(§9.3) — desde que o `sink` do loader seja o do contêiner (pré-condição de
-§9), e que o placeholder do sub-projeto 4 também relance por identidade.
+a exceção do sink do contêiner que atravessa o `fetch`/`decode()` (por
+exemplo `zipCrcMismatch`) propaga como está, reconhecida por identidade
+contra `containerSink.lastStrictException` (§9, §9.3); e o placeholder do
+sub-projeto 4 relança por identidade a última exceção de qualquer um dos dois
+sinks, o da seção e o do contêiner (§9).
 
 ```dart
 /// Falha de parse de uma seção (doc/09 §2). Nunca chega ao app fora de
@@ -1606,9 +1707,9 @@ quadrático em três formas), e onde esta spec os fecha:
 
 | Defeito | Como o CSS evita |
 |---|---|
-| Tempo quadrático: `substring` em laço | Tokenizador com índice que só avança e uma fatia por token (§4.1); nenhum `split`/`RegExp` sobre o texto do livro; o prelúdio é juntado uma vez (§5.5) |
+| Tempo quadrático: `substring` em laço | Tokenizador com índice que só avança e uma fatia por token (§4.1); nenhum `split`/`RegExp` sobre o texto do livro; o prelúdio é juntado uma vez (§5.5); a tentativa de declaração para no ponto em que falha, em vez de varrer o resto do bloco a cada item (§5.3, §5.5); nenhum passo de casamento faz hash ou compara texto sem limite (256 unidades no seletor, hash do elemento uma vez, §10.4) |
 | Tempo quadrático: busca de descendente | Uma caminhada só, sobre `nodes` com pilha explícita (§9.1, §10.2); nada de `querySelectorAll`, `children` indexado ou subida pelo `parent` em laço fora do casamento, que é limitado por `failsCompletely`, Bloom, 32 compostos de 32 seletores simples, 256 níveis e orçamento; e o orçamento paga **todo** o trabalho do livro — consulta a balde, candidato (inclusive o rejeitado pelo Bloom), seletor simples, declaração —, cada um O(1) (§10.4, §10.6) |
-| Tempo quadrático: ids repetidos | Classes do elemento num `Set` (§10.2); balde por `id` consultado em O(1), qualquer que seja o número de elementos com o mesmo `id`; a mesma folha ligada ou importada N vezes é limitada a 256 tentativas e 64 folhas, com cache negativo para a que falta (§9.5, §9.6); diagnósticos agregados por folha (§12.1) |
+| Tempo quadrático: ids repetidos | Classes do elemento num `Set` (§10.2); balde por `id` consultado em O(1), qualquer que seja o número de elementos com o mesmo `id`; a mesma folha ligada ou importada N vezes é limitada a 256 tentativas e 64 folhas, com a vaga reservada no `tentar`, com cache negativo para a que falta (§9.5, §9.6); diagnósticos agregados por folha (§12.1) |
 | Exceção fora da taxonomia | Funções totais, sem `int.parse`, com `NaN` para literal longo e faixa conferida antes de `int` (§4, §6.1, §12.2); só `EpubException` do contêiner é capturada, e a do `strict` por identidade (§9.3); fuzz com contagem zero (§14.2) |
 | Travessia de caminho | `normalizeHref` e `decodePath` da Publicação, `..` além da raiz e `%2e%2e` recusados; só `fetch` do contêiner (§9.2); ciclo, profundidade e tetos checados pelo caminho normalizado antes do `fetch` (§9.5) |
 | Semântica copiada errada de um padrão | Cada ponto marcado com a fonte: recuperação pelo "consume a block's contents" atual do CSS Syntax, com os casos fechados (§5.3), posição do `@import` do CSS Cascade 4 (§5.2), `mediaMatches` do Media Queries com `not print` e vírgula em parênteses (§5), camadas de origem e importância com `style=""` anexado (§10.5), `left` herdado como `left` (§3), `bolder`/`lighter` do CSS Fonts 4 (§3), `text-decoration` propagada e não herdada (§7.1), `page-break-*` como a mesma propriedade (§7.1), `@charset` só na forma exata (§9.4), `<style>` como dado de caractere do XML (§9.1), `:nth-child` inteiro e `+` contando só elementos (§6.1), classe com diferença de caixa (§6.1), `hidden` vencível pelo livro (§8.2), lista de seletores com inválido derrubando a regra e fora do subconjunto caindo sozinho (§6.3), chave da cascata sem operador de bits (§10.5); e o que é aproximado de propósito está listado em §7.5 |
@@ -1625,7 +1726,7 @@ Em `test/css/`, com CSS e XHTML de texto nos testes de unidade (o DOM por
 | `selector_test.dart` | cada forma de §6.1 e cada caso de §6.3 com o destino certo (no subconjunto, válido fora, inválido): lista fechada de pseudo-classes e pseudo-elementos, `:foo` e `::-moz-x` inválidos, `:hover` e `::before` válidos fora, `:nth-child(3)`, `(+3)`, `(0)`, `(99999999999)`, `(odd)`, `(2n+1)`, `(3.0)` e `(foo)`; nomes sem caixa; especificidade (tabela do Selectors 4 e saturação); lista parcial com `unsupported` e `unsupportedSample`; 32 e 33 compostos; 32 e 33 seletores simples num composto; 33 compostos seguidos de `:foo` (inválido: a gramática é validada depois do teto); hashes de ancestral (`a > b + c`, `a + b c`) em minúsculas |
 | `properties_test.dart` | cada linha de §7.1 com valores aceitos, mapeados, limitados e descartados, palavras-chave sem caixa (`ITALIC`, `Bold`); conversões de §7.2; atalhos (`margin` 1–4, `font` completo e mínimo, `font` com tamanho absoluto, `list-style`, `columns`, `text-decoration` com estilo, cor e espessura); `text-decoration-line` com `overline`/`blink` ignorados e com palavra inválida; `inherit`/`initial`/`unset`/`revert`; degradadas de §7.4; `CssProperty.values.length` = número de slots |
 | `ua_sheet_test.dart` | zero `CssIssue`; `h1`–`h6` com as razões de §8.1; `em`/`i` itálico, `b`/`strong` negrito, `u`/`ins` sublinhado, `s`/`strike`/`del` riscado, `head`/`script`/`style`/`template` `none`, `pre` `pre`, listas aninhadas, `ol[type]` com caixa |
-| `loader_test.dart` | com `ProviderContainer` (`MapProvider`) e `ZipContainer` (`epubZip`): `<link>` (rel com vários tokens, `alternate`, `type`, `media` → `stylesheetMediaIgnored`); `<style>` em `head`, `body` e SVG, com CDATA, com `div &gt; p`, `&#x2014;`, `&#0;` e entidade desconhecida; `<style>` e `<link>` dentro de `<template>` ignorados; ordem de coleta; `@import` relativo à folha, em `<style>` relativo à seção, em cadeia, duas vezes, ciclo (checado antes do `fetch`: nenhum `fetch` a mais), profundidade 9 (idem), 65 folhas contando `<link>` e `<style>`, 257 tentativas (250 000 `@import` de um ausente: 256 consultas, uma `limit` `attempts`), 4 MiB por `PendingResource.size`; folha de 1 MiB + 1 byte (não drenada); remota; `data:`; `..` além da raiz; `%20` e `%2e%2e`; ausente; `fetch` que lança (`resourceUnreadable`) e `strict` (a exceção do sink propaga com o sink do contêiner; warning do CSS lança `EpubSectionParseException`); `decodeCss` (BOM × 3, `@charset` Latin-1, `@charset 'x'` que não conta, `@charset "utf-16"` → UTF-8, UTF-8 inválido → `encodingFallback`); cache: mesma folha em duas seções com um `fetch` e **os mesmos diagnósticos** nas duas (`encodingFallback`, `pathCaseMismatch` de um `href` com caixa trocada, `CssIssue`), entradas negativas (ausente, grande, ilegível: um `fetch` por publicação, o diagnóstico reemitido por seção), LRU; `cacheKey` com hash e texto, nunca acima de 64 com uma folha vazia ligada 100 000 vezes |
+| `loader_test.dart` | com `ProviderContainer` (`MapProvider`) e `ZipContainer` (`epubZip`): `<link>` (rel com vários tokens, `alternate`, `type`, `media` → `stylesheetMediaIgnored`); `<style>` em `head`, `body` e SVG, com CDATA, com `div &gt; p`, `&#x2014;`, `&#0;` e entidade desconhecida; `<style>` e `<link>` dentro de `<template>` ignorados; ordem de coleta; `@import` com `layer` (`unsupported-import`); `@import` relativo à folha, em `<style>` relativo à seção, em cadeia, duas vezes, ciclo (checado antes do `fetch`: nenhum `fetch` a mais), profundidade 9 (idem), 65 folhas contando `<link>` e `<style>`, e uma cadeia de 8 `@import` a partir da 60ª folha (a reserva no `tentar` segura em 64), 257 tentativas (250 000 `@import` de um ausente: 256 consultas, uma `limit` `attempts`), 4 MiB por `PendingResource.size`; folha de 1 MiB + 1 byte (não drenada); remota; `data:`; `..` além da raiz; `%20` e `%2e%2e`; ausente; `fetch` que lança (`resourceUnreadable`) e `strict` (a exceção do sink do contêiner propaga, reconhecida por `containerSink.lastStrictException`, com os dois sinks distintos; warning do CSS lança `EpubSectionParseException` pelo sink da seção); `decodeCss` (BOM × 3, `@charset` Latin-1, `@charset 'x'` que não conta, `@charset "utf-16"` → UTF-8, UTF-8 inválido → `encodingFallback`); cache: mesma folha em duas seções, com sinks de seção distintos, faz um `fetch` e deixa **os mesmos diagnósticos do CSS** nos dois (`encodingFallback`, `CssIssue`), enquanto o `pathCaseMismatch` de um `href` com caixa trocada aparece uma vez só, no sink do contêiner, entradas negativas (ausente, grande, ilegível: um `fetch` por publicação, o diagnóstico reemitido por seção), LRU; `cacheKey` com hash e texto, nunca acima de 64 com uma folha vazia ligada 100 000 vezes |
 | `rule_index_test.dart` | balde por `id`, primeira classe, tipo, universal; `seq`; teto de 20 000 com `truncatedAt` |
 | `cascade_test.dart` | herança de cada propriedade herdada e não herdada; `inherit`/`initial`/`unset`; camadas (`!important` do livro vence `style=""` normal; `style=""` vence `#id`; ordem; última declaração do bloco); especificidade de lista; `text-align: left` herdado por filho `rtl`; `bolder`/`lighter` sobre 900 e 300; tipo de lista desconhecido em `ul`, `ol`, `li`; `fontSizeStep` relativo por nível; decoração propagada (`u` dentro de `s` fica com as duas; `text-decoration: none` num filho de `u` continua sublinhado; `inherit` não soma nada novo); dicas `hidden` e `dir` e o livro vencendo `hidden`; `+`, `>`, descendente, `:nth-child`, `:last-child` com texto entre irmãos; classe e `id` com maiúsculas no Bloom; `unsupportedLayout` só no vencedor e uma vez; profundidade 257; subárvore de `template` fora do mapa; orçamento (`budgetExhausted`, a folha padrão, as dicas e o `style=""` continuam, o elemento em andamento refeito sem o livro, candidatos rejeitados pelo Bloom contados); cessão a cada 4 096 passos com o contador separado do orçamento (contagem de `yield` numa seção só com folha padrão); internação (mesma instância); `originOf` |
 | `computed_style_test.dart` | `initial`; igualdade e `hashCode`; `textAlign` e `fontWeight` derivados |
@@ -1640,13 +1741,16 @@ E `test/container/fnv1a64_test.dart` com os vetores do FNV (`""` →
 ### 14.1 Corpus
 
 Para cada caso de `test/corpus/**` que abre (os de `exception.expected` ficam
-de fora, como na Publicação): o `ZipContainer` é aberto com o sink do CSS (os
-`decode()` das folhas emitem no sink do contêiner); `readPublication` recebe
-um sink próprio, sem `strict` (a Publicação tem o teste dela); para cada
+de fora, como na Publicação): o `ZipContainer` é aberto com um sink do
+contêiner, com o `strict` do caso; `readPublication` recebe um sink próprio,
+sem `strict` (a Publicação tem o teste dela); o CSS emite num sink do CSS, um
+por livro no teste (o conjunto comparado é o do livro), com o `strict` do
+caso, e recebe o do contêiner como `containerSink`; para cada
 item do spine com `content` `xhtml`, local e presente, `fetch` + `decodeXml(…,
 htmlMeta: true)` (um sink descartável: a decodificação do XHTML é do
 sub-projeto 4) + `html.parse`; `loadSectionSheets` com **um** `StyleSheetCache`
-por livro e o sink do CSS; `computeStylesSync(recordOrigins: true)`.
+por livro, o sink do CSS e o do contêiner; `computeStylesSync(recordOrigins:
+true)` com o sink do CSS.
 
 - **Códigos comparados:** o conjunto de `stylesheetIgnored`,
   `stylesheetMediaIgnored`, `cssRuleIgnored` e `unsupportedLayout` emitido pelo
@@ -1747,6 +1851,8 @@ para o CI) e a afirmação de corte certo:
 | Folha de 1 MiB com um seletor `a a a … b` de 200 000 compostos; o mesmo terminando em `:foo` | `unsupported-selector`; o segundo `parse-error` (gramática validada até o fim); linear |
 | 20 000 regras `x p` sobre 100 000 `<p>` (nenhum `x` na árvore) | os candidatos rejeitados pelo Bloom esgotam o orçamento: `budget`, tempo linear em vez de 2×10⁹ testes |
 | Composto `.a.b.c…` de 200 000 classes contra elemento com 200 000 classes | fora do subconjunto (> 32 seletores simples); a montagem do `Set` do elemento conta na cessão; linear |
+| Seletor `.x…` com uma classe de 1 MiB, `#…` de 1 MiB e `[a="…"]` com valor de 1 MiB; e 20 000 regras `.c` contra 1 000 elementos com `class` e `id` de 1 MiB cada (sem casar) | os três seletores ficam fora do subconjunto (> 256); do lado do elemento, hash e minúsculas uma vez por elemento; tempo linear no tamanho do documento, não em regras × tamanho |
+| `p { a:b{} a:b{} … }` com 100 000 itens sem `;`, numa folha e num `style=""` de 8 KiB | parada antecipada da tentativa de declaração (§5.3): linear, `nested-rule` agregado |
 | 20 000 regras `.c1`…`.c20000` e 1 000 elementos, cada um com as 20 000 classes | uma consulta a balde por classe, contada no orçamento: `budget`, linear |
 | 20 000 regras `* { font-style: italic }` sobre 5 000 elementos | `budget`, `budgetExhausted`, folha padrão ainda aplicada |
 | 20 000 regras `div div … div p` (31 compostos) sobre 256 `div` aninhados | Bloom/`failsCompletely` e orçamento, linear |
@@ -1798,7 +1904,9 @@ da medição, e saem dos números medidos na tarefa.
   `IR_SCHEMA_VERSION`; `Fnv1a64` existe em `lib/src/container/`.
 - [09](../09-erros-diagnosticos.md) §2: `EpubSectionParseException`
   implementada, e em `strict` também todo warning do CSS; o placeholder de
-  seção relança a exceção do sink por identidade. §3: `stylesheetIgnored`
+  seção relança por identidade a exceção do sink da seção e a do sink do
+  contêiner; o CSS emite no sink da seção, e os diagnósticos do contêiner
+  ficam no dele, uma vez por publicação. §3: `stylesheetIgnored`
   (sempre `warning`), `stylesheetMediaIgnored` (`info`) e `cssRuleIgnored`
   com os `reason`; `unsupportedLayout` continua `warning`, com `href` =
   seção, `details.property`/`value`, e emitido pelo vencedor da cascata.
@@ -1819,8 +1927,8 @@ da medição, e saem dos números medidos na tarefa.
   `@import … layer`; `vw`/`vh`/`calc()`; codificação do documento que
   referencia (passo do CSS Syntax omitido); recuo de lista físico
   (`padding-left`) em livro `rtl`; filhos de `flex`/`grid` sem "blocoficação";
-  o contrato de `EpubContainer.fetch` (diagnósticos antes do primeiro `await`)
-  de que o cache de folhas depende.
+  `<!-- -->` dentro de `<style>` aplicado, e não tirado como comentário do XML
+  (§7.5); como o sink da seção entra no agregado do documento (sub-projeto 4).
 - `CHANGELOG.md`: "Fase 1, sub-projeto 3 (CSS): tokenizador e parser do CSS
   Syntax recortado, `@import` e `@media` com limites, seletores do subconjunto
   com índice pela direita e filtro de Bloom, cascata com herança, propagação de
