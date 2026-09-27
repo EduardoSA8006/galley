@@ -490,7 +490,10 @@ avaliar característica nenhuma:
     conteúdo → falha ao fechar esse bloco;
   - nome que não é customizado, valor que **começa** por `{}` → falha no
     primeiro token que não é espaço depois dele (se vier `;`/`}`, a declaração
-    é sintaticamente válida e só é descartada por não estar na tabela).
+    é sintaticamente válida e só é descartada por não estar na tabela). Esse
+    token que sobra **volta ao fluxo**: a regra aninhada relida do buffer
+    termina no `}` do bloco, e o token é reconsumido como o início do próximo
+    item do bloco, não descartado com o buffer.
   Propriedade customizada (`--x`) vai sempre até o `;`/`}` e é descartada em
   silêncio (sucesso sintático, sem releitura). `badString` ou `badUrl` no valor
   deixam a declaração inválida: ela vai até o `;`/`}` e é descartada,
@@ -1125,7 +1128,10 @@ Nada fora do contêiner é tocado: `fetch` é a única leitura.
 - `decode()` drenado inteiro; o `EpubException` que o `fetch` ou o `decode()`
   lançarem é reconhecido **por identidade**: `identical(e,
   containerSink.lastStrictException)` → propaga (é o `strict` do contêiner,
-  por exemplo `zipCrcMismatch`); senão `resourceUnreadable` (`warning`, `href` = caminho,
+  por exemplo `zipCrcMismatch`); `identical(e, sink.lastStrictException)`, o
+  do sink da seção, também propaga (nada da seção emite dentro desse `try`
+  hoje; a checagem é por robustez, para uma emissão futura no meio não virar
+  `resourceUnreadable`); senão `resourceUnreadable` (`warning`, `href` = caminho,
   `details: {reason: 'unreadable', exception}`) e a folha é pulada. O contêiner
   só lança `EpubException` (o `ProviderContainer` embrulha a exceção do
   provider).
@@ -1152,8 +1158,9 @@ ordem do CSS Syntax §3.2, sem o passo do documento que referencia:
 ### 9.5 Ordem, `@import` e tetos
 
 Na ordem de coleta (§9.1), cada `<link>` passa por `tentar` com profundidade
-0 (a folha de topo), pilha vazia e `from` = a seção; cada `<style>` reserva
-uma vaga e vai direto a `aplicar`, com profundidade 0 (os `@import` dele
+0 (a folha de topo), pilha vazia e `from` = a seção; cada `<style>` confere
+`reservadas == maxSheetsPerSection` (se sim, `stylesheetIgnored` `limit`
+`sheets`, `href` = a seção, e fim), reserva uma vaga e vai direto a `aplicar`, com profundidade 0 (os `@import` dele
 resolvem contra a pasta da seção). `reservadas` conta as folhas já anexadas
 **e** as em andamento **(controlador, #36)**:
 
@@ -1325,8 +1332,12 @@ não um `contains` numa lista), o índice (base 1) entre os irmãos-elemento, o
 total deles e o quadro do pai. Ao montar o `ElementInfo`, cada identificador
 do elemento — o nome, o `id` e cada classe — é baixado para minúsculas e tem
 o `hashCode` calculado **uma vez**: esses dois valores ficam no `ElementInfo`
-e servem ao filtro de Bloom (entrada e saída) e às consultas a balde, que
-nunca refazem hash de texto do elemento (#34). A caminhada não desce em
+e servem ao filtro de Bloom (entrada e saída), que nunca refaz hash de texto
+do elemento (#34). As consultas a balde usam `Map` padrão e, no dart2js,
+refazem o `hashCode` da classe ou do `id` do elemento a cada consulta; mas há
+uma consulta por índice (o do livro e o da folha padrão) por identificador e
+por elemento, então o custo total é O(2 × o texto de `id` e `class` do
+documento), linear, e fica fora do casamento (§10.4). A caminhada não desce em
 `<template>` (#33): o
 `template` recebe estilo (`display: none` da folha padrão), os descendentes
 dele não. `:first-child`, `:last-child`, `:nth-child(n)` e `+`
@@ -1444,8 +1455,11 @@ dentro de um passo:
   (com um só lado limitado, o `==` é limitado). O hash e as minúsculas do
   elemento saem uma vez por elemento, ao montar o `ElementInfo` (§10.2), e
   entram no contador de cessão pelo tamanho (um passo a cada 64 unidades de
-  código lidas); nenhum passo de casamento refaz hash de texto do elemento. O
-  `Set<String>` das classes guarda as strings do elemento, cujo hash é
+  código lidas). As consultas a balde refazem o hash do identificador do
+  elemento (`Map` padrão, no dart2js), mas são uma por índice, por
+  identificador e por elemento, e são pagas como uma passada extra sobre o
+  texto de `id` e `class` do documento, linear; dentro do casamento, nenhum
+  passo faz hash de texto do elemento. O `Set<String>` das classes guarda as strings do elemento, cujo hash é
   calculado ao inserir; o `contains` faz hash do lado do seletor.
 - **Valor de atributo:** `attributes[nome]` faz hash do nome do seletor
   (≤ 256); o `==` com o valor do elemento, ≤ 256.
@@ -1617,7 +1631,7 @@ do `navIgnored` (`details.reason`).
 
 | Código | Severidade | `href` | `details` | Quando |
 |---|---|---|---|---|
-| `stylesheetIgnored` | warning | a folha ignorada ou cortada; a seção para `<style>`, `style=""`, `dom-depth` e `budget` | `reason`; `from` (quem referencia, em `depth`/`cycle`/`limit`); `limit` (`sheets`, `attempts`, `bytes`, `rules`, `nesting`, `dom-depth`); `import` (href cru, em `late-import` e `unsupported-import`); `source: 'style-attribute'` | folha (ou parte dela) perdida por limite, ciclo ou posição; ver `reason` abaixo |
+| `stylesheetIgnored` | warning | a folha ignorada ou cortada; a folha que importa, para `late-import` e `unsupported-import`; a seção para `<style>`, `style=""`, `dom-depth` e `budget` | `reason`; `from` (quem referencia, em `depth`/`cycle`/`limit`); `limit` (`sheets`, `attempts`, `bytes`, `rules`, `nesting`, `dom-depth`); `import` (href cru, em `late-import` e `unsupported-import`); `source: 'style-attribute'` | folha (ou parte dela) perdida por limite, ciclo ou posição; ver `reason` abaixo |
 | `stylesheetMediaIgnored` | info | a folha ignorada (`<link>`, `@import`); a seção para `<style>`; a folha que contém, para blocos `@media` | `media` (a lista, truncada em 64); `discarded` (blocos `@media` agregados, §5.1) | `media` que não casa (§5.1, §5.2, §9.1) **(controlador, #25)** |
 | `cssRuleIgnored` | info | a folha; a seção para `style=""` | `reason`; `sample` (prelúdio ou seletor truncado em 64); `discarded`; `source` | regra, seletor ou declaração descartada |
 | `unsupportedLayout` | warning | a seção | `property` (`float`, `position`, `columns`, `writing-mode`), `value` | valor degradado venceu a cascata (§10.7) |
