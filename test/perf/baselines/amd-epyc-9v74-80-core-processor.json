@@ -4,45 +4,50 @@
   "dart": "3.13.0",
   "os": "linux",
   "cpu": "AMD EPYC 9V74 80-Core Processor",
-  "createdAt": "2026-09-26T14:20:53.567245Z",
-  "sourceCommit": "914992935752b20050b51a2f222653302f3039d9",
+  "createdAt": "2026-09-27T00:13:45.909632Z",
+  "sourceCommit": "ee7d79f7bfd4e76ad1f27d7d452d02eb5f127617",
   "runner": "ubuntu-24.04",
   "runs": 3,
   "cases": {
     "font.deobfuscate.idpf": {
-      "ratio": 0.6226924761686239,
-      "medianUs": 3323.679,
-      "calibrationUs": 5213.214
+      "ratio": 0.585410088548864,
+      "medianUs": 3038.345,
+      "calibrationUs": 5128.55
     },
     "html.parse.500kb": {
-      "ratio": 1.9257848443212826,
-      "medianUs": 10348.97,
-      "calibrationUs": 5194.334
+      "ratio": 1.8631730697049502,
+      "medianUs": 9626.034,
+      "calibrationUs": 5126.908
     },
     "image.decode.target": {
-      "ratio": 1.7807698269521883,
-      "medianUs": 9252.612,
-      "calibrationUs": 5177.521
+      "ratio": 1.7142518212008564,
+      "medianUs": 8879.19,
+      "calibrationUs": 5171.725
     },
     "paragraph.shape.1000": {
-      "ratio": 10.592644997364143,
-      "medianUs": 55456.174,
-      "calibrationUs": 5232.891
+      "ratio": 10.30866517301643,
+      "medianUs": 53299.468,
+      "calibrationUs": 5186.033
+    },
+    "publication.read.800": {
+      "ratio": 5.599394457240508,
+      "medianUs": 29529.384,
+      "calibrationUs": 5232.425
     },
     "zip.fetch.inflate.1mb": {
-      "ratio": 0.7550341559540148,
-      "medianUs": 4004.135,
-      "calibrationUs": 5196.95
+      "ratio": 0.7463752703246325,
+      "medianUs": 3876.362,
+      "calibrationUs": 5135.591
     },
     "zip.open.800": {
-      "ratio": 1.0003457721823499,
-      "medianUs": 5320.41,
-      "calibrationUs": 5186.2
+      "ratio": 1.002780456198887,
+      "medianUs": 5243.851,
+      "calibrationUs": 5150.052
     },
     "zlib.inflate.1mb": {
-      "ratio": 0.9544344079194349,
-      "medianUs": 6600.828,
-      "calibrationUs": 6247.467
+      "ratio": 1.0473343841961273,
+      "medianUs": 6515.149,
+      "calibrationUs": 5518.296
     }
   }
 }

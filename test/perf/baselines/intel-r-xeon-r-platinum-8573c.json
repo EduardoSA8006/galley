@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "flutter": "3.47.0",
+  "dart": "3.13.0",
+  "os": "linux",
+  "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+  "createdAt": "2026-09-27T00:13:34.308266Z",
+  "sourceCommit": "ee7d79f7bfd4e76ad1f27d7d452d02eb5f127617",
+  "runner": "ubuntu-24.04",
+  "runs": 3,
+  "cases": {
+    "font.deobfuscate.idpf": {
+      "ratio": 0.7151072239495931,
+      "medianUs": 4409.738,
+      "calibrationUs": 6194.173
+    },
+    "html.parse.500kb": {
+      "ratio": 1.848992038902596,
+      "medianUs": 11327.671,
+      "calibrationUs": 6024.886
+    },
+    "image.decode.target": {
+      "ratio": 1.8441555495165092,
+      "medianUs": 11609.833,
+      "calibrationUs": 6258.585
+    },
+    "paragraph.shape.1000": {
+      "ratio": 10.501946567546444,
+      "medianUs": 65483.076,
+      "calibrationUs": 6248.496
+    },
+    "publication.read.800": {
+      "ratio": 5.067778625397315,
+      "medianUs": 33576.919,
+      "calibrationUs": 6267.126
+    },
+    "zip.fetch.inflate.1mb": {
+      "ratio": 0.733710410109121,
+      "medianUs": 4635.607,
+      "calibrationUs": 6320.699
+    },
+    "zip.open.800": {
+      "ratio": 1.0439492267181363,
+      "medianUs": 6611.676,
+      "calibrationUs": 6234.971
+    },
+    "zlib.inflate.1mb": {
+      "ratio": 0.9732994135806845,
+      "medianUs": 7290.0,
+      "calibrationUs": 7264.597
+    }
+  }
+}

@@ -4,45 +4,50 @@
   "dart": "3.13.0",
   "os": "linux",
   "cpu": "Intel(R) Xeon(R) 6973P-C",
-  "createdAt": "2026-09-26T14:20:59.635867Z",
-  "sourceCommit": "914992935752b20050b51a2f222653302f3039d9",
+  "createdAt": "2026-09-27T00:13:38.919707Z",
+  "sourceCommit": "ee7d79f7bfd4e76ad1f27d7d452d02eb5f127617",
   "runner": "ubuntu-24.04",
   "runs": 3,
   "cases": {
     "font.deobfuscate.idpf": {
-      "ratio": 0.8019821298017089,
-      "medianUs": 3566.978,
-      "calibrationUs": 4411.247
+      "ratio": 0.9275291142923673,
+      "medianUs": 4471.365,
+      "calibrationUs": 4584.308
     },
     "html.parse.500kb": {
-      "ratio": 1.932443759460475,
-      "medianUs": 8997.86,
-      "calibrationUs": 4592.297
+      "ratio": 2.045434779237713,
+      "medianUs": 9123.938,
+      "calibrationUs": 4608.516
     },
     "image.decode.target": {
-      "ratio": 1.8698265920571324,
-      "medianUs": 8446.432,
-      "calibrationUs": 4546.073
+      "ratio": 1.874944043871813,
+      "medianUs": 9135.437,
+      "calibrationUs": 4810.366
     },
     "paragraph.shape.1000": {
-      "ratio": 10.091938639788761,
-      "medianUs": 46099.487,
-      "calibrationUs": 4481.396
+      "ratio": 10.18516352019889,
+      "medianUs": 47582.751,
+      "calibrationUs": 4652.871
+    },
+    "publication.read.800": {
+      "ratio": 5.501293221643928,
+      "medianUs": 27211.388,
+      "calibrationUs": 4600.367
     },
     "zip.fetch.inflate.1mb": {
-      "ratio": 1.0346798254957914,
-      "medianUs": 4763.205,
-      "calibrationUs": 4742.691
+      "ratio": 1.0240683389934764,
+      "medianUs": 4948.09,
+      "calibrationUs": 4931.315
     },
     "zip.open.800": {
-      "ratio": 1.0544471557803061,
-      "medianUs": 4731.469,
-      "calibrationUs": 4476.686
+      "ratio": 1.0899990516175473,
+      "medianUs": 5040.671,
+      "calibrationUs": 4654.67
     },
     "zlib.inflate.1mb": {
-      "ratio": 1.0594085440835348,
-      "medianUs": 5931.05,
-      "calibrationUs": 4876.343
+      "ratio": 1.1213589311964562,
+      "medianUs": 6239.944,
+      "calibrationUs": 5426.955
     }
   }
 }
