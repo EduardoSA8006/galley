@@ -121,7 +121,7 @@ letra do desenho aprovado estão marcadas **(muda o desenho)**.
 | 39 | O texto de `<style>` conta no teto de 4 MiB por seção, com `limit` `bytes` **(revisão do plano)** | §9.3, §11 |
 | 40 | O `circle`/`square` das listas aninhadas do HTML §15.3.8 (com `dir`) sai do nível de lista herdado, não de seletores descendentes na folha padrão, que não tem combinador nenhum: a folha padrão não sobe ancestrais **(revisão do plano)** | §8.1, §8.2, §10.2 |
 | 41 | Prefixo de namespace no seletor (`[epub|type]`, `svg|rect`) só vale se declarado por `@namespace` em posição na folha; não declarado, o seletor é inválido, como no Chromium **(revisão do plano; muda #11)** | §5.1, §6.1, §6.3 |
-| 42 | Nada vem depois de um pseudo-elemento (exceto `::marker` depois de `::before`/`::after`): nem pseudo-classe, nem combinador; `:not()` e o `of` do `:nth-child` são validados como lista de seletores; `:has()`, `:lang()` e `:dir()` vazios são inválidos; `:is()`/`:where()` são tolerantes **(revisão do plano)** | §6.3 |
+| 42 | Nada vem depois de um pseudo-elemento (exceto `::marker` depois de `::before`/`::after`): nem pseudo-classe, nem combinador; `:not()` e o `of` do `:nth-child` são validados como lista de seletores, e `:not()` não aceita pseudo-elemento; `:has()`, `:lang()` e `:dir()` vazios são inválidos; `:is()`/`:where()` são tolerantes **(revisão do plano)** | §6.3 |
 | 43 | A especificidade conta cada seletor simples, com repetição (`#a#a` é (2,0,0)); `#a#b` e dois `:nth-child` diferentes ficam no subconjunto e nunca casam **(revisão do plano)** | §6.2, §6.3 |
 | 44 | At-rules que o navegador não conhece (`@-moz-document`, `@document`, `@viewport`, `@-ms-viewport`, `@-moz-keyframes`) não tiram o `@import` seguinte de posição **(revisão do plano)** | §5.1, §5.2 |
 | 45 | `text-decoration` (atalho) aceita cada componente no máximo uma vez e só palavras conhecidas (cores com nome e de sistema incluídas): `foo` e `red blue` descartam; `oblique <ângulo>` só entre −90° e 90°; o peso é fracionário (349,5 + `bolder` = 400) **(revisão do plano)** | §3, §7.1 |
@@ -440,8 +440,9 @@ avaliar característica nenhuma:
     `@-webkit-keyframes`), `@layer`, `@counter-style`, `@font-feature-values`,
     `@property`, `@container` e qualquer outra desconhecida → descartadas
     **em silêncio** (o bloco e o `;` são consumidos). `@namespace prefixo url;`
-    em posição (depois de `@charset` e `@import`, antes de tudo o mais) só
-    registra o prefixo para os seletores (#41). Só as reconhecidas pelo
+    em posição (depois de `@charset` e `@import`, antes de qualquer regra de
+    estilo válida ou outra at-rule reconhecida; uma regra inválida antes não
+    conta) só registra o prefixo para os seletores (#41). Só as reconhecidas pelo
     navegador contam para a posição do `@import` (§5.2): `@-moz-document`,
     `@document`, `@viewport`, `@-ms-viewport` e `@-moz-keyframes` são
     desconhecidas no Chromium e não contam (#44).
@@ -704,8 +705,9 @@ antigas de pseudo-elemento com um `:` — `before`, `after`, `first-line`,
 `first-letter`. **Pseudo-elementos reconhecidos** (com `::`): `before`,
 `after`, `first-line`, `first-letter`, `marker`, `selection`, `placeholder`,
 `backdrop`, `cue`, `file-selector-button`. O argumento de `:not()` é validado
-como lista de seletores (vazio ou inválido derruba), como o do `of` do
-`:nth-child`; `:is()` e `:where()` são tolerantes (qualquer conteúdo vale);
+como lista de seletores sem pseudo-elemento (vazio, inválido ou com
+pseudo-elemento derruba: `:not(p::before)`), e o do `of` do `:nth-child` como
+lista de seletores (que aceita pseudo-elemento, como no Chromium); `:is()` e `:where()` são tolerantes (qualquer conteúdo vale);
 `:has()`, `:lang()` e `:dir()` precisam de argumento, sem validação a fundo
 (#42). Um pseudo-elemento, inclusive as formas antigas com um `:`, fecha o
 composto e o seletor: depois dele só vale `::marker` depois de
@@ -1566,8 +1568,9 @@ Dois contadores **(controlador, #27)**:
 
 - **Cessão** — conta **todo** o trabalho: cada elemento visitado, cada 64
   unidades de código de nome, `id` e `class` lidas ao montar o `ElementInfo`
-  (partir, baixar a caixa, fazer hash), cada 64 unidades de código de um
-  `style=""` novo parseado (revisão do plano), cada consulta a balde, cada
+  (partir, baixar a caixa, fazer hash), cada 2 unidades de código de um
+  `style=""` novo parseado (o parse custa ~10 µs por KiB contra ~60 ns de um
+  passo; só na cessão, revisão do plano), cada consulta a balde, cada
   candidato considerado, cada seletor simples testado, cada declaração aplicada, da
   folha padrão, das dicas, do `style=""` e do livro. A cada
   `cascadeYieldSteps` desses passos, `yield`, no padrão do `decode()` do
