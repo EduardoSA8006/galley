@@ -23,6 +23,16 @@ void main() {
     expect(d.code.name, 'zipCrcMismatch');
   });
 
+  test('lib/galley.dart exporta os tipos da Publicação (spec §9.2)', () {
+    final EpubException e = EpubPackageException('spine vazio', href: 'a.opf');
+    expect(e.toString(), 'EpubPackageException(a.opf): spine vazio');
+    final m = EpubMetadata(title: 'T', authors: ['A']);
+    expect(m.authors, ['A']);
+    expect(m.raw, isEmpty);
+    expect(EpubReadingDirection.values, hasLength(3));
+    expect(EpubLayoutMode.prePaginated.name, 'prePaginated');
+  });
+
   test('dart:io só é importado por arquivos *_io.dart de lib/', () {
     final offenders = [
       for (final f in Directory(

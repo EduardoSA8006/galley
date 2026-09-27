@@ -268,6 +268,7 @@ void main() {
     test('com prefixo: só o diagnóstico do prefixo', () async {
       final ds = await diagnosticsOf(withPrefix(build(), 10));
       expect(ds.single.details['reason'], 'prefix');
+      expect(ds.single.details['delta'], 10);
     });
 
     test('strict: vira warning e lança', () async {

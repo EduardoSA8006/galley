@@ -1,5 +1,6 @@
-// Casos de desempenho: primitivas da Fase 0 (spec do harness §2.4) e o
-// contêiner da Fase 1 (spec do contêiner §10). Rodar com:
+// Casos de desempenho: primitivas da Fase 0 (spec do harness §2.4), o
+// contêiner (spec do contêiner §10) e a Publicação (spec da Publicação §11)
+// da Fase 1. Rodar com:
 //
 //   flutter test --tags perf --run-skipped test/perf
 //
@@ -19,6 +20,7 @@ import 'package:galley/src/container/container.dart';
 import 'package:galley/src/container/font_obfuscation.dart';
 import 'package:galley/src/container/zip/zip_container.dart';
 import 'package:galley/src/diagnostics/diagnostic.dart';
+import 'package:galley/src/publication/read_publication.dart';
 import 'package:html/parser.dart' as html;
 
 import '../../tool/corpus/lib/png.dart';
@@ -143,12 +145,38 @@ List<PerfCase> _containerCases() {
   ];
 }
 
+List<PerfCase> _publicationCases() {
+  late ZipContainer spine800;
+  return [
+    PerfCase(
+      id: 'publication.read.800',
+      // Contêiner aberto uma vez e reusado: o caso mede só a Publicação.
+      setUp: () async => spine800 = await ZipContainer.open(
+        MemoryEpubByteSource(
+          File('test/corpus/estrutura/spine-800-itens/book.epub')
+              .readAsBytesSync(),
+        ),
+        sink: DiagnosticSink(),
+      ),
+      runAsync: () async {
+        final p = await readPublication(spine800, sink: DiagnosticSink());
+        _sink += p.spine.length;
+      },
+      // Uma leitura já passa de 5 ms (≈ 27 ms no i5-11400H).
+    ),
+  ];
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   final results = <String, PerfCaseResult>{};
 
-  for (final c in [..._phase0Cases(), ..._containerCases()]) {
+  for (final c in [
+    ..._phase0Cases(),
+    ..._containerCases(),
+    ..._publicationCases(),
+  ]) {
     test(c.id, () async {
       final r = await measureCase(c);
       results[c.id] = r;

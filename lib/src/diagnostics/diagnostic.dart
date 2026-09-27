@@ -57,6 +57,57 @@ final class EpubDiagnosticCode {
     EpubSeverity.warning,
   );
 
+  /// Item do manifest sem arquivo no contêiner, com `href` recusado, ou
+  /// descartado por falta de `id`/`href` (spec da Publicação §5.3, §6.3).
+  static const resourceMissing = EpubDiagnosticCode._(
+    'resourceMissing',
+    EpubSeverity.warning,
+  );
+
+  /// `idref` do spine sem item no manifest; o `itemref` é ignorado.
+  static const spineItemUnresolved = EpubDiagnosticCode._(
+    'spineItemUnresolved',
+    EpubSeverity.warning,
+  );
+
+  /// Item do spine que não é XHTML nem imagem e cuja cadeia de `fallback`
+  /// não resolve; `details.mediaType`.
+  static const unsupportedMediaType = EpubDiagnosticCode._(
+    'unsupportedMediaType',
+    EpubSeverity.warning,
+  );
+
+  /// Encoding declarado (ou UTF-8 padrão) falhou; `details.declared` e
+  /// `details.used`.
+  static const encodingFallback = EpubDiagnosticCode._(
+    'encodingFallback',
+    EpubSeverity.info,
+  );
+
+  /// Itens órfãos do spine inseridos no TOC; `details.orphans`.
+  static const tocReconciled = EpubDiagnosticCode._(
+    'tocReconciled',
+    EpubSeverity.info,
+  );
+
+  /// Capa achada por heurística (id ou caminho com "cover").
+  static const coverHeuristic = EpubDiagnosticCode._(
+    'coverHeuristic',
+    EpubSeverity.info,
+  );
+
+  /// NAV ou NCX não usado; o motivo em `details.reason`.
+  static const navIgnored = EpubDiagnosticCode._(
+    'navIgnored',
+    EpubSeverity.info,
+  );
+
+  /// `idref` (ou caminho) repetido no spine; vale o primeiro.
+  static const spineItemDuplicate = EpubDiagnosticCode._(
+    'spineItemDuplicate',
+    EpubSeverity.info,
+  );
+
   @override
   String toString() => name;
 }
@@ -95,8 +146,15 @@ final class DiagnosticSink {
   final List<EpubDiagnostic> _items = [];
   final Map<(String, String?), int> _index = {};
 
+  EpubException? _lastStrictException;
+
   /// Em ordem de primeira emissão.
   List<EpubDiagnostic> get diagnostics => List.unmodifiable(_items);
+
+  /// A última exceção que [emit] lançou em [strict] (`null` se nenhuma). Quem
+  /// captura uma [EpubException] sabe, por identidade, se ela veio do sink ou
+  /// de outra fonte, sem depender da mensagem.
+  EpubException? get lastStrictException => _lastStrictException;
 
   /// Registra um diagnóstico. A repetição de `(code, href)` substitui a
   /// instância anterior, na mesma posição, com `details['count']` somado.
@@ -134,7 +192,10 @@ final class DiagnosticSink {
     }
     if (strict && effective == EpubSeverity.warning) {
       final text = '${code.name}: $message';
-      throw (onStrict ?? (m) => EpubContainerException(m, href: href))(text);
+      final exception =
+          (onStrict ?? (m) => EpubContainerException(m, href: href))(text);
+      _lastStrictException = exception;
+      throw exception;
     }
   }
 }

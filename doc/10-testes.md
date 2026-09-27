@@ -273,6 +273,13 @@ Patologia, onde a lista **exata** de diagnósticos esperados é parte da asserti
 
 Isso impede que uma regressão de parse se disfarce de "degradação aceitável".
 
+Um caso cujo `diagnostics.expected` lista um código `warning` de uma camada
+(na Publicação: `resourceMissing`, `spineItemUnresolved`,
+`unsupportedMediaType`, `resourceUnreadable`) roda sem `strict`, porque o
+warning é o esperado, e ganha uma segunda passada em `strict` que exige a
+exceção com o nome do código na mensagem
+([spec da Publicação](specs/2026-09-26-publication-design.md) §10.1).
+
 ## 6. Fuzzing leve
 
 Um teste gera EPUBs sintéticos aleatórios (estrutura válida, conteúdo aleatório

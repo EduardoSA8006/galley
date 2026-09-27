@@ -1,4 +1,4 @@
-/// Exceções do pacote (doc/09 §2). As desta etapa: contêiner e DRM.
+/// Exceções do pacote (doc/09 §2). As desta etapa: contêiner, pacote e DRM.
 library;
 
 import 'package:meta/meta.dart';
@@ -49,4 +49,14 @@ final class EpubEncryptedException extends EpubException {
 
   @override
   String get typeName => 'EpubEncryptedException';
+}
+
+/// Pacote inválido: OPF ausente, ilegível como XML, sem `manifest` ou
+/// `spine`, spine vazio (spec da Publicação §9.1). Também é o tipo que um
+/// warning da Publicação lança em `strict`.
+final class EpubPackageException extends EpubException {
+  EpubPackageException(super.message, {super.href, super.cause});
+
+  @override
+  String get typeName => 'EpubPackageException';
 }
