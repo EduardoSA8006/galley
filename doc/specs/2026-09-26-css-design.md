@@ -83,16 +83,16 @@ letra do desenho aprovado estão marcadas **(muda o desenho)**.
 | 1 | O `emit` do CSS usa `onStrict: EpubSectionParseException`, criada agora em `exceptions.dart` (interna até o sub-projeto 6) **(controlador)** | §12.3 |
 | 2 | `unsupportedLayout` entra no código agora (está em doc/09 e no `knownDiagnostics`, mas não em `EpubDiagnosticCode`), continua `warning`, e é emitido quando a declaração degradada **vence a cascata** num elemento, uma vez por (seção, propriedade) | §10.7 |
 | 3 | `text-align` guarda internamente a palavra computada (`left`, `right`, `start`, `end`, `center`) para herdar como o CSS herda, e expõe `start`/`center`/`end` resolvido pela direção do próprio elemento | §3, §7 |
-| 4 | `font-weight` guarda o peso numérico (1–1000) para `bolder`/`lighter` seguirem a tabela do CSS Fonts, e expõe `normal`/`bold` (≥ 600) | §3, §7 |
+| 4 | `font-weight` guarda o peso numérico (1–1000, fracionário, #45) para `bolder`/`lighter` seguirem a tabela do CSS Fonts, e expõe `normal`/`bold` (≥ 600) | §3, §7 |
 | 5 | `rem` conta como `em`; `ex` e `ch` como 0,5em (o valor que o CSS Values manda assumir sem métrica de fonte); `vw`, `vh`, `calc()`, `var()` e demais descartam a declaração | §7.2 |
 | 6 | `width`/`height` convertidos como as margens e limitados a [0, 100] em `em` e em `%` | §7.1 |
 | 7 | Tamanho de fonte absoluto (px, pt, palavras-chave) descarta a declaração; `initial`/`unset` em `font-size` dão `same` | §7.1 |
 | 8 | Tipo de lista desconhecido resolve no elemento onde a declaração vale: `decimal` se ele é `ol` ou `li` filho de `ol`, senão `disc` | §7.1 |
 | 9 | Dicas de apresentação `hidden` e `dir` entram como declarações da origem da folha padrão com especificidade (0,1,0), porque o subconjunto de seletores não tem presença de atributo nem comparação sem caixa | §8.2 |
 | 10 | `rp` não é escondido (o galley achata o ruby, [09](../09-erros-diagnosticos.md) §3 `rubyFlattened`, e `rp` existe para quem não tem ruby) | §8.1 |
-| 11 | Seletor de atributo com prefixo (`[epub|type="x"]`) casa o atributo literal `epub:type`; `@namespace` é ignorado | §6.1 |
+| 11 | Seletor de atributo com prefixo (`[epub|type="x"]`) casa o atributo literal `epub:type`; `@namespace` só serve para declarar o prefixo (#41) | §6.1 |
 | 12 | Lista de seletores: um seletor **inválido** pela gramática (inclusive pseudo-classe ou pseudo-elemento fora da lista fechada de §6.3) descarta a regra inteira, como no CSS; um seletor **válido fora do subconjunto** cai sozinho, com `cssRuleIgnored`, e os outros da lista continuam valendo **(controlador; muda o desenho)** | §6.3 |
-| 13 | Teto novo de 4 MiB de CSS por seção, somando `PendingResource.size` das folhas de arquivo antes do `decode()`, além do teto de 1 MiB por folha; `<style>` tem teto próprio em unidades de código | §9.3, §11 |
+| 13 | Teto novo de 4 MiB de CSS por seção, somando `PendingResource.size` das folhas de arquivo antes do `decode()`, além do teto de 1 MiB por folha; `<style>` tem teto próprio em unidades de código (o texto de `<style>` também conta, #39) | §9.3, §11 |
 | 14 | O limite de 20 000 regras conta seletores (entradas do índice), não blocos | §11 |
 | 15 | Cache de folhas parseadas por caminho e por texto de `<style>`, LRU com teto de 8 Mi unidades de código de fonte, com entradas negativas (ausente, grande demais, ilegível); a entrada guarda só o que o **CSS** emite (o `encodingFallback` de `decodeCss`, os `CssIssue`, a falta), reemitido no sink da seção a cada seção que aplica a folha | §9.6 |
 | 16 | Diagnósticos de parse agregados por folha: no máximo um `cssRuleIgnored` por motivo e um `stylesheetMediaIgnored` por folha e por seção, com `details.discarded` | §12.1 |
@@ -117,6 +117,15 @@ letra do desenho aprovado estão marcadas **(muda o desenho)**.
 | 35 | A tentativa de declaração para no ponto em que a falha já é certa (sem `ident` ou sem `:`; primeiro `{}` de topo depois de outro conteúdo; primeiro token depois de um `{}` inicial), com o mesmo resultado do algoritmo do CSS Syntax, que varre até o `;` antes de decidir e fica quadrático **(controlador)** | §5.3 |
 | 36 | O teto de 64 folhas é reservado no `tentar`, antes do `fetch` e da recursão, e devolvido se a folha falta: numa cadeia de `@import` a lista não passa de 64 **(controlador)** | §9.5 |
 | 37 | `@import` com `layer`/`supports()` vai para `stylesheetIgnored` com `reason: 'unsupported-import'`, não para `stylesheetMediaIgnored` **(controlador)** | §5.2, §12.1 |
+| 38 | Orçamento da cascata de 2^22 passos (era 2^24): o maior uso real no corpus é 71 525 (`song-of-myself.xhtml`), e o pior caso cai para ~0,2 s por seção no desktop **(revisão do plano)** | §10.1, §10.6, §11 |
+| 39 | O texto de `<style>` conta no teto de 4 MiB por seção, com `limit` `bytes` **(revisão do plano)** | §9.3, §11 |
+| 40 | O `circle`/`square` das listas aninhadas do HTML §15.3.8 (com `dir`) sai do nível de lista herdado, não de seletores descendentes na folha padrão, que não tem combinador nenhum: a folha padrão não sobe ancestrais **(revisão do plano)** | §8.1, §8.2, §10.2 |
+| 41 | Prefixo de namespace no seletor (`[epub|type]`, `svg|rect`) só vale se declarado por `@namespace` em posição na folha; não declarado, o seletor é inválido, como no Chromium **(revisão do plano; muda #11)** | §5.1, §6.1, §6.3 |
+| 42 | Nada vem depois de um pseudo-elemento (exceto `::marker` depois de `::before`/`::after`): nem pseudo-classe, nem combinador; `:not()` e o `of` do `:nth-child` são validados como lista de seletores; `:has()`, `:lang()` e `:dir()` vazios são inválidos; `:is()`/`:where()` são tolerantes **(revisão do plano)** | §6.3 |
+| 43 | A especificidade conta cada seletor simples, com repetição (`#a#a` é (2,0,0)); `#a#b` e dois `:nth-child` diferentes ficam no subconjunto e nunca casam **(revisão do plano)** | §6.2, §6.3 |
+| 44 | At-rules que o navegador não conhece (`@-moz-document`, `@document`, `@viewport`, `@-ms-viewport`, `@-moz-keyframes`) não tiram o `@import` seguinte de posição **(revisão do plano)** | §5.1, §5.2 |
+| 45 | `text-decoration` (atalho) aceita cada componente no máximo uma vez e só palavras conhecidas (cores com nome e de sistema incluídas): `foo` e `red blue` descartam; `oblique <ângulo>` só entre −90° e 90°; o peso é fracionário (349,5 + `bolder` = 400) **(revisão do plano)** | §3, §7.1 |
+| 46 | No corpus, só `unsupportedLayout` e `stylesheetIgnored` do `.expected` tiram o caso do `strict` e dão a segunda passada **(revisão do plano)** | §14.1 |
 
 ## 2. Arquivos
 
@@ -203,7 +212,7 @@ final class ComputedStyle {
   CssTextAlign get textAlign;             // alignKeyword resolvido pela direction deste elemento
   final bool underline, lineThrough;      // decorações em vigor (propagadas, §10.5)
   final CssFontStyle fontStyle;
-  final int weight;                       // 1–1000, o que herda (bolder/lighter)
+  final double weight;                    // 1–1000, fracionário, o que herda (bolder/lighter, #45)
   CssFontWeight get fontWeight;           // bold se weight >= 600
   final CssFontVariant fontVariant;
   final CssTextTransform textTransform;
@@ -427,10 +436,15 @@ avaliar característica nenhuma:
     filtrado nível a nível) e as regras entram na folha como se estivessem fora
     dele; se não, o bloco é consumido e conta num `stylesheetMediaIgnored` da
     folha.
-  - `@namespace`, `@font-face`, `@page`, `@supports`, `@keyframes` (e prefixadas),
-    `@layer`, `@counter-style`, `@font-feature-values`, `@property`,
-    `@container`, `@document`/`@-moz-document`, `@viewport` e qualquer outra
-    desconhecida → descartadas **em silêncio** (o bloco e o `;` são consumidos).
+  - `@namespace`, `@font-face`, `@page`, `@supports`, `@keyframes` (e
+    `@-webkit-keyframes`), `@layer`, `@counter-style`, `@font-feature-values`,
+    `@property`, `@container` e qualquer outra desconhecida → descartadas
+    **em silêncio** (o bloco e o `;` são consumidos). `@namespace prefixo url;`
+    em posição (depois de `@charset` e `@import`, antes de tudo o mais) só
+    registra o prefixo para os seletores (#41). Só as reconhecidas pelo
+    navegador contam para a posição do `@import` (§5.2): `@-moz-document`,
+    `@document`, `@viewport`, `@-ms-viewport` e `@-moz-keyframes` são
+    desconhecidas no Chromium e não contam (#44).
     `@font-face` é aparência sem efeito no perfil `uniform`
     ([03](../03-camada-a-ir.md) §6); `@supports` com o conteúdo inteiro
     descartado é a leitura conservadora (o bloco pode depender de `flex`,
@@ -575,7 +589,9 @@ final class CompoundSelector {
   final List<String> classes;
   final List<CssAttributeTest> attributes;
   final bool firstChild, lastChild;
-  final int? nthChild;   // n ≥ 1; 0 quando o argumento não pode casar (0, negativo, > 2^30)
+  final int? nthChild;   // n ≥ 1; 0 quando o argumento não pode casar (0, negativo, > 2^30, dois diferentes)
+  final int ids, pseudoClasses; // contagem com repetição, para a especificidade (#43)
+  final bool impossible; // #a#b: nunca casa (#43)
   // ≤ 32 seletores simples no total (§6.3)
 }
 
@@ -599,8 +615,9 @@ final class SelectorList extends SelectorListParse {
 /// Algum seletor da lista é inválido: a regra inteira cai (parse-error).
 final class SelectorInvalid extends SelectorListParse { final String sample; }
 
-/// [prelude]: os tokens entre o fim da regra anterior e o `{`.
-SelectorListParse parseSelectorList(List<CssToken> prelude);
+/// [prelude]: os tokens entre o fim da regra anterior e o `{`; [namespaces]:
+/// os prefixos declarados por `@namespace` na folha (#41).
+SelectorListParse parseSelectorList(List<CssToken> prelude, {Set<String> namespaces = const {}});
 ```
 
 ### 6.1 Subconjunto ([03](../03-camada-a-ir.md) §6)
@@ -612,7 +629,7 @@ SelectorListParse parseSelectorList(List<CssToken> prelude);
 | `.nota` | token `nota` do atributo `class`, **com** diferença de caixa (o XHTML não tem modo quirks), tokens separados por espaço ASCII |
 | `#x` | atributo `id` igual a `x`, com diferença de caixa; só `hash` com `isIdHash` |
 | `[a="v"]`, `[a=v]` | atributo `a` com valor exatamente `v` |
-| `[epub|type="noteref"]` | atributo literal `epub:type` (o `package:html` guarda o nome com o prefixo, [03](../03-camada-a-ir.md) §8) **(decisão da spec, #11)**: `@namespace` é ignorado, e o prefixo escrito é o que o DOM tem. `[|a=v]` é `a` sem prefixo |
+| `[epub|type="noteref"]` | atributo literal `epub:type` (o `package:html` guarda o nome com o prefixo, [03](../03-camada-a-ir.md) §8) **(decisão da spec, #11)**: o prefixo precisa ter sido declarado por `@namespace` na folha (senão o seletor é inválido, #41), e o prefixo escrito é o que o DOM tem, qualquer que seja o URI declarado. `[|a=v]` é `a` sem prefixo |
 | `A B` | `B` com um ancestral `A` |
 | `A > B` | `B` com pai `A` |
 | `A + B` | `B` cujo irmão-**elemento** anterior é `A` (texto e comentário entre os dois não contam) |
@@ -664,7 +681,7 @@ desenho)**:
 - pseudo-elementos da lista fechada abaixo;
 - atributo por presença (`[href]`), por `~=`, `|=`, `^=`, `$=`, `*=`, ou com
   flag `i`/`s`;
-- tipo com namespace (`svg|rect`, `*|p`, `|p`) e atributo `[*|a]`;
+- tipo com namespace (`svg|rect` com `@namespace svg` declarado, `*|p`, `|p`) e atributo `[*|a]`;
 - mais de 32 compostos, ou um composto com mais de 32 seletores simples
   (`.a.b.c…`) **(controlador, #27)**;
 - identificador (tipo, classe, `id`, nome de atributo) ou valor de atributo
@@ -686,9 +703,16 @@ desenho)**:
 antigas de pseudo-elemento com um `:` — `before`, `after`, `first-line`,
 `first-letter`. **Pseudo-elementos reconhecidos** (com `::`): `before`,
 `after`, `first-line`, `first-letter`, `marker`, `selection`, `placeholder`,
-`backdrop`, `cue`, `file-selector-button`. O argumento de `:not()`, `:is()`,
-`:where()`, `:has()`, `:lang()` e `:dir()` não é validado a fundo: basta o
-bloco de parênteses fechar.
+`backdrop`, `cue`, `file-selector-button`. O argumento de `:not()` é validado
+como lista de seletores (vazio ou inválido derruba), como o do `of` do
+`:nth-child`; `:is()` e `:where()` são tolerantes (qualquer conteúdo vale);
+`:has()`, `:lang()` e `:dir()` precisam de argumento, sem validação a fundo
+(#42). Um pseudo-elemento, inclusive as formas antigas com um `:`, fecha o
+composto e o seletor: depois dele só vale `::marker` depois de
+`::before`/`::after` (#42). Repetição no mesmo composto conta na
+especificidade (`#a#a` é (2,0,0), `li:first-child:first-child` é (0,2,1)), e
+`#a#b` ou dois `:nth-child` diferentes ficam no subconjunto e nunca casam
+(#43).
 
 **Inválido:** pseudo-classe ou pseudo-elemento fora dessas listas, inclusive
 os prefixados (`:foo`, `::-moz-x`, `:-webkit-any()`); `:nth-child()` com
@@ -696,7 +720,11 @@ argumento que não é An+B (`3.0`, `foo`, vazio); item vazio na lista (`a,,b`);
 combinador sem composto, ou `>>`, `||`; `#` que não é identificador (`#1a`);
 `.` sem identificador; colchete sem fechar; operador de atributo
 desconhecido; flag de atributo que não é `i`/`s`; token inesperado (`{`, `;`,
-string solta).
+string solta); qualquer seletor simples ou combinador depois de um
+pseudo-elemento (`p::before:hover`, `p::before span`); `:not()`, `:has()`,
+`:lang()` e `:dir()` vazios; `:not(:foo)` e `:nth-child(2n of 1+)`; prefixo
+de namespace não declarado (`ns|p`, `[epub|type]` sem `@namespace epub`,
+#41).
 
 ### 6.4 Por que é linear
 
@@ -745,7 +773,7 @@ final class CssKeywordValue<E extends Enum> extends CssValue { final E value; }
 /// list-style-type com nome desconhecido (resolvido no elemento, §7.1).
 final class CssUnknownListStyle extends CssValue {}
 /// font-weight: absolute 1–1000, ou relativo ao pai.
-final class CssWeightValue extends CssValue { final int? absolute; final bool bolder; }
+final class CssWeightValue extends CssValue { final double? absolute; final bool bolder; }
 /// Margens, padding e text-indent: já convertidos e limitados.
 final class CssEmValue extends CssValue { final double em; }
 /// width/height.
@@ -786,12 +814,12 @@ Classe: **E** = estrutura (Classe 1), **T** = tipografia relativa (Classe 2).
 | `page-break-before`, `page-break-after` | E | não | — | `auto`, `always`, `avoid`, `left`, `right` | **mesma propriedade** que `break-*` (no CSS Fragmentation são atalhos legados dela), então a ordem da cascata decide entre as duas grafias; `always`/`left`/`right` → `page` |
 | `break-inside`, `page-break-inside` | E | não | `auto` | `auto`, `avoid`, `avoid-page`, `avoid-column`, `avoid-region` | `avoid*` → `avoid`; nunca `page` |
 | `width`, `height` | E | não | `auto` | comprimento ≥ 0, `%` ≥ 0, `auto` | conversão de §7.2; limitado a [0, 100] em `em` e em `%` **(decisão da spec, #6)**; `auto` → `null`; negativo descarta. `max-*`/`min-*` ignoradas |
-| `font-style` | T | sim | `normal` | `normal`, `italic`, `oblique` (com ângulo opcional) | `oblique` → `italic` |
+| `font-style` | T | sim | `normal` | `normal`, `italic`, `oblique` (com ângulo opcional, entre −90° e 90°, #45) | `oblique` → `italic` |
 | `font-weight` | T | sim | `normal` (400) | `normal`, `bold`, `bolder`, `lighter`, número 1–1000 | peso numérico em `weight`; `bolder`/`lighter` sobre o pai (§3); `fontWeight` = `bold` se ≥ 600 |
 | `font-variant`, `font-variant-caps` | T | sim | `normal` | qualquer lista de identificadores | contém `small-caps` ou `all-small-caps` → `smallCaps`; senão `normal` (o atalho reinicia o `caps`); número ou string descartam |
 | `text-transform` | T | sim | `none` | `none`, `uppercase`, `lowercase`, `capitalize` | direto; `full-width` e outros descartam |
 | `text-decoration-line` | T | não (propaga, §10.5) | `none` | `none`, ou uma ou mais de `underline`, `overline`, `line-through`, `blink` | `underline` → `underline`; `line-through` → `lineThrough`; `overline` e `blink` aceitos e ignorados; outra palavra, número ou string descartam **(controlador, #24)** |
-| `text-decoration` (atalho) | T | — | — | linha, estilo, cor e espessura, em qualquer ordem | só a linha entra, pela regra de `text-decoration-line`; estilo (`solid`, `wavy`…), cor e espessura são aceitos e ignorados; sem linha, vale `none` (o atalho reinicia) |
+| `text-decoration` (atalho) | T | — | — | linha, estilo, cor e espessura, em qualquer ordem, cada um no máximo uma vez | só a linha entra, pela regra de `text-decoration-line`; estilo (`solid`, `double`, `dotted`, `dashed`, `wavy`), cor (nome do CSS Color 4, de sistema, `#hex`, função de cor, `currentcolor`, `transparent`) e espessura (`auto`, `from-font`, comprimento, `%`, `calc()`) são aceitos e ignorados; outra palavra (`foo`) ou componente repetido (`red blue`) descarta a declaração (#45); sem linha, vale `none` (o atalho reinicia) |
 | `font-size` | T | não (relativo ao pai) | `same` | `em`, `%`, `rem`, `ex`, `ch`, `smaller`, `larger` | razão r sobre o pai (`em`/`rem`: o número; `%`: /100; `ex`/`ch`: × 0,5): r < 0,95 → `smaller`, r > 1,05 → `larger`, senão `same`; `smaller`/`larger` direto. Absoluto (`px`, `pt`, `medium`, `x-large`…) e negativo **descartam** (ignorado em silêncio, [03](../03-camada-a-ir.md) §6); `inherit`, `initial` e `unset` → `same` **(decisão da spec, #7)** |
 | `font` (atalho) | T | — | — | `[estilo ‖ variante ‖ peso ‖ largura]? tamanho [/ entrelinha]? família` | até 4 prefixos (`normal`, `italic`, `oblique`, `small-caps`, `bold`, `bolder`, `lighter`, número 1–1000, palavras de `font-stretch`, estas aceitas e ignoradas), o tamanho (obrigatório) e a família (obrigatória, ignorada); reinicia estilo, variante e peso para `normal` quando ausentes; tamanho absoluto não gera `fontSize` (o resto do atalho vale); fonte de sistema (`caption`, `menu`…) sozinha descarta |
 | `margin-top/right/bottom/left` | T | não | 0 | comprimento, `%`, `auto` | §7.2, `auto` → 0; limitado a [0, 8]em, **negativo → 0** |
@@ -886,6 +914,9 @@ O que o galley faz diferente do navegador, de propósito, e fica em
   visível para o IR.
 - **Propagação de `text-decoration`** para dentro de `inline-block`, `float` e
   posicionado (acima).
+- **Links sem o sublinhado de `:link`.** A folha do HTML sublinha `a[href]`
+  por `:link`, que está fora do subconjunto: o link sai sem sublinhado na
+  cascata (o IR marca `InlineAttr.link` de qualquer forma).
 - **`unsupportedLayout` fundido.** O dedupe do `DiagnosticSink` por (código,
   `href`) junta `float` e `position` da mesma seção num registro, com os
   `details` do último (§12.1).
@@ -917,7 +948,7 @@ exige zero `CssIssue`.
 html, body, address, blockquote, center, div, figure, figcaption, footer,
 header, hgroup, main, nav, section, article, aside, search, details, summary,
 form, fieldset, legend, hr, p, pre, listing, xmp, plaintext,
-h1, h2, h3, h4, h5, h6, dl, dt, dd, ol, ul, menu,
+h1, h2, h3, h4, h5, h6, dl, dt, dd, ol, ul, menu, dir,
 table, caption, thead, tbody, tfoot, tr, td, th, colgroup, col { display: block }
 li { display: list-item }
 head, script, style, title, meta, link, base, template, area, param,
@@ -945,16 +976,14 @@ big { font-size: larger }
 sup { vertical-align: super }
 sub { vertical-align: sub }
 
-ul, menu { list-style-type: disc }
+ul, menu, dir { list-style-type: disc }
 ol { list-style-type: decimal }
-ul ul, ol ul, menu ul, ul menu { list-style-type: circle }
-ul ul ul, ol ul ul, ul ol ul, ol ol ul { list-style-type: square }
 ol[type="1"], li[type="1"] { list-style-type: decimal }
 ol[type="a"], li[type="a"] { list-style-type: lower-alpha }
 ol[type="A"], li[type="A"] { list-style-type: upper-alpha }
 ol[type="i"], li[type="i"] { list-style-type: lower-roman }
 ol[type="I"], li[type="I"] { list-style-type: upper-roman }
-ul, ol, menu { padding-left: 2.5em }
+ul, ol, menu, dir { padding-left: 2.5em }
 dd { margin-left: 2.5em }
 blockquote { margin: 1em 2.5em }
 ```
@@ -966,7 +995,11 @@ ruby, e o `rp` existe justamente para quem não tem ruby (sem ele, "漢字(か�
 vira "漢字かんじ"). `noscript` fica visível (o galley não roda script, como o
 HTML manda para esse caso). O recuo de lista usa `padding-left` (o HTML usa
 `padding-inline-start`, que é lógico): em livro `rtl` o lado fica errado, sem
-efeito no perfil `uniform`, que não honra padding.
+efeito no perfil `uniform`, que não honra padding. A folha não tem nenhum
+combinador: o `circle`/`square` das listas aninhadas do HTML §15.3.8
+(`:is(dir, menu, ol, ul) :is(dir, menu, ul)` e o de três níveis) vem do nível
+de lista herdado, como as dicas de §8.2 (#40), porque um descendente na folha
+padrão subiria até 256 ancestrais por lista sem pagar orçamento.
 
 Mudar esta folha muda a IR: a mudança exige bump de `IR_SCHEMA_VERSION`
 ([08](../08-concorrencia-cache.md) §4.1), porque a folha padrão não está na
@@ -989,6 +1022,13 @@ Como são da folha padrão, uma regra do livro com `display: block` vence o
 `hidden`, exatamente como no navegador. Sem isso, o caso
 `conteudo/display-none-com-texto` (`<p hidden="">`) mostraria o texto
 escondido. `dir="auto"` fica com o IR (bidi).
+
+Do mesmo jeito, com a mesma origem e depois das regras da folha padrão, sai o
+tipo das listas aninhadas do HTML §15.3.8 (#40): um `ul`, `menu` ou `dir` com
+uma lista (`dir`, `menu`, `ol`, `ul`) entre os ancestrais recebe
+`list-style-type: circle`, com especificidade (0,0,2); com duas ou mais,
+`square`, com (0,0,3). O nível é herdado do pai em O(1) (`listDepth` do
+`ElementInfo`, §10.2).
 
 ## 9. Carregamento
 
@@ -1122,9 +1162,10 @@ Nada fora do contêiner é tocado: `fetch` é a única leitura.
   `too-large`, sem drenar o `decode()` (como o OPF da Publicação).
 - Soma dos `PendingResource.size` das folhas de arquivo já aplicadas na seção
   mais o desta passaria de `maxSectionStyleBytes` → `stylesheetIgnored`
-  `limit` (`details.limit: 'bytes'`), também antes do `decode()`. O teto é em
-  bytes e só de arquivos; o texto de `<style>` já faz parte do XHTML da seção
-  e tem o teto próprio em unidades de código (§9.1), sem somar os dois.
+  `limit` (`details.limit: 'bytes'`), também antes do `decode()`. O texto de
+  cada `<style>`, em unidades de código, soma no mesmo teto (#39): 16
+  `<style>` de 1 Mi dariam 16 Mi de parse síncrono numa seção; o `<style>` que
+  passaria do teto é `limit` `bytes` com `href` = a seção.
 - `decode()` drenado inteiro; o `EpubException` que o `fetch` ou o `decode()`
   lançarem é reconhecido **por identidade**: `identical(e,
   containerSink.lastStrictException)` → propaga (é o `strict` do contêiner,
@@ -1289,7 +1330,7 @@ sub-projeto 5 o reaproveita para a chave da seção.
 
 ```dart
 const int maxCascadeDepth = 256;
-const int cascadeBudget = 1 << 24;
+const int cascadeBudget = 1 << 22;
 const int cascadeYieldSteps = 4096;
 const int maxRulesPerSection = 20000;
 const int maxStyleAttributeLength = 8 * 1024;    // unidades de código
@@ -1329,7 +1370,8 @@ para cada filho-elemento, um `ElementInfo` (privado): nome em minúsculas, se é
 do namespace HTML, `id`, classes num **`Set<String>`** (tokens por espaço
 ASCII: `class="a a"` vira `{a}`, e o teste de classe de um composto é O(1),
 não um `contains` numa lista), o índice (base 1) entre os irmãos-elemento, o
-total deles e o quadro do pai. Ao montar o `ElementInfo`, cada identificador
+total deles, o quadro do pai e o nível de lista (quantos ancestrais são
+`dir`, `menu`, `ol` ou `ul`, herdado do pai em O(1), #40). Ao montar o `ElementInfo`, cada identificador
 do elemento — o nome, o `id` e cada classe — é baixado para minúsculas e tem
 o `hashCode` calculado **uma vez**: esses dois valores ficam no `ElementInfo`
 e servem ao filtro de Bloom (entrada e saída), que nunca refaz hash de texto
@@ -1524,8 +1566,9 @@ Dois contadores **(controlador, #27)**:
 
 - **Cessão** — conta **todo** o trabalho: cada elemento visitado, cada 64
   unidades de código de nome, `id` e `class` lidas ao montar o `ElementInfo`
-  (partir, baixar a caixa, fazer hash), cada consulta a balde, cada candidato
-  considerado, cada seletor simples testado, cada declaração aplicada, da
+  (partir, baixar a caixa, fazer hash), cada 64 unidades de código de um
+  `style=""` novo parseado (revisão do plano), cada consulta a balde, cada
+  candidato considerado, cada seletor simples testado, cada declaração aplicada, da
   folha padrão, das dicas, do `style=""` e do livro. A cada
   `cascadeYieldSteps` desses passos, `yield`, no padrão do `decode()` do
   contêiner (um `yield` por lote de trabalho). A linha da cascata em
@@ -1539,8 +1582,8 @@ Dois contadores **(controlador, #27)**:
   desses é O(1): classes em `Set`, compostos de no máximo 32 seletores
   simples (§6.3), comparação por campo.
 
-`cascadeBudget` (2^24, o mesmo número de `navParseBudget`) é o teto do
-orçamento. Esgotado:
+`cascadeBudget` (2^22, #38; o maior uso real no corpus é 71 525 passos, em
+`song-of-myself.xhtml`) é o teto do orçamento. Esgotado:
 
 - **o elemento em andamento** descarta o que já tinha aplicado do livro e é
   refeito só com a folha padrão, as dicas e o `style=""` **(decisão da spec,
@@ -1578,10 +1621,11 @@ desfaz. Como o `DiagnosticSink` deduplica por (código, `href`), `float` e
   só uma consulta O(1) por elemento.
 - **Todo** o trabalho das regras do livro paga orçamento: consulta a balde,
   candidato (aceito ou rejeitado pelo Bloom), seletor simples, declaração. Um
-  livro com 20 000 regras `x p` sobre 100 000 `<p>` esgota 2^24 passos em vez
+  livro com 20 000 regras `x p` sobre 100 000 `<p>` esgota 2^22 passos em vez
   de fazer 2×10⁹ operações de graça. Cada passo é O(1) (32 seletores simples
   por composto, `Set`, comparação por campo), então o casamento do livro custa
-  O(2^24) por seção, e o resto — folha padrão (índice fixo e pequeno), dicas,
+  O(2^22) por seção, e o resto — folha padrão (índice fixo, pequeno e sem
+  combinador, #40), dicas,
   `style=""` — é O(elementos + texto dos atributos).
 - `failsCompletely` impede o retrocesso; 32 compostos e 256 níveis limitam
   cada teste.
@@ -1600,7 +1644,7 @@ repositório; a tarefa de desempenho do plano refaz com o código real):
 | Limite | Valor | Maior visto no corpus | Justificativa |
 |---|---|---|---|
 | Folha | 1 MiB (`maxStyleSheetBytes`), por `PendingResource.size` antes do `decode()` | 7 175 bytes (`core.css` do Standard Ebooks); 54 folhas, 106 KB somadas | 146× o maior real; tokenizar 1 MiB de CSS real repetido custou ~11 ms no protótipo |
-| CSS por seção | 4 MiB (`maxSectionStyleBytes`), soma dos `PendingResource.size` antes do `decode()` **(decisão da spec, #13)** | 14 KB (as três folhas do SE) | sem ele, 64 folhas de 1 MiB dariam 64 MiB de parse numa seção; 4 MiB fica em ~50 ms de tokenização e ainda é ~290× o real |
+| CSS por seção | 4 MiB (`maxSectionStyleBytes`), soma dos `PendingResource.size` antes do `decode()` e das unidades de código dos `<style>` **(decisão da spec, #13, #39)** | 14 KB (as três folhas do SE) | sem ele, 64 folhas de 1 MiB dariam 64 MiB de parse numa seção; 4 MiB fica em ~50 ms de tokenização e ainda é ~290× o real |
 | Folhas por seção | 64 (`<link>`, `<style>` e `@import` aplicados) | 3 | fecha o leque de `@import` repetido e limita `sheets`/`cacheKey` |
 | Tentativas por seção | 256 `<link>` + `@import` (`maxSheetAttemptsPerSection`) **(controlador, #28)** | 3 | 4× o teto de folhas: sobra para faltas legítimas sem permitir 250 000 `fetch` |
 | `<style>` | 1 Mi unidades de código (`maxStyleElementLength`) | 7 blocos, todos curtos | o mesmo número da folha de arquivo, na unidade do texto |
@@ -1612,7 +1656,7 @@ repositório; a tarefa de desempenho do plano refaz com o código real):
 | Seletores simples por composto | 32 **(controlador, #27)** | 3 | torna O(1) cada teste de composto contado no orçamento |
 | Identificador ou valor de atributo no seletor | 256 unidades de código (`maxSelectorIdentifierLength`) **(controlador, #34)** | 65 (`.epub-type-contains-word-se-image-color-depth-black-on-transparent`); nos elementos, 73 | mantém O(1) o hash e a comparação dentro de um passo (§10.4) |
 | Profundidade de casamento | 256 | 7 | o filtro de Bloom e o descendente sobem no máximo 256 |
-| Orçamento | 2^24 passos das regras do livro (consultas a balde, candidatos, seletores simples, declarações, §10.6) | ~1,1 M (6,7%) no capítulo de 200 mil palavras (1,2 MB, 3 749 elementos) com a folha do SE; ~0,33 M (2%) em `song-of-myself` | ~15× o maior real. **Como foi medido:** o protótipo conta, por elemento, uma consulta por balde (tipo, universal, `id`, cada classe), um passo por candidato e, por candidato, um passo por seletor simples de **todos** os compostos do seletor — sem as declarações aplicadas e sem as tentativas repetidas em ancestrais do descendente, que o contador real soma e a tarefa de desempenho mede; o número anterior (~1 M, 16×) contava só compostos. 2^24 passos sintéticos custaram 30 ms (limite inferior); o custo real por passo sai da tarefa de desempenho, e os testes hostis travam o teto em tempo |
+| Orçamento | 2^22 passos das regras do livro (consultas a balde, candidatos, seletores simples, declarações, §10.6) **(#38)** | 71 525 (1,7%) em `song-of-myself.xhtml` (131 KB, 2 816 elementos, com `core.css` e `local.css` do SE), medido com o código real | ~58× o maior real. O pior caso medido (20 000 regras `div … div p` de 32 compostos sobre 250 `div` aninhados) custa ~0,17 s na cascata (JIT, i5-11400H) e ~0,45 s com duas suítes de teste em paralelo; era ~0,9 s com 2^24 |
 | Cessão | 4 096 passos de todo o trabalho (§10.6) | — | lote pequeno o bastante para a fatia de 4 ms de [08](../08-concorrencia-cache.md) §2 mesmo com passo caro, grande o bastante para o `yield` não pesar |
 | Cache de folhas | 8 Mi unidades de código **(decisão da spec, #15)** | 106 KB (o corpus inteiro) | 8 folhas no teto por publicação |
 | Amostra em `details` | 64 unidades de código | — | como a data crua da Publicação |
@@ -1773,10 +1817,13 @@ true)` com o sink do CSS.
   ser de outra camada).
 - **Modo:** a regra de [10](../10-testes.md) §5: `strict: true` fora de
   `patologia/` e `faixa-b/`, exceto os casos cujo `.expected` lista um
-  `warning` do CSS (`unsupportedLayout`, `stylesheetIgnored`,
-  `resourceMissing`, `resourceUnreadable`), que rodam sem `strict` e ganham a
-  segunda passada em `strict` esperando `EpubSectionParseException` com o nome
-  de um desses códigos na mensagem. Como `stylesheetMediaIgnored` é um código
+  `warning` só do CSS (`unsupportedLayout`, `stylesheetIgnored`), que rodam
+  sem `strict` e ganham a segunda passada em `strict` esperando
+  `EpubSectionParseException` com o nome de um desses códigos na mensagem
+  (#46). `resourceMissing` e `resourceUnreadable` não entram no critério: o
+  `.expected` os lista também quando vêm da Publicação
+  (`regressoes/capa-ausente`); se o CSS emitir um deles num caso em
+  `strict`, a primeira passada lança, e o caso precisa ser revisto. Como `stylesheetMediaIgnored` é um código
   `info` (§12.1), um caso com folha `print` continua em `strict`: a regra, que
   só lê códigos, não confunde mais `media` com um `warning`.
 - **Estruturais, em toda seção:** `styles.length` = número de elementos do
