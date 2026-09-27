@@ -4,45 +4,50 @@
   "dart": "3.13.0",
   "os": "linux",
   "cpu": "AMD EPYC 7763 64-Core Processor",
-  "createdAt": "2026-09-26T14:22:55.372909Z",
-  "sourceCommit": "9149929",
+  "createdAt": "2026-09-27T00:15:36.633571Z",
+  "sourceCommit": "ee7d79f",
   "runner": "ubuntu-24.04",
   "runs": 5,
   "cases": {
     "font.deobfuscate.idpf": {
-      "ratio": 0.6138331936541771,
-      "medianUs": 4054.662,
-      "calibrationUs": 6589.33
+      "ratio": 0.6013314164907999,
+      "medianUs": 3969.441,
+      "calibrationUs": 6478.616
     },
     "html.parse.500kb": {
-      "ratio": 1.9109434690155982,
-      "medianUs": 12248.396,
-      "calibrationUs": 6454.117
+      "ratio": 1.8948598831906711,
+      "medianUs": 12143.812,
+      "calibrationUs": 6381.272
     },
     "image.decode.target": {
-      "ratio": 1.7030556052047143,
-      "medianUs": 11317.302,
-      "calibrationUs": 6616.773
+      "ratio": 1.7202820736274065,
+      "medianUs": 11294.118,
+      "calibrationUs": 6584.02
     },
     "paragraph.shape.1000": {
-      "ratio": 11.62327150471032,
-      "medianUs": 77198.804,
-      "calibrationUs": 6590.965
+      "ratio": 11.564173949160518,
+      "medianUs": 75039.891,
+      "calibrationUs": 6488.114
+    },
+    "publication.read.800": {
+      "ratio": 5.80632759398421,
+      "medianUs": 38862.607,
+      "calibrationUs": 6604.56
     },
     "zip.fetch.inflate.1mb": {
-      "ratio": 0.7128237717025604,
-      "medianUs": 4617.53,
-      "calibrationUs": 6553.454
+      "ratio": 0.7103080148124945,
+      "medianUs": 4728.463,
+      "calibrationUs": 6555.27
     },
     "zip.open.800": {
-      "ratio": 1.0678353998741141,
-      "medianUs": 6994.241,
-      "calibrationUs": 6480.617
+      "ratio": 1.0710111117267465,
+      "medianUs": 6925.304,
+      "calibrationUs": 6525.815
     },
     "zlib.inflate.1mb": {
-      "ratio": 0.8828729182193937,
-      "medianUs": 7226.271,
-      "calibrationUs": 6890.334
+      "ratio": 0.9085817389727965,
+      "medianUs": 7066.936,
+      "calibrationUs": 7019.52
     }
   }
 }
