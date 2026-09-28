@@ -1109,21 +1109,24 @@ _Parsed? _font(List<CssToken> c) {
   }
   // Família: nomes separados por vírgula; um nome é uma string ou uma
   // sequência de idents (CSS Fonts 4 §3.1). A palavra global ou `default` só
-  // é inválida como primeiro ident do nome (como no Chromium).
+  // é inválida como o nome inteiro (ident único; `inherit b` vale, como no
+  // Chromium).
   if (i >= c.length) return null;
   var expectName = true;
   var idents = 0, strings = 0;
+  var reserved = false;
   for (; i < c.length; i++) {
     final t = c[i];
     if (t.type == CssTokenType.comma) {
-      if (expectName) return null;
+      if (expectName || (idents == 1 && reserved)) return null;
       expectName = true;
+      reserved = false;
       idents = 0;
       strings = 0;
     } else if (t.type == CssTokenType.ident) {
       if (strings > 0) return null;
-      if (idents == 0 && _reservedFamily.contains(cssAsciiLower(t.value))) {
-        return null;
+      if (idents == 0) {
+        reserved = _reservedFamily.contains(cssAsciiLower(t.value));
       }
       idents++;
       expectName = false;
@@ -1135,7 +1138,7 @@ _Parsed? _font(List<CssToken> c) {
       return null;
     }
   }
-  if (expectName) return null;
+  if (expectName || (idents == 1 && reserved)) return null;
   return [
     (CssProperty.fontStyle, CssKeywordValue(style ?? CssFontStyle.normal)),
     (
