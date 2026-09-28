@@ -108,6 +108,36 @@ final class EpubDiagnosticCode {
     EpubSeverity.info,
   );
 
+  /// Propriedade degradada (`float`, `position`, `columns`, `writing-mode`)
+  /// venceu a cascata num elemento; `details.property` e `details.value`
+  /// (spec do CSS §10.7).
+  static const unsupportedLayout = EpubDiagnosticCode._(
+    'unsupportedLayout',
+    EpubSeverity.warning,
+  );
+
+  /// Folha, ou parte dela, perdida por limite, ciclo, posição ou orçamento;
+  /// o motivo em `details.reason` (spec do CSS §12.1).
+  static const stylesheetIgnored = EpubDiagnosticCode._(
+    'stylesheetIgnored',
+    EpubSeverity.warning,
+  );
+
+  /// `media` que não casa com `screen`/`all`: `<link>`, `<style>`, `@import`
+  /// ou blocos `@media`; `details.media` (spec do CSS §12.1).
+  static const stylesheetMediaIgnored = EpubDiagnosticCode._(
+    'stylesheetMediaIgnored',
+    EpubSeverity.info,
+  );
+
+  /// Regra, seletor ou declaração de CSS descartada; `details.reason`
+  /// (`parse-error`, `unsupported-selector`, `nested-rule`), agregado por
+  /// folha com `details.discarded`.
+  static const cssRuleIgnored = EpubDiagnosticCode._(
+    'cssRuleIgnored',
+    EpubSeverity.info,
+  );
+
   @override
   String toString() => name;
 }

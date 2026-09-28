@@ -39,6 +39,9 @@ const knownDiagnostics = {
   'encryptionIgnored',
   'navIgnored',
   'spineItemDuplicate',
+  'stylesheetIgnored',
+  'stylesheetMediaIgnored',
+  'cssRuleIgnored',
 };
 
 /// Exceções fatais de doc/09 §2.

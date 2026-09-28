@@ -1,4 +1,5 @@
-/// Exceções do pacote (doc/09 §2). As desta etapa: contêiner, pacote e DRM.
+/// Exceções do pacote (doc/09 §2). As desta etapa: contêiner, pacote, DRM e
+/// seção.
 library;
 
 import 'package:meta/meta.dart';
@@ -59,4 +60,15 @@ final class EpubPackageException extends EpubException {
 
   @override
   String get typeName => 'EpubPackageException';
+}
+
+/// Falha de parse de uma seção (doc/09 §2). Nunca chega ao app fora de
+/// `strict`: vira seção degradada e diagnóstico. Em `strict`, é também o tipo
+/// que um warning do CSS lança (spec do CSS §12.3). Interna até o
+/// sub-projeto 6.
+final class EpubSectionParseException extends EpubException {
+  EpubSectionParseException(super.message, {super.href, super.cause});
+
+  @override
+  String get typeName => 'EpubSectionParseException';
 }
