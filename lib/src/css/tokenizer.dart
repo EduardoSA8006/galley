@@ -66,7 +66,8 @@ final class CssToken {
   final String value;
 
   /// `number`, `percentage`, `dimension`; `NaN` se o literal passa de
-  /// [maxNumericLiteralLength] caracteres.
+  /// [maxNumericLiteralLength] caracteres. Também pode ser `±Infinity` com
+  /// literal curto (`1e999`): quem consome trata valor não finito.
   final double number;
 
   /// Literal sem `.` nem expoente.
@@ -655,9 +656,12 @@ String cssSample(List<CssToken> tokens, [int start = 0, int? end]) {
 /// [s] cortado em [maxSampleLength] unidades de código sem separar um par de
 /// surrogates.
 String truncateSample(String s) {
-  if (s.length <= maxSampleLength) return s;
-  var end = maxSampleLength;
-  final last = s.codeUnitAt(end - 1);
-  if (last >= 0xD800 && last <= 0xDBFF) end--;
-  return s.substring(0, end);
+  var end = s.length < maxSampleLength ? s.length : maxSampleLength;
+  // Os tokens não têm surrogate solto (o pré-processamento os troca por
+  // U+FFFD): um surrogate alto no fim só pode vir do corte de `write`.
+  if (end > 0) {
+    final last = s.codeUnitAt(end - 1);
+    if (last >= 0xD800 && last <= 0xDBFF) end--;
+  }
+  return end == s.length ? s : s.substring(0, end);
 }

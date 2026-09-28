@@ -291,6 +291,40 @@ void main() {
       expect(cssSample(t), 'a' * 63);
       expect(truncateSample('b' * 70), 'b' * maxSampleLength);
     });
+
+    test('espaço na frente não deixa surrogate alto solto no fim', () {
+      final r = cssSample(_all(' ${'a' * 63}😀'));
+      expect(r, 'a' * 63);
+      final last = r.codeUnitAt(r.length - 1);
+      expect(last >= 0xD800 && last <= 0xDBFF, isFalse);
+    });
+
+    test('borda N: 64 unidades ficam inteiras; 65 são cortadas', () {
+      expect(truncateSample('c' * maxSampleLength), 'c' * maxSampleLength);
+      expect(cssSample(_all('d' * maxSampleLength)), 'd' * maxSampleLength);
+      expect(
+        cssSample(_all('d' * (maxSampleLength + 1))),
+        'd' * maxSampleLength,
+      );
+    });
+
+    test('start e end escolhem a fatia de tokens', () {
+      final t = _all('a:b;c');
+      expect(cssSample(t, 1, 4), ':b;');
+      expect(cssSample(t, 2), 'b;c');
+      expect(cssSample(t, 3, 3), '');
+    });
+
+    test('cssAsciiLower só troca ASCII; cssAsciiEquals idem', () {
+      expect(cssAsciiLower('ABC-xyz'), 'abc-xyz');
+      expect(cssAsciiLower('İA'), 'İa');
+      expect(cssAsciiEquals('URL', 'url'), isTrue);
+      expect(cssAsciiEquals('İ', 'i'), isFalse);
+    });
+
+    test('número curto pode ser infinito', () {
+      expect(_all('1e999').single.number.isInfinite, isTrue);
+    });
   });
 
   group('hostis (spec do CSS §14.3): linear, sem exceção', () {
