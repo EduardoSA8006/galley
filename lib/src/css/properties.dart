@@ -403,8 +403,10 @@ _Parsed? _parse(String name, List<CssToken> c) {
       return _one(CssProperty.fontStyle, _fontStyle(c));
     case 'font-weight':
       return _one(CssProperty.fontWeight, _fontWeight(c));
-    case 'font-variant' || 'font-variant-caps':
+    case 'font-variant':
       return _one(CssProperty.fontVariant, _fontVariant(c));
+    case 'font-variant-caps':
+      return _one(CssProperty.fontVariant, _fontVariantCaps(c));
     case 'text-transform':
       return _one(CssProperty.textTransform, _mapped(c, _textTransform));
     case 'text-decoration-line':
@@ -628,7 +630,12 @@ CssValue? _listStyle(List<CssToken> c) {
       if (v == 'none') {
         nones++;
       } else if (v == 'inside' || v == 'outside') {
-        if (position) return null;
+        if (position) {
+          // O segundo `inside`/`outside` é um <counter-style-name> (CSS
+          // Counter Styles 3 §3.1): tipo desconhecido.
+          if (type != null) return null;
+          type = const CssUnknownListStyle();
+        }
         position = true;
       } else {
         if (type != null) return null;
@@ -725,15 +732,81 @@ CssWeightValue? _weightOf(CssToken t) {
 CssValue? _fontWeight(List<CssToken> c) =>
     c.length == 1 ? _weightOf(c.first) : null;
 
+/// Subgrupo de cada palavra de `font-variant` (CSS Fonts 4 §6.6, grupos
+/// `||`: cada subgrupo no máximo uma vez).
+const Map<String, String> _variantWords = {
+  'small-caps': 'caps', 'all-small-caps': 'caps', 'petite-caps': 'caps', //
+  'all-petite-caps': 'caps', 'unicase': 'caps', 'titling-caps': 'caps',
+  'common-ligatures': 'common', 'no-common-ligatures': 'common',
+  'discretionary-ligatures': 'discretionary',
+  'no-discretionary-ligatures': 'discretionary',
+  'historical-ligatures': 'historical', 'no-historical-ligatures': 'historical',
+  'contextual': 'contextual', 'no-contextual': 'contextual',
+  'lining-nums': 'figure', 'oldstyle-nums': 'figure',
+  'proportional-nums': 'spacing', 'tabular-nums': 'spacing',
+  'diagonal-fractions': 'fraction', 'stacked-fractions': 'fraction',
+  'ordinal': 'ordinal', 'slashed-zero': 'slashed-zero',
+  'jis78': 'form', 'jis83': 'form', 'jis90': 'form', 'jis04': 'form',
+  'simplified': 'form', 'traditional': 'form',
+  'full-width': 'width', 'proportional-width': 'width',
+  'ruby': 'ruby',
+  'historical-forms': 'historical-forms',
+  'sub': 'position', 'super': 'position',
+  'text': 'emoji', 'emoji': 'emoji', 'unicode': 'emoji',
+};
+
+/// Funções de `font-variant-alternates`, cada uma no máximo uma vez (o
+/// conteúdo não é conferido).
+const Set<String> _variantFunctions = {
+  'stylistic', 'styleset', 'character-variant', 'swash', 'ornaments', //
+  'annotation',
+};
+
+/// `font-variant` (CSS Fonts 4 §6.6): `normal`, `none` ou a combinação dos
+/// subgrupos, sem repetir. Só o `small-caps` e o `all-small-caps` do grupo
+/// de maiúsculas viram `smallCaps`.
 CssValue? _fontVariant(List<CssToken> c) {
   var small = false;
+  final seen = <String>{};
   for (final t in c) {
-    if (t.type != CssTokenType.ident) return null;
-    final v = cssAsciiLower(t.value);
-    if (v == 'small-caps' || v == 'all-small-caps') small = true;
+    final String key;
+    if (t.type == CssTokenType.ident) {
+      final v = cssAsciiLower(t.value);
+      if (v == 'normal' || v == 'none') {
+        if (c.length != 1) return null;
+        return const CssKeywordValue(CssFontVariant.normal);
+      }
+      final g = _variantWords[v];
+      if (g == null) return null;
+      key = g;
+      if (v == 'small-caps' || v == 'all-small-caps') small = true;
+    } else if (t.type == CssTokenType.function) {
+      final f = cssAsciiLower(t.value);
+      if (!_variantFunctions.contains(f)) return null;
+      key = f;
+    } else {
+      return null;
+    }
+    if (!seen.add(key)) return null;
   }
   return CssKeywordValue(
     small ? CssFontVariant.smallCaps : CssFontVariant.normal,
+  );
+}
+
+const Set<String> _capsWords = {
+  'normal', 'small-caps', 'all-small-caps', 'petite-caps', 'all-petite-caps', //
+  'unicase', 'titling-caps',
+};
+
+/// `font-variant-caps` (CSS Fonts 4 §6.5): uma palavra da lista.
+CssValue? _fontVariantCaps(List<CssToken> c) {
+  final k = _keyword(c);
+  if (k == null || !_capsWords.contains(k)) return null;
+  return CssKeywordValue(
+    k == 'small-caps' || k == 'all-small-caps'
+        ? CssFontVariant.smallCaps
+        : CssFontVariant.normal,
   );
 }
 
@@ -768,6 +841,7 @@ CssValue? _decorationLine(List<CssToken> c) {
 CssValue? _decorationShorthand(List<CssToken> c) {
   final seen = <String>{};
   var none = false, style = false, color = false, thickness = false;
+  var lastLine = false;
   for (final t in c) {
     final String kind;
     switch (t.type) {
@@ -776,7 +850,9 @@ CssValue? _decorationShorthand(List<CssToken> c) {
         if (v == 'none') {
           kind = 'none';
         } else if (_decorationLines.contains(v)) {
-          if (!seen.add(v)) return null;
+          // As linhas formam um componente só: contíguas (§2.4).
+          if (!seen.add(v) || (seen.length > 1 && !lastLine)) return null;
+          lastLine = true;
           continue;
         } else if (_decorationStyles.contains(v)) {
           kind = 'style';
@@ -808,6 +884,7 @@ CssValue? _decorationShorthand(List<CssToken> c) {
       default:
         return null;
     }
+    lastLine = false;
     switch (kind) {
       case 'none':
         if (none) return null;
@@ -959,6 +1036,10 @@ const Set<String> _systemFonts = {
   'caption', 'icon', 'menu', 'message-box', 'small-caption', 'status-bar', //
 };
 
+const Set<String> _reservedFamily = {
+  'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'default', //
+};
+
 const Set<String> _stretchWords = {
   'ultra-condensed', 'extra-condensed', 'condensed', 'semi-condensed', //
   'semi-expanded', 'expanded', 'extra-expanded', 'ultra-expanded',
@@ -980,7 +1061,8 @@ _Parsed? _font(List<CssToken> c) {
     if (t.type == CssTokenType.number) {
       if (weight != null) break;
       final w = _weightOf(t);
-      if (w == null) return null;
+      // Fora de [1, 1000] não é peso: cai para o tamanho (`0 serif`).
+      if (w == null) break;
       weight = w;
       i++;
       continue;
@@ -1017,23 +1099,37 @@ _Parsed? _font(List<CssToken> c) {
     final h = c[i];
     final ok = switch (h.type) {
       CssTokenType.number ||
-      CssTokenType.dimension ||
-      CssTokenType.percentage => _finite(h.number),
+      CssTokenType.percentage => _finite(h.number) && h.number >= 0,
+      CssTokenType.dimension => _isLength(h) && h.number >= 0,
       CssTokenType.ident => cssAsciiLower(h.value) == 'normal',
       _ => false,
     };
     if (!ok) return null;
     i++;
   }
-  // Família: nomes (idents ou strings) separados por vírgula.
+  // Família: nomes separados por vírgula; um nome é uma string ou uma
+  // sequência de idents (CSS Fonts 4 §3.1). A palavra global ou `default` só
+  // é inválida como primeiro ident do nome (como no Chromium).
   if (i >= c.length) return null;
   var expectName = true;
+  var idents = 0, strings = 0;
   for (; i < c.length; i++) {
     final t = c[i];
     if (t.type == CssTokenType.comma) {
       if (expectName) return null;
       expectName = true;
-    } else if (t.type == CssTokenType.ident || t.type == CssTokenType.string) {
+      idents = 0;
+      strings = 0;
+    } else if (t.type == CssTokenType.ident) {
+      if (strings > 0) return null;
+      if (idents == 0 && _reservedFamily.contains(cssAsciiLower(t.value))) {
+        return null;
+      }
+      idents++;
+      expectName = false;
+    } else if (t.type == CssTokenType.string) {
+      if (idents > 0 || strings > 0) return null;
+      strings++;
       expectName = false;
     } else {
       return null;
@@ -1182,8 +1278,8 @@ _Parsed? _columns(List<CssToken> c) {
       autos++;
       continue;
     }
-    if (t.type == CssTokenType.number) {
-      if (count != null) return null;
+    // `0` não é contagem (≥ 1), mas é comprimento: vira a largura.
+    if (t.type == CssTokenType.number && count == null && t.number != 0) {
       count = _columnCount(t);
       if (count == null) return null;
     } else {

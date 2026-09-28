@@ -99,7 +99,11 @@ void main() {
       'square none': ['listStyleType=square'],
       'none none': ['listStyleType=none'],
       'square url(x.png) none': [],
-      'inside outside': [],
+      // O segundo inside/outside é um <counter-style-name> (CSS Counter Styles
+      // 3 §3.1); o Chromium aceita.
+      'inside outside': ['listStyleType=unknown-list-style'],
+      'inside outside inside': [],
+      'square inside outside': [],
       'square circle': [],
     });
   });
@@ -182,12 +186,44 @@ void main() {
       'oldstyle-nums small-caps': ['fontVariant=smallCaps'],
       'oldstyle-nums': ['fontVariant=normal'],
       'normal': ['fontVariant=normal'],
+      'none': ['fontVariant=normal'],
+      'stylistic(x)': ['fontVariant=normal'],
+      'small-caps swash(a) tabular-nums': ['fontVariant=smallCaps'],
+      'sub': ['fontVariant=normal'],
+      'emoji': ['fontVariant=normal'],
+      'ordinal slashed-zero': ['fontVariant=normal'],
+      'tabular-nums diagonal-fractions': ['fontVariant=normal'],
+      'common-ligatures discretionary-ligatures': ['fontVariant=normal'],
+      'full-width ruby': ['fontVariant=normal'],
+      // Chromium 153: cada subgrupo no máximo uma vez (CSS Fonts 4 §6.6).
+      'foo': [],
+      'a a': [],
+      'small-caps foo': [],
+      'normal small-caps': [],
+      'none small-caps': [],
+      'small-caps petite-caps': [],
+      'small-caps small-caps': [],
+      'lining-nums oldstyle-nums': [],
+      'tabular-nums proportional-nums': [],
+      'common-ligatures no-common-ligatures': [],
+      'contextual no-contextual': [],
+      'jis78 jis83': [],
+      'sub super': [],
+      'swash(a) swash(b)': [],
+      'unknown(x)': [],
       '"x"': [],
       '2': [],
     });
     _table('font-variant-caps', {
       'small-caps': ['fontVariant=smallCaps'],
+      'all-small-caps': ['fontVariant=smallCaps'],
       'petite-caps': ['fontVariant=normal'],
+      'titling-caps': ['fontVariant=normal'],
+      'normal': ['fontVariant=normal'],
+      'foo': [],
+      'none': [],
+      'small-caps all-small-caps': [],
+      'oldstyle-nums': [],
     });
     _table('text-transform', {
       'uppercase': ['textTransform=uppercase'],
@@ -260,6 +296,32 @@ void main() {
       'italic 1em': [],
       'italic serif': [],
       'italic italic 1em x': [],
+      // Um 0 (ou número fora de [1, 1000]) no prefixo não é peso: é o tamanho.
+      '0 serif': ['fontStyle=normal', 'fontVariant=normal', 'fontWeight=400'],
+      '0/0 a': ['fontStyle=normal', 'fontVariant=normal', 'fontWeight=400'],
+      '1001 serif': [],
+      // Família (CSS Fonts 4 §3.1): global e `default` só como primeiro ident.
+      '1em inherit': [],
+      '1em default': [],
+      '1em a, inherit': [],
+      '1em "a" b': [],
+      '1em a "b"': [],
+      '1em "a" "b"': [],
+      '1em a inherit': [
+        'fontStyle=normal',
+        'fontVariant=normal',
+        'fontWeight=400',
+        'fontSize=same',
+      ],
+      '1em/-1 x': [],
+      '1em/-1% x': [],
+      '1em/1foo x': [],
+      '1em/0 x': [
+        'fontStyle=normal',
+        'fontVariant=normal',
+        'fontWeight=400',
+        'fontSize=same',
+      ],
       '1em/ x': [],
       '1em x,': [],
       '1em x, , y': [],
@@ -312,6 +374,12 @@ void main() {
       'underline from-font auto': [],
       'underline 5': [],
       'underline foo()': [],
+      // As linhas são um componente só, contíguas (CSS Text Decoration 3
+      // §2.4); o Chromium recusa a intercalada.
+      'underline red overline': [],
+      'underline 2px line-through': [],
+      'underline overline red': ['textDecoration=decoration(u=true, s=false)'],
+      'red underline overline': ['textDecoration=decoration(u=true, s=false)'],
       'underline #ggg': [],
       'none underline': [],
       '"x"': [],
@@ -359,7 +427,7 @@ void main() {
       'each-line': [],
     });
 
-    test('valor não finito (1e999, literal de 65 dígitos) é recusado', () {
+    test('valor não finito (1e999, literal de 100 dígitos) é recusado', () {
       for (final n in ['1e999', '-1e999', '1' * 100]) {
         expect(_decl('font-weight', n), isEmpty, reason: n);
         expect(_decl('width', '${n}px'), isEmpty, reason: n);
@@ -373,7 +441,11 @@ void main() {
         expect(_decl('font', '$n 1em x'), isEmpty, reason: n);
         expect(_decl('font', '1em/$n x'), isEmpty, reason: n);
         expect(_decl('vertical-align', '${n}px'), isEmpty, reason: n);
-        expect(_decl('text-decoration', 'underline ${n}px'), isEmpty);
+        expect(
+          _decl('text-decoration', 'underline ${n}px'),
+          isEmpty,
+          reason: n,
+        );
       }
     });
 
@@ -491,6 +563,12 @@ void main() {
       'auto': ['columnCount=auto', 'columnWidth=auto'],
       '2 3': [],
       'auto auto auto': [],
+      // 0 não é contagem, mas é comprimento (CSS Multi-column 1 §3.3).
+      '0': ['columnCount=auto', 'columnWidth=0 (degrada)'],
+      '0 2': ['columnCount=2 (degrada)', 'columnWidth=0 (degrada)'],
+      '2 0': ['columnCount=2 (degrada)', 'columnWidth=0 (degrada)'],
+      '0 0': [],
+      '-1': [],
     });
     _table('writing-mode', {
       'vertical-rl': ['writingMode=vertical-rl (degrada)'],
@@ -527,7 +605,9 @@ void main() {
   group('hostis: linear', () {
     test('valor com 200 000 componentes e 100 000 blocos', () {
       final sw = Stopwatch()..start();
-      expect(_decl('font-variant', 'a ' * 200000), hasLength(1));
+      expect(_decl('font-variant', 'small-caps ' * 200000), isEmpty);
+      expect(_decl('font-variant', 'stylistic(x) ' * 200000), isEmpty);
+      expect(_decl('font-variant', 'small-caps oldstyle-nums'), hasLength(1));
       expect(_decl('margin', 'f(${'(' * 100000}${')' * 100000})'), isEmpty);
       expect(_decl('font', '1em ${'x, ' * 100000}y'), hasLength(4));
       sw.stop();
