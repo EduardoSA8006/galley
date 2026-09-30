@@ -119,6 +119,98 @@ void main() {
     });
   });
 
+  group('códigos e exceção do CSS', () {
+    test(
+      'quatro códigos com a severidade de doc/09 §3 e spec do CSS §12.1',
+      () {
+        final codes = {
+          EpubDiagnosticCode.unsupportedLayout: EpubSeverity.warning,
+          EpubDiagnosticCode.stylesheetIgnored: EpubSeverity.warning,
+          EpubDiagnosticCode.stylesheetMediaIgnored: EpubSeverity.info,
+          EpubDiagnosticCode.cssRuleIgnored: EpubSeverity.info,
+        };
+        for (final MapEntry(key: code, value: severity) in codes.entries) {
+          expect(code.defaultSeverity, severity, reason: code.name);
+          expect(code.toString(), code.name);
+        }
+        expect(codes.keys.map((c) => c.name).toSet(), {
+          'unsupportedLayout',
+          'stylesheetIgnored',
+          'stylesheetMediaIgnored',
+          'cssRuleIgnored',
+        });
+      },
+    );
+
+    test('EpubSectionParseException: toString, href e cause', () {
+      const cause = FormatException('css');
+      final e = EpubSectionParseException(
+        'folha ilegível',
+        href: 'OEBPS/Text/c.xhtml',
+        cause: cause,
+      );
+      expect(
+        e.toString(),
+        'EpubSectionParseException(OEBPS/Text/c.xhtml): folha ilegível',
+      );
+      expect(e.cause, same(cause));
+      expect(e, isA<EpubException>());
+    });
+
+    test(
+      'strict: warning do CSS lança EpubSectionParseException; info não',
+      () {
+        final sink = DiagnosticSink(strict: true);
+        EpubException onStrict(String m) =>
+            EpubSectionParseException(m, href: 'c.xhtml');
+        sink.emit(
+          EpubDiagnosticCode.cssRuleIgnored,
+          href: 'a.css',
+          message: 'regra ignorada',
+          onStrict: onStrict,
+        );
+        sink.emit(
+          EpubDiagnosticCode.stylesheetMediaIgnored,
+          href: 'a.css',
+          message: 'print',
+          onStrict: onStrict,
+        );
+        sink.emit(
+          EpubDiagnosticCode.cssRuleIgnored,
+          href: 'a.css',
+          message: 'outra regra ignorada',
+          onStrict: onStrict,
+        );
+        // Em strict o info continua info, registrado e somado, sem lançar.
+        expect(sink.diagnostics, hasLength(2));
+        final [rule, media] = sink.diagnostics;
+        expect(rule.code, EpubDiagnosticCode.cssRuleIgnored);
+        expect(rule.severity, EpubSeverity.info);
+        expect(rule.details['count'], 2);
+        expect(media.code, EpubDiagnosticCode.stylesheetMediaIgnored);
+        expect(media.severity, EpubSeverity.info);
+        expect(media.details['count'], 1);
+        expect(sink.lastStrictException, isNull);
+        expect(
+          () => sink.emit(
+            EpubDiagnosticCode.stylesheetIgnored,
+            href: 'a.css',
+            message: 'ciclo',
+            onStrict: onStrict,
+          ),
+          throwsA(
+            isA<EpubSectionParseException>().having(
+              (e) => e.message,
+              'message',
+              'stylesheetIgnored: ciclo',
+            ),
+          ),
+        );
+        expect(sink.lastStrictException, isA<EpubSectionParseException>());
+      },
+    );
+  });
+
   group('EpubDiagnostic', () {
     test('details é unmodifiable', () {
       final d = EpubDiagnostic(

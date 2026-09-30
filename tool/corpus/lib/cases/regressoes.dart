@@ -225,4 +225,44 @@ List<CorpusCase> regressoesCases() => [
       ).build();
     },
   ),
+  CorpusCase(
+    group: _group,
+    slug: 'css-latin1',
+    readme: 'Folhas em Latin-1, uma sem `@charset` (cai para Latin-1 com diagnóstico) e uma com `@charset "iso-8859-1"`: as classes acentuadas casam.',
+    diagnostics: ['encodingFallback'],
+    build: () {
+      final b = EpubBuilder(slug: 'css-latin1', title: 'Latin-1');
+      for (final (name, css) in [
+        ('sem-charset.css', '.citação { font-style: italic }\n'),
+        (
+          'com-charset.css',
+          '@charset "iso-8859-1";\n.lição { font-weight: bold }\n',
+        ),
+      ]) {
+        b.resources.add(
+          EpubResource(
+            path: '${b.opfDir}/Styles/$name',
+            bytes: latin1.encode(css),
+            mediaType: 'text/css',
+          ),
+        );
+      }
+      final r = b.addChapter(
+        'cap01.xhtml',
+        xhtml(
+          title: 'Latin-1',
+          cssHrefs: const [
+            '../Styles/sem-charset.css',
+            '../Styles/com-charset.css',
+          ],
+          body:
+              '<h1>Latin-1</h1>'
+              '<p class="citação">Itálico pela folha sem @charset.</p>'
+              '<p class="lição">Negrito pela folha com @charset.</p>',
+        ),
+      );
+      b.chapterInSpineAndToc(r, 'Latin-1');
+      return b.build();
+    },
+  ),
 ];

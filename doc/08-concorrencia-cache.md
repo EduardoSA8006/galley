@@ -194,7 +194,7 @@ Checkpoints obrigatórios (cada um é um `yield` no gerador da tarefa):
 | Inflate e CRC de entrada | A cada 64 KiB completos de saída e mais um ao terminar; no stored, o passo é o CRC de cada 64 KiB |
 | Parse do XHTML (`html.parse`) | Nenhum dentro da chamada, que é atômica (§1). No web, a cada pedaço de ~16 KB quando o parse fatiável existir (P10) |
 | Caminhada no DOM e construção da IR | A cada bloco emitido e a cada 64 KB de texto dentro de um bloco |
-| Cascata de CSS | A cada regra |
+| Cascata de CSS | A cada 4 096 passos de trabalho, contados desde a última cessão: elemento visitado (`1 + readUnits ~/ 64`, com as unidades de nome, `id` e `class` lidas ao montá-lo, somadas antes da cessão seguinte), consulta a balde, candidato (inclusive o rejeitado pelo Bloom), seletor simples testado (composto universal: 1), declaração aplicada, dica de apresentação, declaração de `style=""` e, só na cessão (fora do orçamento), `text.length ~/ 2` no parse de um `style=""` novo ([spec do CSS](specs/2026-09-26-css-design.md) §10.6) |
 | Paginação | A cada bloco (ver §2); em tabela, a cada célula medida |
 | Serialização do cache | A cada seção |
 | Busca linear | A cada bloco |
@@ -211,12 +211,22 @@ sem adicionar dependência.
 ### 4.1 Chave (Emenda 7)
 
 ```
-hex(fnv1a64(bytesDaSeção ‖ bytesDoCss[0] ‖ bytesDoCss[1] ‖ ...)) + ":" + IR_SCHEMA_VERSION
+hex(fnv1a64(bytesDaSeção ‖ folha[0] ‖ folha[1] ‖ ...)) + ":" + IR_SCHEMA_VERSION
+folha[i] = bytesHash do arquivo, ou o texto do <style>, na ordem de SectionSheets.cacheKey
 ```
 
 Os CSS entram na ordem da cascata ([03](03-camada-a-ir.md) §6). Sem eles, dois
 EPUBs com o mesmo XHTML e CSS diferente colidiriam, e o segundo receberia a IR do
 primeiro (com `display: none` errado, marcadores de lista errados, etc.).
+
+Na implementação (Fase 1, sub-projeto 3;
+[spec do CSS](specs/2026-09-26-css-design.md) §9.7), as folhas entram como a
+lista ordenada de `SheetRef` que `loadSectionSheets` devolve
+(`SectionSheets.cacheKey`, no máximo 64 entradas, inclusive repetidas): o
+`bytesHash` (FNV-1a 64 dos bytes crus, 16 hex) de cada arquivo e o texto de
+cada `<style>`, na ordem da cascata; as folhas ignoradas não entram. A folha
+padrão também não entra: mudá-la exige bump de `IR_SCHEMA_VERSION`. `Fnv1a64`
+(incremental, exato na VM e no JS) está em `lib/src/container/fnv1a64.dart`.
 
 Por que FNV-1a 64 e não SHA-1 (P8, decidida em 2026-09-09): o spike S6 mediu o
 SHA-1 próprio em **cerca de 16 µs/KB em JIT**, o que dá ~8 ms para uma seção de

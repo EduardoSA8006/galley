@@ -40,7 +40,9 @@ contrato de fidelidade.
 ### Classe 2 — Tipografia relativa
 
 `font-style`, `font-weight`, `font-variant`, `text-transform`, `text-indent`,
-tamanhos e margens em `em`/`%`/`rem`, alinhamento de elementos estruturais.
+tamanhos e margens em `em`/`%`/`rem`, alinhamento de elementos estruturais,
+`text-decoration` (sublinhado e riscado, que **propagam** aos descendentes em
+vez de herdar).
 
 Regra geral: **preserve o relativo, ancore o absoluto.**
 
@@ -54,6 +56,12 @@ aos 18px escolhidos. Controle e hierarquia ao mesmo tempo.
 
 O **quanto** da Classe 2 é honrado depende do perfil de fidelidade (§3.1). A
 classificação em si não muda.
+
+A classificação é feita na cascata (Fase 1, sub-projeto 3;
+[spec do CSS](specs/2026-09-26-css-design.md) §3 e §7): o `ComputedStyle` de
+cada elemento só tem propriedades das Classes 1 e 2, marcadas com a classe; o
+que é Classe 3 é descartado em silêncio no parse, e a intenção do usuário
+entra depois, na Camada B.
 
 ### Classe 3 — Aparência global
 

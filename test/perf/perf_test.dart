@@ -1,6 +1,6 @@
 // Casos de desempenho: primitivas da Fase 0 (spec do harness §2.4), o
-// contêiner (spec do contêiner §10) e a Publicação (spec da Publicação §11)
-// da Fase 1. Rodar com:
+// contêiner (spec do contêiner §10), a Publicação (spec da Publicação §11) e
+// o CSS (spec do CSS §15) da Fase 1. Rodar com:
 //
 //   flutter test --tags perf --run-skipped test/perf
 //
@@ -19,8 +19,12 @@ import 'package:galley/src/container/byte_source.dart';
 import 'package:galley/src/container/container.dart';
 import 'package:galley/src/container/font_obfuscation.dart';
 import 'package:galley/src/container/zip/zip_container.dart';
+import 'package:galley/src/css/cascade.dart';
+import 'package:galley/src/css/loader.dart';
+import 'package:galley/src/css/parser.dart';
 import 'package:galley/src/diagnostics/diagnostic.dart';
 import 'package:galley/src/publication/read_publication.dart';
+import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 
 import '../../tool/corpus/lib/png.dart';
@@ -167,6 +171,78 @@ List<PerfCase> _publicationCases() {
   ];
 }
 
+List<PerfCase> _cssCases() {
+  const book = 'test/corpus/reais/leaves-of-grass-en/book.epub';
+  const section = 'epub/text/song-of-myself.xhtml';
+  late List<String> sheets;
+  late Document document;
+  late SectionSheets sectionSheets;
+
+  Future<String> read(ZipContainer c, String path) async {
+    final r = (await c.fetch(path))!;
+    for (final _ in r.decode()) {}
+    return utf8.decode(r.bytes);
+  }
+
+  Future<ZipContainer> open() => ZipContainer.open(
+    MemoryEpubByteSource(File(book).readAsBytesSync()),
+    sink: DiagnosticSink(),
+  );
+
+  return [
+    PerfCase(
+      id: 'css.parse',
+      setUp: () async {
+        final c = await open();
+        sheets = [
+          for (final name in ['core', 'se', 'local'])
+            await read(c, 'epub/css/$name.css'),
+        ];
+        await c.close();
+      },
+      run: () {
+        for (final text in sheets) {
+          _sink += parseStyleSheet(text).rules.length;
+        }
+      },
+      innerIterations: 11, // ≈ 5,8 ms por amostra (0,53 ms as três folhas)
+    ),
+    PerfCase(
+      id: 'css.cascade',
+      // O Document e as SectionSheets são montados uma vez: o caso mede só a
+      // cascata, que não muda o DOM.
+      setUp: () async {
+        final c = await open();
+        document = html.parse(await read(c, section));
+        sectionSheets = await loadSectionSheets(
+          c,
+          document,
+          sectionPath: section,
+          cache: StyleSheetCache(),
+          sink: DiagnosticSink(),
+          containerSink: DiagnosticSink(),
+        );
+        await c.close();
+        // Sem as duas folhas da seção, o caso mediria uma cascata vazia.
+        if (sectionSheets.sheets.length != 2) {
+          throw StateError(
+            'css.cascade: esperadas 2 folhas, vieram '
+            '${sectionSheets.sheets.length}',
+          );
+        }
+      },
+      run: () => _sink += computeStylesSync(
+        document,
+        sectionSheets,
+        sectionPath: section,
+        sink: DiagnosticSink(),
+      ).length,
+      // Uma cascata já passa de 5 ms (≈ 6,2 ms no i5-11400H, medido em
+      // 2026-09-30, 2 816 elementos).
+    ),
+  ];
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -176,6 +252,7 @@ void main() {
     ..._phase0Cases(),
     ..._containerCases(),
     ..._publicationCases(),
+    ..._cssCases(),
   ]) {
     test(c.id, () async {
       final r = await measureCase(c);

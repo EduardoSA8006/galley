@@ -28,6 +28,14 @@ Ordem entre cascata e normalização: a cascata vem **antes** porque `display:
 none` remove subárvores e `white-space` decide o colapso. A normalização precisa
 saber os dois.
 
+A cascata está em `lib/src/css/` (Fase 1, sub-projeto 3;
+[spec do CSS](specs/2026-09-26-css-design.md)): o prólogo assíncrono da seção
+junta as folhas (`loadSectionSheets`, com `@import` e um cache de folhas por
+publicação) e a cascata (`computeStyles`, um gerador que cede a cada 4 096
+passos) entrega ao IR um `SectionStyles` — o `ComputedStyle` de cada elemento,
+com cascata, herança e propagação de `text-decoration` resolvidas. O IR só lê o
+resultado; não refaz cascata.
+
 ## 2. Fonte de bytes e leitor de ZIP
 
 ### 2.1 `EpubByteSource` (Emenda 8)
@@ -352,33 +360,60 @@ TTS querem.
 ## 6. Subconjunto de CSS suportado
 
 Só o que a Classe 1 e a Classe 2 exigem
-([02-modelo-de-estilo.md](02-modelo-de-estilo.md)).
+([02-modelo-de-estilo.md](02-modelo-de-estilo.md)). Implementado em
+`lib/src/css/` (Fase 1, sub-projeto 3); a tabela completa de valores,
+mapeamentos e limites está na [spec do CSS](specs/2026-09-26-css-design.md)
+§7, e este é o resumo.
 
-**Suportado:** `display` (block, inline, list-item, table e derivados, none),
-`font-style`, `font-weight`, `font-variant` (small-caps), `text-transform`,
-`text-indent` (registrado, honrado só em `faithful`), `text-align` em elementos
-estruturais, `margin`, `padding` (idem), `list-style-type`, `vertical-align`
-para sup/sub, `width`/`height` em imagens, `page-break-*`/`break-*`,
-`white-space`, `direction`, `font-size` relativo (só a direção, §4).
+**Suportado.** "Registrado" quer dizer: o valor entra no `ComputedStyle` com a
+classe dele, e quem decide se é honrado é a Camada B, pelo perfil
+([02](02-modelo-de-estilo.md) §3.1). Na Classe 1: `display` (`inline-*` →
+inline; `flex`, `grid`, `flow-root` e `table*` → block, sem "blocoficar" os
+filhos; list-item; none), `white-space`, `direction`, `vertical-align` (só
+sup/sub distinguidos), `list-style-type` e o atalho `list-style`, `break-*` e
+`page-break-*` (a mesma propriedade), `width`/`height` em `em` ou `%`
+(limitados a [0, 100]). Na Classe 2: `text-align` (a palavra herdada;
+`justify` vira `start`), `text-decoration` (sublinhado e riscado,
+**propagados** aos descendentes, alimentando `InlineAttr.underline` e
+`InlineAttr.strikethrough`), `font-style`, `font-weight` (peso numérico, com
+`bolder`/`lighter` do CSS Fonts 4), `font-variant` (small-caps),
+`text-transform`, `font-size` relativo (só a direção, o `CssFontSizeStep` que
+`sizeSmaller`/`sizeLarger` de §4 já guardam), `margin`, `padding` e
+`text-indent` em `em` (`px`, `pt` e `cm` convertidos com 16px = 1em, `%` sobre
+30em, limitados).
 
-**Reconhecido e reportado como degradação:** `float`, `columns`,
-`writing-mode`, `position` (exceto `static`/`relative`), `::first-letter`,
-`@media` (as regras dentro são aplicadas como se a media query casasse quando ela
-for `screen`/`all`, e ignoradas caso contrário), `ruby-*`.
+**Reconhecido e reportado como degradação** (`unsupportedLayout` quando o
+valor vence a cascata num elemento): `float`, `columns`/`column-count`/
+`column-width`, `writing-mode` (e `-epub-`/`-webkit-`), `position` (exceto
+`static`/`relative`). Pseudo-elementos, inclusive `::first-letter`, caem com
+`cssRuleIgnored`. `@media`: as regras dentro valem quando a lista de media é
+vazia ou quando alguma query é `screen`, `all`, `only screen` ou `only all`,
+sem condição, ou `not <tipo>` com um tipo que não é `screen`/`all` (sem
+caixa, como no Media Queries); caso contrário, são ignoradas com
+`stylesheetMediaIgnored` ([spec do CSS](specs/2026-09-26-css-design.md) §5).
 
-**Ignorado em silêncio:** cor, família, tamanho absoluto, entrelinha, borda,
-sombra, `@font-face` (no perfil `uniform`).
+**Ignorado em silêncio:** cor, fundo, família, tamanho absoluto, entrelinha,
+borda, sombra, propriedades lógicas (`margin-inline-*`), `@font-face` e as
+demais at-rules (no perfil `uniform`).
 
 Seletores: tipo, classe, id, universal, descendente, filho (`>`), irmão
-adjacente (`+`), atributo por igualdade (`[epub|type="noteref"]` aparece em CSS
-de editora), pseudo-classes `:first-child`, `:last-child`, `:nth-child(n)` com
-argumento numérico. Especificidade completa em três componentes (id, classe e
-atributo e pseudo-classe, tipo), com `!important` e ordem de fonte como
-desempate. Nada de `:has()`, `:not()` com lista, combinadores gerais de irmão
-(`~`) ou `:nth-*` com fórmula.
+adjacente (`+`), atributo por igualdade (`[epub|type="noteref"]`, com o
+prefixo declarado por `@namespace`, casado com o atributo literal
+`epub:type`), pseudo-classes `:first-child`,
+`:last-child` e `:nth-child(n)` com argumento inteiro. Especificidade do
+Selectors 4, com `!important`, `style=""` anexado e ordem de fonte como
+desempate. Numa lista de seletores, um seletor inválido derruba a regra
+inteira, como no CSS; um válido fora do subconjunto (`:not()`, `~`, `:nth-*`
+com fórmula, `:has()`, `[attr]`) cai sozinho, com `cssRuleIgnored`, e os
+outros continuam.
 
-Fontes de CSS, na ordem da cascata: `<link rel="stylesheet">` na ordem do
-documento, `<style>` inline, atributo `style=""` (maior especificidade).
+Fontes de CSS, na ordem da cascata: a folha padrão do HTML recortada, com as
+dicas `hidden` e `dir` ([spec do CSS](specs/2026-09-26-css-design.md) §8);
+depois `<link rel="stylesheet">` e `<style>` na ordem do documento (inclusive o
+`<style>` de SVG inline, e não os de `<template>`), cada folha precedida dos
+seus `@import` (relativos à folha que importa, com tetos de profundidade,
+número e tamanho); por fim o atributo `style=""`, que vence qualquer seletor
+da mesma camada.
 
 ## 7. Encoding
 

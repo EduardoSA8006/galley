@@ -12,9 +12,9 @@ conhecimento adquirido sobre algo que já derrubou um leitor em produção.
 
 | Grupo | Casos |
 |---|---|
-| **Regressões conhecidas** | `text-align` inline causando altura zero; capítulo renderizando em branco; item só-imagem no spine; `href` com separador do Windows; `href` URL-encoded; encoding declarado errado (Latin-1, Shift-JIS, BOM lido como UTF-8); NCX incompleto com órfãos; imagem de capa ausente do manifest; `<a id="x"/>` auto-fechado antes de texto |
+| **Regressões conhecidas** | `text-align` inline causando altura zero; capítulo renderizando em branco; item só-imagem no spine; `href` com separador do Windows; `href` URL-encoded; encoding declarado errado (Latin-1, Shift-JIS, BOM lido como UTF-8); NCX incompleto com órfãos; imagem de capa ausente do manifest; `<a id="x"/>` auto-fechado antes de texto; folha CSS em Latin-1 sem `@charset` |
 | **Estrutura** | Capítulo de 200 mil palavras; capítulo de 3 palavras; spine de 800 itens; TOC com 6 níveis; `page-list` presente; OPF em subpasta com `href` relativos com `..`; `linear="no"` |
-| **Conteúdo difícil** | Tabela larga com `colspan`; tabela aninhada; tabela com `thead` repetível; lista de 5 níveis; `<ol start="7">`; 400 notas de rodapé; SVG inline; SVG embrulhando raster; imagem sem dimensão intrínseca; `pre` com linhas de 300 colunas; `text-transform: uppercase` com `ß`; `&nbsp;` e U+200B |
+| **Conteúdo difícil** | Tabela larga com `colspan`; tabela aninhada; tabela com `thead` repetível; lista de 5 níveis; `<ol start="7">`; 400 notas de rodapé; SVG inline; SVG embrulhando raster; imagem sem dimensão intrínseca; `pre` com linhas de 300 colunas; `text-transform: uppercase` com `ß`; `&nbsp;` e U+200B; `@import` em cadeia; `media` misto em `<link>`, `<style>`, `@media` e `@import` |
 | **Faixa B** | `float` com contorno; `columns`; `writing-mode: vertical-rl`; ruby/furigana; MathML |
 | **Escrita** | RTL (árabe, hebraico) com `page-progression-direction: rtl`; CJK japonês e chinês com `lang` (unificação Han); grego politônico; devanágari; bidi misto (hebraico em livro em português) |
 | **Patologia** | ZIP com `mimetype` comprimido; ZIP64; `encryption.xml` de ofuscação de fonte IDPF e Adobe; `encryption.xml` de DRM LCP; OPF sem spine; arquivo truncado; CRC errado; seção de 3 MB |
@@ -244,6 +244,13 @@ i5-11400H, Linux 7.2.6, 2026-09-25, 15 amostras e 4 rodadas de calibração
 `paragraph.shape.1000`, +2,0% em `zlib.inflate.1mb`), abaixo do limite de
 20%.
 
+**Casos do CSS** (Fase 1, sub-projeto 3;
+[spec do CSS](specs/2026-09-26-css-design.md) §15): `css.parse`
+(`parseStyleSheet` nas três folhas do Standard Ebooks de
+`reais/leaves-of-grass-en`) e `css.cascade` (`computeStylesSync` sobre
+`song-of-myself.xhtml` do mesmo livro, 2 816 elementos, com o DOM e as folhas
+montados fora da medida).
+
 ### 4.3 Frame budget
 
 Além dos números acima, um teste de jank: percorrer 200 páginas em sequência e
@@ -280,6 +287,11 @@ warning é o esperado, e ganha uma segunda passada em `strict` que exige a
 exceção com o nome do código na mensagem
 ([spec da Publicação](specs/2026-09-26-publication-design.md) §10.1).
 
+No CSS, os warnings que tiram o caso do `strict` são `unsupportedLayout` e
+`stylesheetIgnored`, e a segunda passada espera `EpubSectionParseException`;
+`stylesheetMediaIgnored` é `info`, então um caso com uma folha `print` continua
+em `strict` ([spec do CSS](specs/2026-09-26-css-design.md) §14.1).
+
 ## 6. Fuzzing leve
 
 Um teste gera EPUBs sintéticos aleatórios (estrutura válida, conteúdo aleatório
@@ -287,3 +299,10 @@ de um gerador de XHTML com todas as tags suportadas, CSS aleatório do
 subconjunto) e roda as invariantes 1, 4, 7 e 9 sobre eles, com semente fixa no
 CI e semente aleatória em execução local. É barato e acha os bugs de fronteira
 (bloco vazio, seção só com imagem, lista sem itens) que o corpus curado não tem.
+
+O CSS tem um fuzz próprio (`test/css/css_fuzz_test.dart`): 400 mutações
+determinísticas de folhas, `<style>` e `style=""` de quatro livros do corpus,
+metade por `ZipContainer` e metade por `ProviderContainer`, um terço em
+`strict`; exige zero exceção fora de `EpubException` e, fora de `strict`,
+estilo para todo elemento ([spec do CSS](specs/2026-09-26-css-design.md)
+§14.2).

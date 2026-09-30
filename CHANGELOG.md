@@ -1,5 +1,13 @@
 ## Não lançado
 
+- Fase 1, sub-projeto 3 (CSS): tokenizador e parser do CSS Syntax recortado,
+  `@import` e `@media` com limites, seletores do subconjunto com índice pela
+  direita e filtro de Bloom, cascata com herança, propagação de
+  `text-decoration` e estilo computado classificado nas três classes, folha
+  padrão do HTML, atalho `all`; os códigos `stylesheetIgnored`,
+  `stylesheetMediaIgnored`, `cssRuleIgnored` e `unsupportedLayout` de
+  `EpubDiagnosticCode` públicos (o resto do CSS é interno).
+
 - Fase 1, sub-projeto 2 (publicação): `container.xml`, OPF (metadados com
   `refines`, série, datas parciais e `raw`), NAV e NCX com limites contra
   arquivo hostil, normalização de `href` com tentativa dupla de `%xx`,
