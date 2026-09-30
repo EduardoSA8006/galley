@@ -42,8 +42,9 @@ import 'tokenizer.dart';
 const int maxCascadeDepth = 256;
 
 /// Passos das regras do livro por seção: o maior uso real no corpus é
-/// 71 525 (`song-of-myself.xhtml`), ~58× abaixo; esgotado, custa ~0,25 s no
-/// desktop (JIT).
+/// 71 525 (`song-of-myself.xhtml`), ~58× abaixo; esgotado no pior caso por
+/// passo (`div … div p`, 32 compostos), custa ~0,14 s em JIT e ~0,13 s em
+/// AOT no i5-11400H (medido em 2026-09-30).
 const int cascadeBudget = 1 << 22;
 
 /// Um `yield` a cada este número de passos de todo o trabalho.

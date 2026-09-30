@@ -54,7 +54,10 @@ const int maxSheetAttemptsPerSection = 256;
 /// A folha de topo tem profundidade 0.
 const int maxImportDepth = 8;
 
-/// Unidades de código de fonte no cache (#15).
+/// Peso máximo do cache de folhas, em unidades de código (#15, spec §9.6 e
+/// #48): cada entrada pesa a chave mais o que guarda. Uma folha de arquivo
+/// pesa o caminho mais o fonte; uma de `<style>` pesa o texto duas vezes (a
+/// chave é o próprio texto, e o fonte guardado é ele de novo).
 const int maxCachedStyleSource = 8 * 1024 * 1024;
 
 const String _htmlNamespace = 'http://www.w3.org/1999/xhtml';
@@ -213,7 +216,8 @@ final class StyleSheetCache {
   @visibleForTesting
   int get length => _entries.length;
 
-  /// Peso somado das entradas, em unidades de código (testes).
+  /// Peso somado das entradas (chave mais o que guardam), em unidades de
+  /// código; não é só o fonte das folhas (testes).
   @visibleForTesting
   int get sourceUnits => _total;
 
