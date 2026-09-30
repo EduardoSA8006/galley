@@ -9,6 +9,7 @@ import 'package:galley/src/diagnostics/diagnostic.dart';
 import 'package:galley/src/diagnostics/exceptions.dart';
 import 'package:html/dom.dart';
 
+import '../container/support/zip_fixtures.dart' show ZipLayout;
 import 'support/css_fixtures.dart';
 
 String _link(
@@ -107,6 +108,33 @@ void main() {
       );
       expect(l.sheets.sheets, isEmpty);
       expect(l.container.totalFetches, 0);
+    });
+
+    test('<style type>: só vazio ou text/css exato, sem caixa', () async {
+      final l = await loadSheets(
+        const {},
+        xhtml(
+          head:
+              '<style type="">${_rule('v')}</style>'
+              '<style type="TEXT/CSS">${_rule('m')}</style>'
+              '<style type="text/css; charset=utf-8">${_rule('p')}</style>'
+              '<style type=" text/css ">${_rule('e')}</style>',
+        ),
+      );
+      expect(_names(l), ['v', 'm']);
+      expect(l.sink.diagnostics, isEmpty);
+    });
+
+    test('<link type>: parâmetro e espaço em volta ainda valem', () async {
+      final l = await loadSheets(
+        {'OEBPS/Styles/p.css': _rule('p'), 'OEBPS/Styles/e.css': _rule('e')},
+        xhtml(
+          head:
+              _link('../Styles/p.css', type: 'text/css; charset=utf-8') +
+              _link('../Styles/e.css', type: ' TEXT/CSS '),
+        ),
+      );
+      expect(_names(l), ['p', 'e']);
     });
 
     test('<style> com media e type', () async {
@@ -368,6 +396,65 @@ void main() {
       expect(d.code, EpubDiagnosticCode.resourceUnreadable);
       expect(d.details['reason'], 'unreadable');
       expect(d.details['exception'], contains('read falhou'));
+    });
+  });
+
+  group('ilegível (§9.3)', () {
+    test('resourceUnreadable tem o href do candidato que falhou', () async {
+      final containerSink = DiagnosticSink();
+      // O decodificado (r x.css) não existe; o normalizado falha na leitura.
+      final provider = MapProvider(
+        {'OEBPS/Styles/r%20x.css': _rule('r'), sectionPath: ''},
+        failingRead: {'OEBPS/Styles/r%20x.css'},
+      );
+      final container = CountingContainer(
+        await openProvider(provider, containerSink),
+      );
+      final sink = DiagnosticSink();
+      final sheets = await loadSectionSheets(
+        container,
+        parseXhtml(xhtml(head: _link('../Styles/r%20x.css'))),
+        sectionPath: sectionPath,
+        cache: StyleSheetCache(),
+        sink: sink,
+        containerSink: containerSink,
+      );
+      expect(sheets.sheets, isEmpty);
+      expect(container.fetches.keys, [
+        'OEBPS/Styles/r x.css',
+        'OEBPS/Styles/r%20x.css',
+      ]);
+      final d = sink.diagnostics.single;
+      expect(d.code, EpubDiagnosticCode.resourceUnreadable);
+      expect(d.href, 'OEBPS/Styles/r%20x.css');
+    });
+
+    test('decode() que lança sem strict (deflate inválido)', () async {
+      final w = ZipWriter()
+        ..add('mimetype', ascii.encode('application/epub+zip'), compress: false)
+        ..add('META-INF/container.xml', utf8.encode('<container/>'))
+        ..add('OEBPS/Styles/d.css', utf8.encode(_rule('d') * 20));
+      final zip = w.build();
+      // BFINAL = 1 e BTYPE = 11 (reservado) no primeiro byte do payload.
+      final at = ZipLayout(zip).local[2] + 30 + 'OEBPS/Styles/d.css'.length;
+      zip[at] = 0xFF;
+      final containerSink = DiagnosticSink();
+      final container = await openZipBytes(zip, containerSink);
+      final sink = DiagnosticSink();
+      final sheets = await loadSectionSheets(
+        container,
+        parseXhtml(xhtml(head: _link('../Styles/d.css'))),
+        sectionPath: sectionPath,
+        cache: StyleSheetCache(),
+        sink: sink,
+        containerSink: containerSink,
+      );
+      expect(sheets.sheets, isEmpty);
+      final d = sink.diagnostics.single;
+      expect(d.code, EpubDiagnosticCode.resourceUnreadable);
+      expect(d.href, 'OEBPS/Styles/d.css');
+      expect(d.details['reason'], 'unreadable');
+      await container.close();
     });
   });
 
@@ -762,11 +849,15 @@ void main() {
     test(
       'borda exata do cache: peso igual ao teto entra; um a mais, não',
       () async {
-        final cache = StyleSheetCache(maxSource: 40);
+        // O peso é a chave (o caminho pedido) mais o fonte, e o caminho
+        // real da entrada positiva (§9.6).
+        const igual = 'OEBPS/Styles/igual.css'; // 22 unidades
+        const mais = 'OEBPS/Styles/mais.css'; // 21 unidades
+        final cache = StyleSheetCache(maxSource: 2 * 22 + 40);
         final containerSink = DiagnosticSink();
         final container = await openCounting({
-          'OEBPS/Styles/igual.css': '/*${'a' * 36}*/', // 40 unidades
-          'OEBPS/Styles/mais.css': '/*${'b' * 37}*/', // 41 unidades
+          igual: '/*${'a' * 36}*/', // 40 unidades: pesa 84, o teto
+          mais: '/*${'b' * 39}*/', // 43 unidades: pesa 85
         }, containerSink: containerSink);
         for (var i = 0; i < 2; i++) {
           for (final name in ['igual', 'mais']) {
@@ -789,7 +880,8 @@ void main() {
     test(
       'LRU pelo tamanho do fonte; folha maior que o teto não entra',
       () async {
-        final cache = StyleSheetCache(maxSource: 100);
+        // Cada folha pesa 2 × 18 (chave e caminho real) + 40 = 76.
+        final cache = StyleSheetCache(maxSource: 200);
         final files = {
           'OEBPS/Styles/a.css': '/*${'a' * 36}*/', // 40 unidades
           'OEBPS/Styles/b.css': '/*${'b' * 36}*/',
@@ -811,10 +903,10 @@ void main() {
         );
         await load('a');
         await load('b');
-        expect(cache.sourceUnits, 80);
+        expect(cache.sourceUnits, 152);
         await load('a'); // a fica mais recente
-        await load('c'); // 120 > 100: sai b, o mais antigo
-        expect(cache.sourceUnits, 80);
+        await load('c'); // 228 > 200: sai b, o mais antigo
+        expect(cache.sourceUnits, 152);
         await load('a');
         await load('b');
         expect(container.fetches['OEBPS/Styles/a.css'], 1);
@@ -947,6 +1039,45 @@ void main() {
         expect(l.container.fetches['OEBPS/Text/$target'], 1, reason: target);
         expect(l.sheets.sheets, hasLength(5), reason: target);
       }
+    });
+
+    linear('faltas distintas de caminho longo: o cache fica no teto', () async {
+      const maxSource = 256 * 1024;
+      final cache = StyleSheetCache(maxSource: maxSource);
+      final containerSink = DiagnosticSink();
+      final container = await openCounting(
+        const {},
+        containerSink: containerSink,
+      );
+      final long = 'x' * 4096;
+      var peak = 0;
+      for (var s = 0; s < 20; s++) {
+        final sink = DiagnosticSink();
+        await loadSectionSheets(
+          container,
+          parseXhtml(
+            xhtml(
+              head: _links([
+                for (var i = 0; i < maxSheetAttemptsPerSection; i++)
+                  '../Styles/$long-$s-$i.css',
+              ]),
+            ),
+          ),
+          sectionPath: sectionPath,
+          cache: cache,
+          sink: sink,
+          containerSink: containerSink,
+        );
+        expect(sink.diagnostics.map((d) => d.code).toSet(), {
+          EpubDiagnosticCode.resourceMissing,
+        });
+        if (cache.sourceUnits > peak) peak = cache.sourceUnits;
+        expect(cache.sourceUnits, lessThanOrEqualTo(maxSource));
+      }
+      // Cada falta pesa a chave (> 4 KiB): cabem menos de 64 de uma vez.
+      expect(peak, greaterThan(maxSource - 8192));
+      expect(cache.length, lessThan(maxSource ~/ 4096));
+      await container.close();
     });
 
     linear('folha vazia ligada por 100 000 <link>', () async {

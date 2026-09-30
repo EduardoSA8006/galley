@@ -135,7 +135,8 @@ final class SectionSheets {
 sealed class _Entry {
   const _Entry();
 
-  /// Unidades de código de fonte que a entrada ocupa; negativa conta 0.
+  /// Unidades de código que a entrada guarda, fora a chave (§9.6): o fonte
+  /// da folha, ou o texto da falta. O cache soma a chave.
   int get weight => 0;
 }
 
@@ -157,7 +158,7 @@ final class _Parsed extends _Entry {
   final List<EpubDiagnostic> decodeDiagnostics;
 
   @override
-  int get weight => sheet.sourceLength;
+  int get weight => sheet.sourceLength + realPath.length;
 }
 
 /// Nenhum arquivo neste caminho.
@@ -170,12 +171,20 @@ final class _TooLarge extends _Entry {
 
   final String realPath;
   final int size;
+
+  @override
+  int get weight => realPath.length;
 }
 
 final class _Unreadable extends _Entry {
-  const _Unreadable(this.exception);
+  const _Unreadable(this.path, this.exception);
 
+  /// O candidato cuja leitura falhou.
+  final String path;
   final String exception;
+
+  @override
+  int get weight => path.length + exception.length;
 }
 
 /// Passaria do teto de bytes da seção; nunca vai para o cache.
@@ -186,47 +195,48 @@ final class _OverBudget extends _Entry {
 }
 
 /// Folhas parseadas, e as faltas, reaproveitadas entre as seções de uma
-/// publicação (os capítulos repetem a folha). LRU pelo tamanho do fonte.
+/// publicação (os capítulos repetem a folha). LRU pelo peso (§9.6): toda
+/// entrada, positiva ou negativa, pesa o comprimento da chave mais o que
+/// guarda, de modo que muitas faltas com caminho longo também expulsam.
 final class StyleSheetCache {
   StyleSheetCache({this.maxSource = maxCachedStyleSource});
 
   final int maxSource;
 
-  /// Chave `('file', caminho pedido)` ou `('style', texto)`.
-  final LinkedHashMap<(String, String), Object> _entries = LinkedHashMap();
+  /// Chave `('file', caminho pedido)` ou `('style', texto)`; o valor leva
+  /// o peso com que entrou.
+  final LinkedHashMap<(String, String), (Object, int)> _entries =
+      LinkedHashMap();
   int _total = 0;
 
   /// Entradas guardadas (testes).
   @visibleForTesting
   int get length => _entries.length;
 
-  /// Unidades de código de fonte guardadas (testes).
+  /// Peso somado das entradas, em unidades de código (testes).
   @visibleForTesting
   int get sourceUnits => _total;
 
   Object? _get((String, String) key) {
-    final value = _entries.remove(key);
-    if (value != null) _entries[key] = value; // mais recente no fim
-    return value;
+    final entry = _entries.remove(key);
+    if (entry == null) return null;
+    _entries[key] = entry; // mais recente no fim
+    return entry.$1;
   }
 
-  void _put((String, String) key, Object value, int weight) {
-    if (weight > maxSource) return; // maior que o teto: não entra
+  /// [stored] é o que a entrada guarda fora a chave; o peso soma a chave.
+  void _put((String, String) key, Object value, int stored) {
+    final weight = key.$2.length + stored;
     final old = _entries.remove(key);
-    if (old != null) _total -= _weightOf(old);
-    _entries[key] = value;
+    if (old != null) _total -= old.$2;
+    if (weight > maxSource) return; // maior que o teto: não entra
+    _entries[key] = (value, weight);
     _total += weight;
     while (_total > maxSource) {
       final oldest = _entries.keys.first;
-      _total -= _weightOf(_entries.remove(oldest)!);
+      _total -= _entries.remove(oldest)!.$2;
     }
   }
-
-  static int _weightOf(Object value) => switch (value) {
-    final _Entry e => e.weight,
-    final StyleSheet s => s.sourceLength,
-    _ => 0,
-  };
 
   _Entry? _file(String path) => _get(('file', path)) as _Entry?;
 
@@ -447,14 +457,22 @@ Set<String> _asciiTokens(String value) {
   return out;
 }
 
-/// `type` ausente, vazio ou `text/css` (sem caixa, antes de `;`).
-bool _isCssType(String? type) {
+/// `<link>`: `type` ausente, vazio ou `text/css` (sem caixa, antes de `;`,
+/// sem espaço em volta), como o Chromium.
+bool _isLinkCssType(String? type) {
   if (type == null) return true;
   final semicolon = type.indexOf(';');
   final essence = cssAsciiLower(
     (semicolon < 0 ? type : type.substring(0, semicolon)).trim(),
   );
   return essence.isEmpty || essence == 'text/css';
+}
+
+/// `<style>`: `type` ausente, vazio ou exatamente `text/css` sem caixa, sem
+/// parâmetro nem espaço (HTML, "update a `style` block"; o Chromium idem).
+bool _isStyleCssType(String? type) {
+  if (type == null || type.isEmpty) return true;
+  return type.length == 8 && cssAsciiLower(type) == 'text/css';
 }
 
 sealed class _Found {
@@ -599,7 +617,7 @@ final class _Loader {
     final attributes = link.attributes;
     final rel = _asciiTokens(attributes['rel'] ?? '');
     if (!rel.contains('stylesheet') || rel.contains('alternate')) return null;
-    if (!_isCssType(attributes['type'])) return null;
+    if (!_isLinkCssType(attributes['type'])) return null;
     final href = (attributes['href'] ?? '').trim();
     if (href.isEmpty) return null;
     final media = attributes['media'];
@@ -617,7 +635,7 @@ final class _Loader {
 
   _FoundStyle? _style(Element style) {
     final attributes = style.attributes;
-    if (!_isCssType(attributes['type'])) return null;
+    if (!_isStyleCssType(attributes['type'])) return null;
     final media = attributes['media'];
     if (!mediaAttributeMatches(media)) {
       _emit(
@@ -771,14 +789,12 @@ final class _Loader {
           'folha acima de $maxStyleSheetBytes bytes',
           {'reason': 'too-large', 'size': size, 'from': from},
         );
-      case _Unreadable(:final exception):
+      case _Unreadable(:final path, :final exception):
         _reserved--;
-        _emit(
-          EpubDiagnosticCode.resourceUnreadable,
-          preferred,
-          'folha ilegível',
-          {'reason': 'unreadable', 'exception': exception},
-        );
+        _emit(EpubDiagnosticCode.resourceUnreadable, path, 'folha ilegível', {
+          'reason': 'unreadable',
+          'exception': exception,
+        });
       case _OverBudget(:final realPath):
         _reserved--;
         _limit('bytes', realPath, from);
@@ -845,7 +861,7 @@ final class _Loader {
 
   /// Outra `EpubException` do contêiner vira entrada ilegível.
   _Entry _unreadable(String path, EpubException e) {
-    final entry = _Unreadable('$e');
+    final entry = _Unreadable(path, '$e');
     _cache._putFile(path, entry);
     return entry;
   }

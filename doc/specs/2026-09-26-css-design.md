@@ -126,6 +126,8 @@ letra do desenho aprovado estão marcadas **(muda o desenho)**.
 | 44 | At-rules que o navegador não conhece (`@-moz-document`, `@document`, `@viewport`, `@-ms-viewport`, `@-moz-keyframes`) não tiram o `@import` seguinte de posição **(revisão do plano)** | §5.1, §5.2 |
 | 45 | `text-decoration` (atalho) aceita cada componente no máximo uma vez e só palavras conhecidas (cores com nome e de sistema incluídas): `foo` e `red blue` descartam; `oblique <ângulo>` só entre −90° e 90°; o peso é fracionário (349,5 + `bolder` = 400) **(revisão do plano)** | §3, §7.1 |
 | 46 | No corpus, só `unsupportedLayout` e `stylesheetIgnored` do `.expected` tiram o caso do `strict` e dão a segunda passada **(revisão do plano)** | §14.1 |
+| 47 | O `type` do `<style>` só vale ausente, vazio ou exatamente `text/css` (sem caixa), como no HTML e no Chromium; o do `<link>` segue aceitando parâmetro e espaço **(revisão da Tarefa 8)** | §9.1 |
+| 48 | No cache de folhas, toda entrada, inclusive a negativa, pesa a chave mais o que guarda (no ilegível, o texto da exceção), para o LRU expulsar faltas de caminho longo **(revisão da Tarefa 8)** | §9.6 |
 
 ## 2. Arquivos
 
@@ -1122,7 +1124,11 @@ em qualquer ponto da árvore (`head` ou `body`), **sem descer em `<template>`**
   `stylesheetMediaIgnored` (`href` = o caminho resolvido, ou a seção se o
   `href` for recusado), sem busca e sem contar tentativa.
 - `<style>` em qualquer namespace (o `<style>` dentro de SVG inline também vale
-  para o documento, como no navegador), com `type` e `media` pela mesma regra.
+  para o documento, como no navegador), com `media` pela mesma regra e
+  `type` ausente, vazio ou **exatamente** `text/css`, sem caixa, sem parâmetro
+  e sem espaço em volta (HTML, "update a `style` block"; o Chromium idem):
+  `<style type="text/css; charset=utf-8">` e `<style type=" text/css ">`
+  ficam de fora, enquanto o `<link>` com esses `type` vale **(#47)**.
   O texto (a concatenação dos filhos de texto) é lido como **dado de caractere
   do XML** **(decisão da spec, #22)**: o `package:html` trata `<style>` como
   texto cru do HTML, mas o arquivo é XHTML. Numa passada: `<![CDATA[ … ]]>`
@@ -1174,7 +1180,8 @@ Nada fora do contêiner é tocado: `fetch` é a única leitura.
   por exemplo `zipCrcMismatch`); `identical(e, sink.lastStrictException)`, o
   do sink da seção, também propaga (nada da seção emite dentro desse `try`
   hoje; a checagem é por robustez, para uma emissão futura no meio não virar
-  `resourceUnreadable`); senão `resourceUnreadable` (`warning`, `href` = caminho,
+  `resourceUnreadable`); senão `resourceUnreadable` (`warning`, `href` = o candidato cuja leitura falhou,
+  que pode ser o segundo da tentativa dupla,
   `details: {reason: 'unreadable', exception}`) e a folha é pulada. O contêiner
   só lança `EpubException` (o `ProviderContainer` embrulha a exceção do
   provider).
@@ -1264,8 +1271,14 @@ dupla é consultado antes do `fetch`), uma de duas entradas **(decisão da spec,
 
 E guarda `StyleSheet` por texto de `<style>` (o parse não resolve `href`, então
 a mesma folha serve a seções em pastas diferentes). LRU, com teto de
-`maxCachedStyleSource` unidades de código somadas (entrada negativa conta 0);
-a folha maior que o teto não entra. Uma falta de cache custa só uma releitura.
+`maxCachedStyleSource` unidades de código somadas. **Toda** entrada pesa o
+comprimento da chave (o caminho pedido, ou o texto do `<style>`) mais o que
+guarda: a positiva de arquivo, o fonte e o caminho real; a de `<style>`, o
+fonte; `too-large`, o caminho real; ilegível, o caminho e o texto da exceção;
+ausente, só a chave **(#48)**. Com peso 0, as faltas nunca eram expulsas, e
+como o `href` não tem teto, 1 000 seções com 256 `<link>` ausentes e
+distintos de 4 KiB retinham ~2 GB a partir de um EPUB de ~10 MB. A entrada
+mais pesada que o teto não entra. Uma falta de cache custa só uma releitura.
 
 **Dois sinks, e o que cada um recebe** **(controlador, #32)**:
 
