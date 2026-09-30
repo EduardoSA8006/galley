@@ -83,9 +83,8 @@ Uint8List _mutateSheet(Uint8List bytes, Random random) {
       );
     case 2:
       final piece = _piece(random);
-      b.insertAll(at, [
-        for (var k = 0; k < 1 + random.nextInt(50); k++) ...piece,
-      ]);
+      final times = 1 + random.nextInt(50); // sorteado uma vez: 1–50 uniforme
+      b.insertAll(at, [for (var k = 0; k < times; k++) ...piece]);
     default:
       b.removeRange(at, min(b.length, at + 1 + random.nextInt(40)));
   }
@@ -117,7 +116,8 @@ Uint8List _mutateSection(Uint8List bytes, Random random) {
     b.insertAll(p + 10, [..._piece(random), 0x22]);
   } else {
     final at = spots[random.nextInt(spots.length)];
-    for (var k = 0; k < 1 + random.nextInt(4); k++) {
+    final pieces = 1 + random.nextInt(4);
+    for (var k = 0; k < pieces; k++) {
       b.insertAll(at, _piece(random));
     }
   }
@@ -193,7 +193,8 @@ void main() {
       final sections = original.keys.where(_isSection).toList();
       for (var k = 0; k < 100; k++, iteration++) {
         final files = Map.of(original);
-        for (var m = 0; m < 1 + random.nextInt(3); m++) {
+        final mutations = 1 + random.nextInt(3);
+        for (var m = 0; m < mutations; m++) {
           if (sheets.isNotEmpty && random.nextBool()) {
             final target = sheets[random.nextInt(sheets.length)];
             files[target] = _mutateSheet(files[target]!, random);

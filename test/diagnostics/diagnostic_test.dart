@@ -175,7 +175,22 @@ void main() {
           message: 'print',
           onStrict: onStrict,
         );
+        sink.emit(
+          EpubDiagnosticCode.cssRuleIgnored,
+          href: 'a.css',
+          message: 'outra regra ignorada',
+          onStrict: onStrict,
+        );
+        // Em strict o info continua info, registrado e somado, sem lançar.
         expect(sink.diagnostics, hasLength(2));
+        final [rule, media] = sink.diagnostics;
+        expect(rule.code, EpubDiagnosticCode.cssRuleIgnored);
+        expect(rule.severity, EpubSeverity.info);
+        expect(rule.details['count'], 2);
+        expect(media.code, EpubDiagnosticCode.stylesheetMediaIgnored);
+        expect(media.severity, EpubSeverity.info);
+        expect(media.details['count'], 1);
+        expect(sink.lastStrictException, isNull);
         expect(
           () => sink.emit(
             EpubDiagnosticCode.stylesheetIgnored,

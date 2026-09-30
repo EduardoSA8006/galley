@@ -326,8 +326,16 @@ final Map<String, void Function(List<_Section>, DiagnosticSink)> _specific = {
     expect(of('do-x').display, CssDisplay.block);
     expect(of('nao-impressa').textTransform, CssTextTransform.uppercase);
   },
-  'regressoes/css-latin1': (sections, _) {
+  'regressoes/css-latin1': (sections, sink) {
     final s = _only(sections);
+    // Só a folha sem @charset cai no latin1, uma vez (o cache não reemite).
+    final fallbacks = [
+      for (final d in sink.diagnostics)
+        if (d.code == EpubDiagnosticCode.encodingFallback) d,
+    ];
+    expect(fallbacks, hasLength(1));
+    expect(fallbacks.single.href, endsWith('sem-charset.css'));
+    expect(fallbacks.single.details['count'], 1);
     expect(
       _style(s, _byClass(s, 'citação').single).fontStyle,
       CssFontStyle.italic,

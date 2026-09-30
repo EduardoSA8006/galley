@@ -205,7 +205,7 @@ List<PerfCase> _cssCases() {
           _sink += parseStyleSheet(text).rules.length;
         }
       },
-      innerIterations: 11, // ≈ 5 ms por amostra (0,45 ms as três folhas)
+      innerIterations: 11, // ≈ 5,8 ms por amostra (0,53 ms as três folhas)
     ),
     PerfCase(
       id: 'css.cascade',
@@ -223,6 +223,13 @@ List<PerfCase> _cssCases() {
           containerSink: DiagnosticSink(),
         );
         await c.close();
+        // Sem as duas folhas da seção, o caso mediria uma cascata vazia.
+        if (sectionSheets.sheets.length != 2) {
+          throw StateError(
+            'css.cascade: esperadas 2 folhas, vieram '
+            '${sectionSheets.sheets.length}',
+          );
+        }
       },
       run: () => _sink += computeStylesSync(
         document,
@@ -230,7 +237,8 @@ List<PerfCase> _cssCases() {
         sectionPath: section,
         sink: DiagnosticSink(),
       ).length,
-      // Uma cascata já passa de 5 ms (≈ 6 ms no i5-11400H, 2 816 elementos).
+      // Uma cascata já passa de 5 ms (≈ 6,2 ms no i5-11400H, medido em
+      // 2026-09-30, 2 816 elementos).
     ),
   ];
 }

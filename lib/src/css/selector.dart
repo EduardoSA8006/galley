@@ -9,7 +9,8 @@
 /// - argumentos de pseudo-classe funcional são saltados com uma pilha de
 ///   fechamentos; a lista de `:not()` e a do `of` do `:nth-child` são
 ///   validadas por um parser aninhado sobre o mesmo trecho, com no máximo
-///   32 níveis, então cada token é visto no máximo uma vez por nível;
+///   32 níveis, então cada token é visto no máximo duas vezes por nível (a
+///   busca do `)` que fecha e o parser do nível);
 /// - os hashes de ancestral saem do composto montado (no máximo 4);
 /// - `:nth-child` lê o `double` do token e confere a faixa antes de virar
 ///   `int` (nunca `int.parse`).
@@ -582,10 +583,10 @@ final class _SelectorParser {
   /// Argumento de `:nth-child(n)` no subconjunto, lido por [_pseudoClass].
   int _nthValue = 0;
 
-  /// Depois de `:`.
   /// Nome da forma antiga de pseudo-elemento lida por [_pseudoClass].
   String _pseudoName = '';
 
+  /// Depois de `:`.
   _Pseudo _pseudoClass() {
     final type = _typeAt(_i);
     if (type == CssTokenType.ident) {

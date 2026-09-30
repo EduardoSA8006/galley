@@ -69,6 +69,59 @@ void main() {
     );
   });
 
+  test('igualdade: trocar um campo qualquer, um por vez, desfaz', () {
+    const len = CssLength(1, CssLengthUnit.em);
+    const edges = EmEdges(1, 1, 1, 1);
+    // Um valor diferente do inicial em cada um dos 21 campos.
+    final variants = <String, ComputedStyle>{
+      'display': const ComputedStyle(display: CssDisplay.block),
+      'whiteSpace': const ComputedStyle(whiteSpace: CssWhiteSpace.pre),
+      'direction': const ComputedStyle(direction: CssDirection.rtl),
+      'verticalAlign': const ComputedStyle(verticalAlign: CssVerticalAlign.sup),
+      'listStyleType': const ComputedStyle(
+        listStyleType: CssListStyleType.decimal,
+      ),
+      'breakBefore': const ComputedStyle(breakBefore: CssBreak.page),
+      'breakAfter': const ComputedStyle(breakAfter: CssBreak.page),
+      'breakInside': const ComputedStyle(breakInside: CssBreak.avoid),
+      'width': const ComputedStyle(width: len),
+      'height': const ComputedStyle(height: len),
+      'alignKeyword': const ComputedStyle(alignKeyword: CssAlignKeyword.center),
+      'underline': const ComputedStyle(underline: true),
+      'lineThrough': const ComputedStyle(lineThrough: true),
+      'fontStyle': const ComputedStyle(fontStyle: CssFontStyle.italic),
+      'weight': const ComputedStyle(weight: 700),
+      'fontVariant': const ComputedStyle(fontVariant: CssFontVariant.smallCaps),
+      'textTransform': const ComputedStyle(
+        textTransform: CssTextTransform.uppercase,
+      ),
+      'fontSizeStep': const ComputedStyle(fontSizeStep: CssFontSizeStep.larger),
+      'margin': const ComputedStyle(margin: edges),
+      'padding': const ComputedStyle(padding: edges),
+      'textIndent': const ComputedStyle(textIndent: 1),
+    };
+    expect(variants, hasLength(21));
+    final names = variants.keys.toList();
+    for (var i = 0; i < names.length; i++) {
+      final v = variants[names[i]]!;
+      expect(v == ComputedStyle.initial, isFalse, reason: names[i]);
+      expect(
+        {ComputedStyle.initial: 0}.containsKey(v),
+        isFalse,
+        reason: '${names[i]} no mapa de internação',
+      );
+      // Dois campos trocados também não se confundem (width × height,
+      // margin × padding, underline × lineThrough).
+      for (var j = i + 1; j < names.length; j++) {
+        expect(
+          v == variants[names[j]],
+          isFalse,
+          reason: '${names[i]} × ${names[j]}',
+        );
+      }
+    }
+  });
+
   test(
     'textAlign resolve left/right pela direção do elemento (CSS Text 3)',
     () {

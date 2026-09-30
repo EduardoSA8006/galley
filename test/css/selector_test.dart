@@ -91,7 +91,8 @@ void main() {
       // passar pelo double infinito de CssToken.number.
       expect(_fate(':nth-child(1e999)'), 'invalid');
       expect(_fate(':nth-child(n+1e999)'), 'invalid');
-      // Inteiro muito longo: o double pode ser infinito; a faixa cobre.
+      // Literal de mais de 64 unidades vira NaN no tokenizador (§4, não
+      // infinito): fora da faixa, :nth-child guarda 0 e nunca casa.
       expect(_one(':nth-child(${'9' * 400})').rightmost.nthChild, 0);
       expect(_one(':nth-child(-${'9' * 400})').rightmost.nthChild, 0);
       expect(_fate(':nth-child(n+${'9' * 400})'), 'unsupported');
@@ -391,6 +392,13 @@ void main() {
       expect(_fate(':is(${'(' * 100000}${')' * 100000})'), 'unsupported');
       // :not( aninhado é validado por nível até 32: além disso, inválido.
       expect(_fate('${':not(' * 32}p${')' * 32}'), 'unsupported');
+      expect(_fate('${':not(' * 33}p${')' * 33}'), 'invalid');
+      // O `of` do :nth-child é outro nível da mesma conta.
+      expect(
+        _fate(':nth-child(1 of ${':not(' * 31}p${')' * 31})'),
+        'unsupported',
+      );
+      expect(_fate(':nth-child(1 of ${':not(' * 32}p${')' * 32})'), 'invalid');
       expect(_fate('${':not(' * 100000}p${')' * 100000}'), 'invalid');
       sw.stop();
       expect(sw.elapsed, lessThan(const Duration(seconds: 5)));
