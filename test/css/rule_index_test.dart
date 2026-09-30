@@ -83,6 +83,26 @@ void main() {
     expect(over.byClass('b1'), isEmpty);
   });
 
+  test('o teto corta no meio da lista de uma regra (h1, h2)', () {
+    String rules(int n) =>
+        List.generate(n, (k) => '.a$k { display: block }').join();
+    final exact = _index([
+      ('a.css', rules(19998)),
+      ('b.css', 'h1, h2 { display: none }'),
+    ]);
+    expect(exact.length, maxRulesPerSection);
+    expect(exact.truncatedAt, isNull);
+    expect(exact.byTag('h2'), hasLength(1));
+    final over = _index([
+      ('a.css', rules(19999)),
+      ('b.css', 'h1, h2 { display: none }'),
+    ]);
+    expect(over.length, maxRulesPerSection);
+    expect(over.truncatedAt, 'b.css');
+    expect(over.byTag('h1'), hasLength(1));
+    expect(over.byTag('h2'), isEmpty);
+  });
+
   test('índice da folha padrão: montado uma vez, origem userAgent', () {
     expect(identical(userAgentIndex, userAgentIndex), isTrue);
     expect(userAgentIndex.truncatedAt, isNull);

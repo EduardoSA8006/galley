@@ -68,6 +68,21 @@ void main() {
       expect(_matches('p + section p', infos, 'p3'), isTrue);
       expect(_matches('p + div p', infos, 'p3'), isFalse);
     });
+
+    test('estados aninhados: o descendente segue depois de + e > falharem', () {
+      final nested = _infos(
+        '<h1></h1><div><div><p id="q">t</p></div></div>'
+        '<section><div><div><p id="r">t</p></div></div></section>',
+      );
+      // `+` sem irmão no div de dentro é failsAllSiblings, não
+      // failsCompletely: o descendente tenta o div de fora, cujo irmão
+      // anterior é o h1 (Selectors 4 §16; SelectorChecker do Blink).
+      expect(_matches('h1 + div p', nested, 'q'), isTrue);
+      // `>` com o pai errado (div > div) é failsLocally: o descendente tenta
+      // o div de fora, filho do body.
+      expect(_matches('body > div p', nested, 'q'), isTrue);
+      expect(_matches('body > div p', nested, 'r'), isFalse);
+    });
   });
 
   group('pseudo-classes estruturais', () {
@@ -158,6 +173,13 @@ void main() {
       expect(steps('div p', 'p'), 2);
     });
 
+    test('> sem pai na raiz é failsCompletely: o descendente não segue', () {
+      // p (1); body contra o div (1); body (1), html (1), a raiz sem pai
+      // para tudo. Com failsLocally, o descendente ainda testaria body
+      // contra o html (5).
+      expect(steps('x > html > body p', 'p'), 4);
+    });
+
     test('bookMode soma no orçamento; exhausted passa de budget', () {
       final s = MatchSteps(2)..bookMode = true;
       matchSelector(_selector('p.a.b'), infos['p']!, s);
@@ -200,14 +222,38 @@ void main() {
         f.pop(e);
       }
       expect(f.mayContain(e.nameHash), isTrue);
+      // Uma posição fora das presas continua exata: liga no push, desliga no
+      // pop.
+      final stuck = {
+        for (final h in [e.nameHash, e.idHash!]) ...[
+          h & 0xFFF,
+          (h >> 12) & 0xFFF,
+        ],
+      };
+      final free = [for (var k = 0; k < 64; k++) 'solta$k']
+          .map((c) => _infos('<p id="q" class="$c">t</p>')['q']!)
+          .firstWhere((q) {
+            final h = q.classHashes.single;
+            return !stuck.contains(h & 0xFFF) &&
+                !stuck.contains((h >> 12) & 0xFFF);
+          });
+      final hash = free.classHashes.single;
+      expect(f.mayContain(hash), isFalse);
+      f.push(free);
+      expect(f.mayContain(hash), isTrue);
+      f.pop(free);
+      expect(f.mayContain(hash), isFalse);
+      expect(f.mayContain(e.nameHash), isTrue, reason: 'continua presa');
     });
   });
 
   group('hostis: linear', () {
-    test('div … div p (32 compostos) sobre 250 div aninhados', () {
+    test('span div … div p (32 compostos) sobre 250 div aninhados', () {
       final infos = _infos('${'<div>' * 250}<p id="p">t</p>${'</div>' * 250}');
       final chain = _selector('${'div ' * 31}p');
-      final miss = _selector('${'div ' * 30}span p');
+      // A falha na ponta esquerda: com retrocesso, cada um dos 30 `div`
+      // tentaria todos os ancestrais restantes (combinatório).
+      final miss = _selector('span ${'div ' * 30}p');
       final sw = Stopwatch()..start();
       final s = MatchSteps(1 << 30);
       for (var i = 0; i < 1000; i++) {
