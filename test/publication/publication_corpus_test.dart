@@ -1,4 +1,4 @@
-// A Publicação sobre os 65 EPUBs do corpus (spec da Publicação §10.1).
+// A Publicação sobre os 68 EPUBs do corpus (spec da Publicação §10.1).
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -141,8 +141,8 @@ void main() {
           .toList()
         ..sort();
 
-  test('corpus tem os 65 casos e as asserções específicas existem', () {
-    expect(cases, hasLength(65));
+  test('corpus tem os 68 casos e as asserções específicas existem', () {
+    expect(cases, hasLength(68));
     expect(cases, containsAll(_specific.keys));
   });
 

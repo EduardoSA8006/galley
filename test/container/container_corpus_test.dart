@@ -1,4 +1,4 @@
-// O contêiner sobre os 65 EPUBs do corpus (spec do contêiner §9.1).
+// O contêiner sobre os 68 EPUBs do corpus (spec do contêiner §9.1).
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -72,8 +72,8 @@ void main() {
           .toList()
         ..sort();
 
-  test('corpus tem os 65 casos', () {
-    expect(cases, hasLength(65));
+  test('corpus tem os 68 casos', () {
+    expect(cases, hasLength(68));
   });
 
   /// Casos em que o orçamento de abertura fica estritamente abaixo do

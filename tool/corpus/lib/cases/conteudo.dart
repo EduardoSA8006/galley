@@ -339,4 +339,91 @@ List<CorpusCase> conteudoCases() => [
       ).build();
     },
   ),
+  CorpusCase(
+    group: _group,
+    slug: 'css-import-cadeia',
+    readme: '`@import` em cadeia: relativo à folha que importa, com `%20` no caminho, uma folha importada duas vezes e uma regra importada sobrescrita.',
+    build: () {
+      final b = EpubBuilder(slug: 'css-import-cadeia', title: 'Importações');
+      b
+        ..addCss(
+          'main.css',
+          '@import "base/tipo%20grafia.css";\n'
+              '@import "repetida.css";\n'
+              '@import "repetida.css";\n'
+              '.sobrescrita { font-style: normal }\n'
+              '.do-main { text-transform: uppercase }\n',
+        )
+        ..addCss(
+          'base/tipo grafia.css',
+          '@import "../extra/listas.css";\n'
+              '.do-tipo { font-weight: bold }\n'
+              '.sobrescrita { font-style: italic }\n',
+        )
+        ..addCss('extra/listas.css', '.do-listas { list-style-type: square }\n')
+        ..addCss(
+          'repetida.css',
+          '.da-repetida { text-decoration: underline }\n',
+        );
+      final r = b.addChapter(
+        'cap01.xhtml',
+        xhtml(
+          title: 'Importações',
+          cssHrefs: const ['../Styles/main.css'],
+          body:
+              '<h1>Importações</h1>'
+              '<ul class="do-listas"><li>Item da lista.</li></ul>'
+              '<p class="do-tipo">Negrito vindo da folha importada.</p>'
+              '<p class="sobrescrita">Itálico importado, desfeito pela folha que importa.</p>'
+              '<p class="da-repetida">Sublinhado da folha importada duas vezes.</p>'
+              '<p class="do-main">Caixa alta da folha principal.</p>',
+        ),
+      );
+      b.chapterInSpineAndToc(r, 'Importações');
+      return b.build();
+    },
+  ),
+  CorpusCase(
+    group: _group,
+    slug: 'css-media-misto',
+    readme: '`media` em `<link>`, `<style>`, `@media` e `@import`: só vale o que é de `screen`/`all` sem condição, e o `not print`.',
+    diagnostics: ['stylesheetMediaIgnored'],
+    build: () {
+      final b = EpubBuilder(slug: 'css-media-misto', title: 'Media');
+      b
+        ..addCss('impressao.css', '.so-impressao { display: none }\n')
+        ..addCss('tela.css', '.da-tela { font-weight: bold }\n')
+        ..addCss('x.css', '.do-x { display: none }\n');
+      const head =
+          '<link rel="stylesheet" type="text/css" href="../Styles/impressao.css" media="print"/>\n'
+          '<link rel="stylesheet" type="text/css" href="../Styles/tela.css" media="screen, print"/>\n'
+          '<style type="text/css" media="all and (min-width: 600px)">.largo { font-weight: bold }</style>\n'
+          '<style type="text/css">\n'
+          '@import url(../Styles/x.css) print;\n'
+          '@media screen { .tela-media { font-style: italic } }\n'
+          '@media print { .impressa { display: none } }\n'
+          '@media screen and (orientation: portrait) { .retrato { display: none } }\n'
+          '</style>\n'
+          '<style type="text/css" media="not print">.nao-impressa { text-transform: uppercase }</style>';
+      final r = b.addChapter(
+        'cap01.xhtml',
+        xhtml(
+          title: 'Media',
+          head: head,
+          body:
+              '<h1>Media</h1>'
+              '<p class="so-impressao">Visível: a folha é só de impressão.</p>'
+              '<p class="da-tela">Negrito: a folha vale na tela.</p>'
+              '<p class="largo">Normal: o style tem condição de largura.</p>'
+              '<p class="tela-media">Itálico: @media screen.</p>'
+              '<p class="impressa">Visível: @media print.</p>'
+              '<p class="retrato">Visível: @media com condição.</p>'
+              '<p class="do-x">Visível: @import só de impressão.</p>'
+              '<p class="nao-impressa">Caixa alta: media not print.</p>',
+        ),
+      );
+      b.chapterInSpineAndToc(r, 'Media');
+      return b.build();
+    },
+  ),
 ];
