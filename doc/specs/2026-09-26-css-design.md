@@ -44,7 +44,10 @@ tempo); o CSS nunca é fatal.
   muda.
 - **Intenção do usuário** (tamanho, família) é da Camada B, na Fase 2: o CSS
   entrega só o que o livro pede, classificado.
-- **API pública:** nada muda; tudo é interno até o sub-projeto 6.
+- **API pública:** o CSS é interno até o sub-projeto 6; só os quatro códigos
+  novos de `EpubDiagnosticCode` (`unsupportedLayout`, `stylesheetIgnored`,
+  `stylesheetMediaIgnored`, `cssRuleIgnored`, §12.1) são públicos, porque o
+  enum é exportado por `lib/galley.dart`.
 - A preferência global por feature-first, MVVM, Result e Riverpod não se aplica
   ao galley ([11](../11-empacotamento-versionamento.md) §4, erros por exceção e
   diagnóstico de [09](../09-erros-diagnosticos.md)).
@@ -129,6 +132,7 @@ letra do desenho aprovado estão marcadas **(muda o desenho)**.
 | 46 | No corpus, só `unsupportedLayout` e `stylesheetIgnored` do `.expected` tiram o caso do `strict` e dão a segunda passada **(revisão do plano)** | §14.1 |
 | 47 | O `type` do `<style>` só vale ausente, vazio ou exatamente `text/css` (sem caixa), como no HTML e no Chromium; o do `<link>` segue aceitando parâmetro e espaço **(revisão da Tarefa 8)** | §9.1 |
 | 48 | No cache de folhas, toda entrada, inclusive a negativa, pesa a chave mais o que guarda (no ilegível, o texto da exceção), para o LRU expulsar faltas de caminho longo **(revisão da Tarefa 8)** | §9.6 |
+| 49 | `all: inherit`/`initial`/`unset` expande para todas as longhands da tabela, menos `direction` (CSS Cascade 4 §3.2); `revert`, `revert-layer` e outro valor descartam. Era ignorada: é o grosso das divergências do Chromium nos livros do Project Gutenberg (`#pg-header-heading`, `#pg-footer li`) **(revisão final)** | §7.1, §7.3 |
 
 ## 2. Arquivos
 
@@ -847,6 +851,7 @@ Classe: **E** = estrutura (Classe 1), **T** = tipografia relativa (Classe 2).
 | `padding-top/right/bottom/left` | T | não | 0 | comprimento ≥ 0, `%` ≥ 0 | §7.2; limitado a [0, 8]em; negativo **descarta** (inválido no CSS) |
 | `padding` (atalho) | T | — | — | 1 a 4 valores | como `margin` |
 | `text-indent` | T | sim | 0 | comprimento, `%` | §7.2; limitado a [−4, 8]em; palavras `hanging`/`each-line` descartam |
+| `all` (atalho) | — | — | — | `inherit`, `initial`, `unset` | a palavra vale para todas as linhas desta tabela e as degradadas de §7.4, **menos `direction`** (CSS Cascade 4 §3.2; `unicode-bidi` também fica de fora, e já é ignorada); `revert` e `revert-layer` descartam, como em qualquer propriedade (acima da tabela); outro valor descarta **(revisão final, #49)** |
 
 "Registrado" de [03](../03-camada-a-ir.md) §6 passa a significar isto: o valor
 entra no `ComputedStyle` com a classe dele; quem decide se é honrado é a
@@ -896,8 +901,8 @@ Classe 3 (aparência global, [02](../02-modelo-de-estilo.md) §2): `color`,
 `background*`, `font-family`, `line-height`, `border*`, `outline*`,
 `box-shadow`, `text-shadow`, `letter-spacing`, `word-spacing`, `opacity`,
 `visibility`, `text-decoration-color`, `text-decoration-style`,
-`text-decoration-thickness`. E tudo o que não está em §7.1 nem em §7.4 (`all`,
-`hyphens`, `text-decoration-skip*`, `text-underline-*`, propriedades lógicas
+`text-decoration-thickness`. E tudo o que não está em §7.1 nem em §7.4
+(`hyphens`, `text-decoration-skip*`, `text-underline-*`, propriedades lógicas
 como `margin-inline-start`, prefixos `-webkit-`/`-epub-` fora de
 `writing-mode`, `content`, `quotes`…). O que disso
 pode fazer falta vai para [14](../14-pendencias.md) (§16).
@@ -953,6 +958,16 @@ O que o galley faz diferente do navegador, de propósito, e fica em
   título dentro de `article`/`section`/`aside`/`nav` (§15.3.3, que encolhem
   `h1` aninhado), a margem horizontal de `figure` (`40px`) e `basefont` em
   `display: none`. O `blockquote` e o `dd` mantêm as margens horizontais.
+- **Outras regras da folha do HTML fora.** `body { margin: 8px }` (§15.3.3)
+  e `td, th { padding: 1px }` (§15.3.9) não estão na folha padrão: a margem
+  da página é do perfil, e o `padding` de célula é aparência da tabela.
+- **Raiz não blocoficada.** O CSS Display 3 §2.7 força `display` de bloco no
+  elemento raiz (`html { display: inline }` computa `block`); aqui a raiz
+  fica com o valor da cascata. O IR não trata a raiz como bloco de texto.
+- **`text-wrap` ignorado.** No Chromium 153, `white-space` é atalho de
+  `white-space-collapse` e `text-wrap-mode`, e `text-wrap: pretty` depois de
+  `white-space: pre` computa `pre-wrap`; aqui `text-wrap` é ignorado e fica
+  `pre`.
 - `rem` como `em`, `ex`/`ch` como 0,5em, `%` sobre 30em (§7.2); recuo de lista
   por `padding-left` em livro `rtl` (§8.1); filhos de `flex`/`grid` sem
   "blocoficação" (acima).
@@ -1824,7 +1839,7 @@ Em `test/css/`, com CSS e XHTML de texto nos testes de unidade (o DOM por
 | `tokenizer_test.dart` | cada tipo de token; comentários (inclusive sem fim); strings com `}` e `;` dentro, com `\` + LF, sem fim, `badString`; escapes (hex curto, 6 dígitos, espaço depois, `\0`, surrogate, acima de U+10FFFF, `\` no fim); `url()` sem aspas, com espaço, com aspas (vira `function`), `badUrl`; números (`.5`, `1e3`, `+3`, `-0`, literal de 100 dígitos → `NaN`); `<!--`/`-->`; CR/CRLF/FF; U+0000 |
 | `parser_test.dart` | regras, lista de seletores (parcial: um seletor fora cai, os outros ficam; um inválido derruba a regra); recuperação pelo modelo "consume a block's contents" com os seis casos da tabela de §5.3 (`p { .x{…} font-style: italic }`, `a:hover{…}` aninhado, `a{};p{…}` no topo, at-rule dentro de bloco, `@import` dentro de `@media`, `@foo;` dentro de bloco); `{` e `(` no valor; `!important` com espaço e caixa; `@MEDIA`/`@Import` sem caixa; `@media` que casa e que não casa, aninhado; `@import` antes e depois de regra (`late-import`), depois de `@charset`, depois de regra `parse-error` (vale), depois de regra só com seletores fora do subconjunto (não vale), depois de `@namespace` (não vale), com media, com `layer`; at-rules descartadas; aninhamento 33 (`limit`); agregação de `CssIssue`; `parseStyleAttribute`; `mediaMatches` sobre tokens (tabela: vazio, `all`, `screen`, `only screen`, `SCREEN`, `screen, print`, `print`, `not print` (casa), `not screen`, `not all`, `not amzn-kf8` (casa), `screen and (max-width: 600px)`, `(a, b), screen` (a vírgula do parêntese não separa: casa pela segunda query), `screen and (a, b)` (não casa), `amzn-kf8`, lixo); `mediaAttributeMatches(null)` |
 | `selector_test.dart` | cada forma de §6.1 e cada caso de §6.3 com o destino certo (no subconjunto, válido fora, inválido): lista fechada de pseudo-classes e pseudo-elementos, `:foo` e `::-moz-x` inválidos, `:hover` e `::before` válidos fora, `:nth-child(3)`, `(+3)`, `(0)`, `(99999999999)`, `(odd)`, `(2n+1)`, `(3.0)` e `(foo)`; nomes sem caixa; especificidade (tabela do Selectors 4 e saturação); lista parcial com `unsupported` e `unsupportedSample`; 32 e 33 compostos; 32 e 33 seletores simples num composto; 33 compostos seguidos de `:foo` (inválido: a gramática é validada depois do teto); hashes de ancestral (`a > b + c`, `a + b c`) em minúsculas |
-| `properties_test.dart` | cada linha de §7.1 com valores aceitos, mapeados, limitados e descartados, palavras-chave sem caixa (`ITALIC`, `Bold`); conversões de §7.2; atalhos (`margin` 1–4, `font` completo e mínimo, `font` com tamanho absoluto, `list-style`, `columns`, `text-decoration` com estilo, cor e espessura); `text-decoration-line` com `overline`/`blink` ignorados e com palavra inválida; `inherit`/`initial`/`unset`/`revert`; degradadas de §7.4; `CssProperty.values.length` = número de slots |
+| `properties_test.dart` | cada linha de §7.1 com valores aceitos, mapeados, limitados e descartados, palavras-chave sem caixa (`ITALIC`, `Bold`); conversões de §7.2; atalhos (`margin` 1–4, `font` completo e mínimo, `font` com tamanho absoluto, `list-style`, `columns`, `text-decoration` com estilo, cor e espessura); `text-decoration-line` com `overline`/`blink` ignorados e com palavra inválida; `inherit`/`initial`/`unset`/`revert`; `all` com cada palavra global (todas as longhands menos `direction`) e com valor inválido; degradadas de §7.4; `CssProperty.values.length` = número de slots |
 | `ua_sheet_test.dart` | zero `CssIssue`; `h1`–`h6` com as razões de §8.1; `em`/`i` itálico, `b`/`strong` negrito, `u`/`ins` sublinhado, `s`/`strike`/`del` riscado, `head`/`script`/`style`/`template` `none`, `pre` `pre`, listas aninhadas, `ol[type]` com caixa |
 | `loader_test.dart` | com `ProviderContainer` (`MapProvider`) e `ZipContainer` (`epubZip`): `<link>` (rel com vários tokens, `alternate`, `type`, `media` → `stylesheetMediaIgnored`); `<style>` em `head`, `body` e SVG, com CDATA, com `div &gt; p`, `&#x2014;`, `&#0;` e entidade desconhecida; `<style>` e `<link>` dentro de `<template>` ignorados; ordem de coleta; `@import` com `layer` (`unsupported-import`); `@import` relativo à folha, em `<style>` relativo à seção, em cadeia, duas vezes, ciclo (checado antes do `fetch`: nenhum `fetch` a mais), profundidade 9 (idem), 65 folhas contando `<link>` e `<style>`, e uma cadeia de 8 `@import` a partir da 60ª folha (a reserva no `tentar` segura em 64), 257 tentativas (250 000 `@import` de um ausente: 256 consultas, uma `limit` `attempts`), 4 MiB por `PendingResource.size`; folha de 1 MiB + 1 byte (não drenada); remota; `data:`; `..` além da raiz; `%20` e `%2e%2e`; ausente; `fetch` que lança (`resourceUnreadable`) e `strict` (a exceção do sink do contêiner propaga, reconhecida por `containerSink.lastStrictException`, com os dois sinks distintos; warning do CSS lança `EpubSectionParseException` pelo sink da seção); `decodeCss` (BOM × 3, `@charset` Latin-1, `@charset 'x'` que não conta, `@charset "utf-16"` → UTF-8, UTF-8 inválido → `encodingFallback`); cache: mesma folha em duas seções, com sinks de seção distintos, faz um `fetch` e deixa **os mesmos diagnósticos do CSS** nos dois (`encodingFallback`, `CssIssue`), enquanto o `pathCaseMismatch` de um `href` com caixa trocada aparece uma vez só, no sink do contêiner, entradas negativas (ausente, grande, ilegível: um `fetch` por publicação, o diagnóstico reemitido por seção), LRU; `cacheKey` com hash e texto, nunca acima de 64 com uma folha vazia ligada 100 000 vezes |
 | `rule_index_test.dart` | balde por `id`, primeira classe, tipo, universal; `seq`; teto de 20 000 com `truncatedAt` |

@@ -176,7 +176,7 @@ final class CssDegradedValue extends CssValue {
 }
 
 /// Longhands de cada nome aceito; `inherit`/`initial`/`unset` num atalho
-/// valem para todas.
+/// valem para todas (`all` só aceita essas palavras).
 const Map<String, List<CssProperty>> _longhands = {
   'display': [CssProperty.display],
   'white-space': [CssProperty.whiteSpace],
@@ -236,6 +236,42 @@ const Map<String, List<CssProperty>> _longhands = {
   'writing-mode': [CssProperty.writingMode],
   '-epub-writing-mode': [CssProperty.writingMode],
   '-webkit-writing-mode': [CssProperty.writingMode],
+  // CSS Cascade 4 §3.2: `all` reinicia todas as propriedades, menos
+  // `direction` e `unicode-bidi` (esta fora da tabela); só aceita as
+  // palavras globais (outro valor cai no `null` de [_parse]). O teste
+  // confere que a lista é CssProperty.values sem `direction`.
+  'all': [
+    CssProperty.display,
+    CssProperty.whiteSpace,
+    CssProperty.verticalAlign,
+    CssProperty.listStyleType,
+    CssProperty.breakBefore,
+    CssProperty.breakAfter,
+    CssProperty.breakInside,
+    CssProperty.width,
+    CssProperty.height,
+    CssProperty.textAlign,
+    CssProperty.textDecoration,
+    CssProperty.fontStyle,
+    CssProperty.fontWeight,
+    CssProperty.fontVariant,
+    CssProperty.textTransform,
+    CssProperty.fontSize,
+    CssProperty.marginTop,
+    CssProperty.marginRight,
+    CssProperty.marginBottom,
+    CssProperty.marginLeft,
+    CssProperty.paddingTop,
+    CssProperty.paddingRight,
+    CssProperty.paddingBottom,
+    CssProperty.paddingLeft,
+    CssProperty.textIndent,
+    CssProperty.float,
+    CssProperty.position,
+    CssProperty.columnCount,
+    CssProperty.columnWidth,
+    CssProperty.writingMode,
+  ],
 };
 
 /// Em por unidade (§7.2): base fixa 16px = 1em; `rem` como `em`; `ex` e

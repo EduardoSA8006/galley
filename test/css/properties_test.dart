@@ -563,6 +563,37 @@ void main() {
     });
   });
 
+  group('all (CSS Cascade 4 §3.2)', () {
+    final allButDirection = [
+      for (final p in CssProperty.values)
+        if (p != CssProperty.direction) p,
+    ];
+
+    for (final (word, wide) in [
+      ('initial', CssWide.initial),
+      ('INHERIT', CssWide.inherit),
+      ('unset', CssWide.unset),
+    ]) {
+      test('all: $word vale para todas as longhands, menos direction', () {
+        final ds = _decl('all', word, important: true);
+        expect(ds.map((d) => d.property), allButDirection);
+        for (final d in ds) {
+          expect((d.value as CssWideKeyword).keyword, wide);
+          expect(d.important, isTrue);
+        }
+      });
+    }
+
+    test('revert, revert-layer e outro valor descartam', () {
+      expect(_decl('all', 'revert'), isEmpty);
+      expect(_decl('all', 'revert-layer'), isEmpty);
+      expect(_decl('all', 'none'), isEmpty);
+      expect(_decl('all', 'block'), isEmpty);
+      expect(_decl('all', 'initial inherit'), isEmpty);
+      expect(_decl('all', '0'), isEmpty);
+    });
+  });
+
   group('degradadas (§7.4)', () {
     _table('float', {
       'left': ['float=left (degrada)'],

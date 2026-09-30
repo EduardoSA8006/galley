@@ -603,6 +603,56 @@ void main() {
     });
   });
 
+  group('all (CSS Cascade 4 §3.2)', () {
+    // As regras do Project Gutenberg (pg-header/pg-footer), conferidas com o
+    // Chromium 153 headless sobre alice-ilustrada-en.
+    test('#pg-footer li { all: initial }: inline, sem herança; o resto vale', () {
+      final r = _Run(
+        '#pg-footer { font-style: italic; text-indent: 3em; font-weight: bold }'
+            ' #pg-footer li { all: initial; margin-top: 1em }',
+        '<footer id="pg-footer" dir="rtl"><ul><li id="li">t</li></ul>'
+            '<p id="p">t</p></footer>',
+      );
+      final li = r['li'];
+      expect(li.display, CssDisplay.inline);
+      expect(li.fontStyle, CssFontStyle.normal);
+      expect(li.weight, 400);
+      expect(li.textIndent, 0);
+      expect(li.listStyleType, CssListStyleType.disc);
+      expect(li.margin.top, 1);
+      // `direction` fica de fora do `all`: herda o rtl do footer.
+      expect(li.direction, CssDirection.rtl);
+      expect(r['p'].fontStyle, CssFontStyle.italic);
+    });
+
+    test('#pg-header-heading { all: inherit }: tudo do pai, até o display', () {
+      final r = _Run(
+        '#pg-header { display: block; margin-left: 2em; padding-top: 1em }'
+            ' #pg-header-heading { all: inherit; text-align: center;'
+            ' font-weight: bold }',
+        '<header id="pg-header"><h2 id="pg-header-heading">t</h2></header>',
+      );
+      final h = r['pg-header-heading'];
+      expect(h.display, CssDisplay.block);
+      expect(h.margin.left, 2);
+      expect(h.margin.top, 0); // o 0,83em do h2 da folha padrão cai
+      expect(h.padding.top, 1);
+      expect(h.fontSizeStep, CssFontSizeStep.same); // sem o larger do h2
+      expect(h.alignKeyword, CssAlignKeyword.center);
+      expect(h.weight, 700);
+    });
+
+    test('all do livro perde para declaração posterior e para !important', () {
+      final r = _Run(
+        'p { font-style: italic !important } p { all: unset }',
+        '<div style="text-indent: 2em"><p id="p">t</p></div>',
+      );
+      expect(r['p'].fontStyle, CssFontStyle.italic);
+      expect(r['p'].display, CssDisplay.inline); // unset, não herdada
+      expect(r['p'].textIndent, 2); // unset, herdada
+    });
+  });
+
   group('cessão (§10.6)', () {
     test('um yield a cada 4 096 passos, com o orçamento separado', () {
       final document = html.parse(
