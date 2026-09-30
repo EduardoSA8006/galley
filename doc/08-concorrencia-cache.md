@@ -194,7 +194,7 @@ Checkpoints obrigatórios (cada um é um `yield` no gerador da tarefa):
 | Inflate e CRC de entrada | A cada 64 KiB completos de saída e mais um ao terminar; no stored, o passo é o CRC de cada 64 KiB |
 | Parse do XHTML (`html.parse`) | Nenhum dentro da chamada, que é atômica (§1). No web, a cada pedaço de ~16 KB quando o parse fatiável existir (P10) |
 | Caminhada no DOM e construção da IR | A cada bloco emitido e a cada 64 KB de texto dentro de um bloco |
-| Cascata de CSS | A cada 4 096 passos de trabalho: elemento visitado, consulta a balde, candidato, seletor simples testado, declaração aplicada ([spec do CSS](specs/2026-09-26-css-design.md) §10.6) |
+| Cascata de CSS | A cada 4 096 passos de trabalho, contados desde a última cessão: elemento visitado (`1 + readUnits ~/ 64`, com as unidades de nome, `id` e `class` lidas ao montá-lo, somadas antes da cessão seguinte), consulta a balde, candidato (inclusive o rejeitado pelo Bloom), seletor simples testado (composto universal: 1), declaração aplicada, dica de apresentação, declaração de `style=""` e, só na cessão (fora do orçamento), `text.length ~/ 2` no parse de um `style=""` novo ([spec do CSS](specs/2026-09-26-css-design.md) §10.6) |
 | Paginação | A cada bloco (ver §2); em tabela, a cada célula medida |
 | Serialização do cache | A cada seção |
 | Busca linear | A cada bloco |

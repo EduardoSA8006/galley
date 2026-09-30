@@ -386,9 +386,11 @@ sup/sub distinguidos), `list-style-type` e o atalho `list-style`, `break-*` e
 valor vence a cascata num elemento): `float`, `columns`/`column-count`/
 `column-width`, `writing-mode` (e `-epub-`/`-webkit-`), `position` (exceto
 `static`/`relative`). Pseudo-elementos, inclusive `::first-letter`, caem com
-`cssRuleIgnored`. `@media`: as regras dentro valem quando a media é
-`screen`/`all` sem condição (ou `not <tipo>`), e são ignoradas com
-`stylesheetMediaIgnored` caso contrário.
+`cssRuleIgnored`. `@media`: as regras dentro valem quando a lista de media é
+vazia ou quando alguma query é `screen`, `all`, `only screen` ou `only all`,
+sem condição, ou `not <tipo>` com um tipo que não é `screen`/`all` (sem
+caixa, como no Media Queries); caso contrário, são ignoradas com
+`stylesheetMediaIgnored` ([spec do CSS](specs/2026-09-26-css-design.md) §5).
 
 **Ignorado em silêncio:** cor, fundo, família, tamanho absoluto, entrelinha,
 borda, sombra, propriedades lógicas (`margin-inline-*`), `@font-face` e as

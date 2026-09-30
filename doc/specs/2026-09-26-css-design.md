@@ -1421,8 +1421,13 @@ SectionStyles computeStylesSync(
 ### 10.2 Caminhada
 
 Pilha explícita de quadros sobre `nodes` (sem recursão, sem indexar
-`children`). Ao entrar num elemento-pai, uma passada pelos `nodes` dele monta,
-para cada filho-elemento, um `ElementInfo` (privado): nome em minúsculas, se é
+`children`). Ao entrar num elemento-pai, uma passada pelos `nodes` dele só
+conta os filhos-elemento (testa o tipo de cada nó, sem ler nome, classe nem
+atributo); cada filho-elemento ganha o seu `ElementInfo` só quando é
+visitado, e o custo de montá-lo entra na cessão antes do trabalho seguinte
+(§10.6; revisão final: montar todos os irmãos de uma vez deixava 40 `<p>`
+com `class` de 1 MiB rodarem ~1 a 1,5 s sem ceder em AOT). O `ElementInfo` (interno):
+nome em minúsculas, se é
 do namespace HTML, `id`, classes num **`Set<String>`** (tokens por espaço
 ASCII: `class="a a"` vira `{a}`, e o teste de classe de um composto é O(1),
 não um `contains` numa lista), o índice (base 1) entre os irmãos-elemento, o
@@ -1627,7 +1632,8 @@ Dois contadores **(controlador, #27)**:
   passo; só na cessão, revisão do plano), cada consulta a balde, cada
   candidato considerado, cada seletor simples testado, cada declaração aplicada, da
   folha padrão, das dicas, do `style=""` e do livro. A cada
-  `cascadeYieldSteps` desses passos, `yield`, no padrão do `decode()` do
+  `cascadeYieldSteps` desses passos desde a última cessão (depois de um salto
+  grande, uma cessão só, e não uma rajada), `yield`, no padrão do `decode()` do
   contêiner (um `yield` por lote de trabalho). A linha da cascata em
   [08](../08-concorrencia-cache.md) §3 passa a dizer "a cada 4 096 passos" em
   vez de "a cada regra".
@@ -1668,8 +1674,9 @@ desfaz. Como o `DiagnosticSink` deduplica por (código, `href`), `float` e
 ### 10.8 Por que é linear
 
 - A caminhada visita cada nó uma vez; cada `ElementInfo` é montado uma vez,
-  quando o pai é visitado (a passada pelos `nodes` do pai soma, no total, o
-  número de nós), e os tokens de classe entram na cessão.
+  quando o elemento é visitado (a passada que conta os irmãos e a que os
+  monta somam, no total, duas vezes o número de nós), e os tokens de classe
+  entram na cessão antes do trabalho seguinte.
 - As classes do elemento são um `Set`: `class="a a a …"` não visita o balde
   `a` N vezes, e o teste de classe é O(1). Identificadores do seletor têm no
   máximo 256 unidades de código e os do elemento têm hash e minúsculas
