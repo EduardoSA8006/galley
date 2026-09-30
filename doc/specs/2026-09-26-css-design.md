@@ -1,7 +1,8 @@
 # CSS (Fase 1, sub-projeto 3) — design
 
-**Data:** 2026-09-26. **Estado:** a implementar (escrita a partir do desenho
-em cinco seções aprovado pelo usuário, `.superpowers/sdd/2026-09-26-css/design-aprovado.md`;
+**Data:** 2026-09-26. **Estado:** aprovada e implementada (plano em
+`doc/plans/2026-09-26-css.md`; escrita a partir do desenho em cinco seções
+aprovado pelo usuário, `.superpowers/sdd/2026-09-26-css/design-aprovado.md`;
 o que o desenho deixou para a spec fechar está marcado **(decisão da spec)**
 no texto e reunido em §1.4).
 **Branch:** `fase1/css`.
@@ -730,6 +731,21 @@ pseudo-elemento (`p::before:hover`, `p::before span`); `:not()`, `:has()`,
 de namespace não declarado (`ns|p`, `[epub|type]` sem `@namespace epub`,
 #41).
 
+**Divergências do Chromium 153 (revisão da Tarefa 3).** As listas fechadas de
+pseudo-classes e pseudo-elementos acima seguem o Selectors 4 e o padrão de
+cada nome, não o Chromium, e divergem dele nos dois sentidos:
+
+- o galley **aceita** (válido, fora do subconjunto) o que o Chromium rejeita:
+  `:target-within`, `:local-link`, `:playing`, `:paused`, `:has(:foo)`,
+  `:lang(1)`, `:dir(1)` e `::cue()`;
+- o galley **rejeita** (seletor inválido, derruba a regra) o que o Chromium
+  aceita: `::-webkit-*`, `:-webkit-any-link`, `:host`, `:autofill`, `:modal`,
+  `:open`, `:user-invalid`, `::part()`, `::highlight()`, `::spelling-error` e
+  `::target-text`.
+
+O efeito prático é o segundo: `p, ::-webkit-scrollbar { … }` vale no
+Chromium para `p` e, no galley, some inteira. Fica em [14](../14-pendencias.md).
+
 ### 6.4 Por que é linear
 
 - Uma passada sobre os tokens do prelúdio; a divisão por vírgula é feita na
@@ -927,6 +943,16 @@ O que o galley faz diferente do navegador, de propósito, e fica em
 - **`<!-- -->` dentro de `<style>`** é aplicado como CSS, e não tirado como
   comentário do XML (§9.1), ao contrário do resto da leitura do `<style>` como
   dado de caractere.
+- **Margens verticais do HTML §15.3 fora da folha padrão.** `p`, listas
+  (`ul`, `ol`, `menu`, `dir`, `dl`), títulos, `pre`, `figure` e `hr` não
+  recebem a margem vertical de §15.3 (`1em`, `0.67em` e assim por diante):
+  o espaçamento entre parágrafos e blocos é do perfil de fidelidade
+  (`EpubStyle.paragraphSpacing`, múltiplo da entrelinha, e a margem dos
+  títulos, doc/02 §3), decidido pela Camada B e não pelo livro, e a
+  Classe 2 só o honra em `faithful`. Também ficam de fora: os tamanhos de
+  título dentro de `article`/`section`/`aside`/`nav` (§15.3.3, que encolhem
+  `h1` aninhado), a margem horizontal de `figure` (`40px`) e `basefont` em
+  `display: none`. O `blockquote` e o `dd` mantêm as margens horizontais.
 - `rem` como `em`, `ex`/`ch` como 0,5em, `%` sobre 30em (§7.2); recuo de lista
   por `padding-left` em livro `rtl` (§8.1); filhos de `flex`/`grid` sem
   "blocoficação" (acima).

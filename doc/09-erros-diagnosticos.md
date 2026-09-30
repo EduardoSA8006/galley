@@ -37,7 +37,7 @@ abstract base class EpubException implements Exception {
 | `EpubEncryptedException` | `META-INF/license.lcpl`, `rights.xml`, o bit 0 da flag do ZIP, ou `encryption.xml` com esquema de DRM sobre conteúdo — inclusive `encryption.xml` ilegível ou acima do teto de tamanho (§4) | **Sim**, em `open`, com o esquema na mensagem (§4) | Provider que decifra ([07](07-api-publica.md) §4) |
 | `EpubUnsupportedException` | `EpubFidelity.faithful` na v1.0; `layout == prePaginated` na v1.0 | **Sim**, na construção de `EpubLayoutEngine`/`EpubReader` (não em `open`: o app ainda pode ler metadados e capa) | — |
 | `EpubResourceMissingException` | `href` do manifest sem arquivo no ZIP | Não | Seção `placeholder` |
-| `EpubSectionParseException` | XHTML irrecuperável | Não | Seção `placeholder` com o texto cru extraído |
+| `EpubSectionParseException` | XHTML irrecuperável; em `strict`, também todo warning do CSS, com o nome do código na mensagem ([spec do CSS](specs/2026-09-26-css-design.md) §12.3); implementada, interna até o sub-projeto 6 | Não | Seção `placeholder` com o texto cru extraído; antes de converter, o placeholder relança por identidade a última exceção de `strict` do sink da seção e a do sink do contêiner |
 | `EpubDecodeException` | Encoding irrecuperável | Não | U+FFFD nos bytes inválidos |
 | `EpubCacheException` | Cache corrompido ou store indisponível | Não | Recomputa |
 | `EpubCancelledException` | Token cancelado | Não | Silenciosa, esperada |
@@ -94,7 +94,7 @@ final class EpubDiagnosticCode {
 
 | Código | Severidade | Significado |
 |---|---|---|
-| `unsupportedLayout` | warning | Faixa B: `float`, `columns`, `writing-mode`, `position` |
+| `unsupportedLayout` | warning | Faixa B: `float`, `columns`, `writing-mode`, `position`; emitido quando o valor degradado vence a cascata num elemento, uma vez por (seção, propriedade), com `href` = seção e `details.property`/`value` |
 | `unsupportedMath` | warning | MathML presente; renderizado o fallback ou o texto |
 | `unsupportedMediaType` | warning | Item do spine que não é XHTML nem imagem |
 | `rubyFlattened` | info | Ruby renderizado sem anotação sobreposta |
@@ -113,6 +113,9 @@ final class EpubDiagnosticCode {
 | `coverHeuristic` | info | Capa encontrada por heurística, qual |
 | `navIgnored` | info | NAV ou NCX não usado; `details.reason`: `missing`, `too-large`, `unreadable`, `invalid`, `no-toc` ou `truncated` |
 | `spineItemDuplicate` | info | `idref` (ou caminho) repetido no spine; vale o primeiro |
+| `stylesheetIgnored` | warning | Folha, ou parte dela, perdida; `details.reason`: `too-large`, `cycle`, `depth`, `limit` (com `details.limit`: `sheets`, `attempts`, `bytes`, `rules`, `nesting` ou `dom-depth`), `late-import`, `unsupported-import` ou `budget` |
+| `stylesheetMediaIgnored` | info | `media` que não casa com `screen`/`all` (`<link>`, `<style>`, `@import`, blocos `@media`); `details.media` |
+| `cssRuleIgnored` | info | Regra, seletor ou declaração de CSS descartada; `details.reason`: `parse-error`, `unsupported-selector` ou `nested-rule`; agregado por folha, com `details.discarded` e `details.sample` |
 | `cacheMiss` | info | Recomputou por falha de cache |
 | `mimetypeIrregular` | info | `mimetype` ausente, fora do primeiro lugar, comprimido, com conteúdo errado ou ilegível, ou ZIP com prefixo; o motivo em `details.reason` |
 | `zipCrcMismatch` | warning | CRC-32 divergente (`reason: crc`) ou saída menor que a declarada (`reason: size`); sempre verificado |
@@ -140,6 +143,14 @@ final class EpubDiagnosticCode {
 Diagnósticos são **deduplicados por `(code, href)`**, senão um livro com 400
 imagens sem `alt` produz 400 eventos idênticos. O agregado guarda a contagem em
 `details['count']`.
+
+O CSS emite no sink **da seção** e reemite, a cada seção que aplica uma folha,
+o que ele mesmo registrou dela (o `encodingFallback`, os diagnósticos de parse
+e a falta), mesmo quando a folha vem do cache de folhas; os do contêiner
+(`pathCaseMismatch`, `zipCrcMismatch`) ficam no sink dele, uma vez por
+publicação. Os de parse do CSS saem agregados por folha: no máximo um por
+(código, motivo), com `details.discarded`
+([spec do CSS](specs/2026-09-26-css-design.md) §9.6 e §12.1).
 
 Diagnósticos de parse (Camada A) são serializados no cache com a seção e
 re-emitidos ao carregar do cache, para que a telemetria do app não dependa de

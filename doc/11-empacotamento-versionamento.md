@@ -148,6 +148,7 @@ galley/
     container/                    # ZIP, inflate, DRM, fontes e o contêiner sobre o corpus
     diagnostics/                  # exceções e DiagnosticSink
     publication/                  # parsers, orquestrador, Publicação sobre o corpus, fuzz
+    css/                          # tokenizador, parser, seletores, loader, cascata, corpus, fuzz, hostis
     corpus/                       # os 40–50 arquivos + READMEs + diagnósticos esperados
     invariants/                   # as 9 invariantes
     snapshots/                    # gate textual (FlutterTest e fonte OFL)
