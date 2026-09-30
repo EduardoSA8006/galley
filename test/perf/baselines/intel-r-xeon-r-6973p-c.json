@@ -4,50 +4,60 @@
   "dart": "3.13.0",
   "os": "linux",
   "cpu": "Intel(R) Xeon(R) 6973P-C",
-  "createdAt": "2026-09-27T00:13:38.919707Z",
-  "sourceCommit": "ee7d79f7bfd4e76ad1f27d7d452d02eb5f127617",
+  "createdAt": "2026-09-30T15:18:53.804595Z",
+  "sourceCommit": "015178137270268e8a2ac1b370a5026d789754d8",
   "runner": "ubuntu-24.04",
   "runs": 3,
   "cases": {
+    "css.cascade": {
+      "ratio": 0.8601736647131554,
+      "medianUs": 3638.526,
+      "calibrationUs": 4421.406
+    },
+    "css.parse": {
+      "ratio": 0.8558703916945404,
+      "medianUs": 4045.343,
+      "calibrationUs": 4788.834
+    },
     "font.deobfuscate.idpf": {
-      "ratio": 0.9275291142923673,
-      "medianUs": 4471.365,
-      "calibrationUs": 4584.308
+      "ratio": 0.8042919823774693,
+      "medianUs": 3580.913,
+      "calibrationUs": 4396.588
     },
     "html.parse.500kb": {
-      "ratio": 2.045434779237713,
-      "medianUs": 9123.938,
-      "calibrationUs": 4608.516
+      "ratio": 1.9262791964629282,
+      "medianUs": 9127.59,
+      "calibrationUs": 4580.526
     },
     "image.decode.target": {
-      "ratio": 1.874944043871813,
-      "medianUs": 9135.437,
-      "calibrationUs": 4810.366
+      "ratio": 1.904214769325318,
+      "medianUs": 8621.56,
+      "calibrationUs": 4532.653
     },
     "paragraph.shape.1000": {
-      "ratio": 10.18516352019889,
-      "medianUs": 47582.751,
-      "calibrationUs": 4652.871
+      "ratio": 10.269741785425529,
+      "medianUs": 47491.417,
+      "calibrationUs": 4593.735
     },
     "publication.read.800": {
-      "ratio": 5.501293221643928,
-      "medianUs": 27211.388,
-      "calibrationUs": 4600.367
+      "ratio": 5.5197526692243954,
+      "medianUs": 24859.428,
+      "calibrationUs": 4494.111
     },
     "zip.fetch.inflate.1mb": {
-      "ratio": 1.0240683389934764,
-      "medianUs": 4948.09,
-      "calibrationUs": 4931.315
+      "ratio": 1.0786721096716407,
+      "medianUs": 4912.88,
+      "calibrationUs": 4534.229
     },
     "zip.open.800": {
-      "ratio": 1.0899990516175473,
-      "medianUs": 5040.671,
-      "calibrationUs": 4654.67
+      "ratio": 1.0764456159828741,
+      "medianUs": 4870.65,
+      "calibrationUs": 4432.836
     },
     "zlib.inflate.1mb": {
-      "ratio": 1.1213589311964562,
-      "medianUs": 6239.944,
-      "calibrationUs": 5426.955
+      "ratio": 1.1006226921194884,
+      "medianUs": 6100.112,
+      "calibrationUs": 5211.581
     }
   }
 }
