@@ -286,6 +286,21 @@ void main() {
       expect(imports('@foo; @import "a.css";'), ['a.css']);
     });
 
+    test('@layer sem bloco entre dois @import invalida o seguinte', () {
+      expect(imports('@layer x; @import "a.css"; @import "b.css";'), [
+        'a.css',
+        'b.css',
+      ]);
+      expect(imports('@import "a.css"; @layer x; @import "b.css";'), ['a.css']);
+    });
+
+    test('at-rule conhecida mas inválida não tira o @import de posição', () {
+      for (final at in ['@font-face;', '@page;', '@supports foo { }']) {
+        expect(imports('$at @import "a.css";'), ['a.css'], reason: at);
+      }
+      expect(imports('@supports (a: b) { } @import "a.css";'), isEmpty);
+    });
+
     test(
       'at-rules que o Chromium não conhece não tiram o @import de posição',
       () {
@@ -364,6 +379,18 @@ void main() {
       );
     });
 
+    test('@namespace com lixo é inválido e não registra o prefixo', () {
+      final s = parseStyleSheet(
+        '@namespace epub "x" junk; [epub|type="n"] { display: block }',
+      );
+      expect(s.rules, isEmpty);
+      expect(_issues(s), ['cssRuleIgnored/parse-error×1']);
+      expect(
+        parseStyleSheet('@namespace epub "x" junk; @import "a.css";').imports,
+        hasLength(1),
+      );
+    });
+
     test('@namespace fora de posição não declara nada', () {
       final late = parseStyleSheet(
         'p { } @namespace epub "x"; [epub|type="n"] { display: block }',
@@ -391,6 +418,38 @@ void main() {
       expect(_decls(over), ['fontStyle=italic']);
       expect(_issues(over), ['stylesheetIgnored/limit×1']);
       expect(over.issues.single.details, {'limit': 'nesting'});
+    });
+
+    test('declaração que falha com mais de 32 níveis não engole a folha', () {
+      final deep = '(' * 40 + ')' * 40;
+      for (final decl in [
+        'a: b {$deep} x',
+        'a: {$deep} x',
+        'a: f($deep) {x}',
+        'a: {$deep} !; x',
+      ]) {
+        final s = parseStyleSheet(
+          'p { $decl font-style: italic } h1 { display: block }',
+        );
+        expect(_tags(s), ['p', 'h1'], reason: decl);
+        expect(_decls(s), contains('display=block'), reason: decl);
+        expect(
+          s.issues.where((i) => i.reason == 'limit').single.discarded,
+          1,
+          reason: decl,
+        );
+      }
+      final s = parseStyleSheet(
+        'p { a: b {$deep} font-style: italic } h1 { display: block }',
+      );
+      expect(_decls(s), ['fontStyle=italic', 'display=block']);
+    });
+
+    test('prelúdio e bloco acima do limite: um limit só', () {
+      final deep = '(' * 40 + ')' * 40;
+      final s = parseStyleSheet('p $deep { a: $deep } h1 { display: block }');
+      expect(_tags(s), ['h1']);
+      expect(_issues(s), ['stylesheetIgnored/limit×1']);
     });
 
     test('@media aninhado 32 vezes vale; 33 salta', () {

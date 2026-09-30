@@ -245,6 +245,9 @@ final class _Parser {
   /// `@import` depois dela está fora de posição.
   bool _rulesSeen = false;
 
+  /// Algum `@import` em posição já apareceu (para o `@layer` sem bloco).
+  bool _importSeen = false;
+
   /// Prefixos declarados por `@namespace` em posição (CSS Namespaces 3 §3:
   /// depois de `@charset` e `@import`, antes de tudo o mais).
   final Set<String> _namespaces = {};
@@ -339,9 +342,14 @@ final class _Parser {
   /// Syntax §5.4.8). Devolve `false` se o aninhamento passou de
   /// [maxCssNesting]: daí em diante nada é guardado, mas o bloco é
   /// consumido até fechar (§5.4).
-  bool _consumeBlock(CssToken opener, int depth, List<CssToken>? into) {
+  bool _consumeBlock(
+    CssToken opener,
+    int depth,
+    List<CssToken>? into, {
+    bool report = true,
+  }) {
     var ok = depth <= maxCssNesting;
-    if (!ok) _nestingLimit();
+    if (!ok && report) _nestingLimit();
     var sink = ok ? into : null;
     final stack = <CssTokenType>[_closerOf(opener.type)];
     while (stack.isNotEmpty) {
@@ -357,7 +365,7 @@ final class _Parser {
           if (ok && depth + stack.length - 1 > maxCssNesting) {
             ok = false;
             sink = null;
-            _nestingLimit();
+            if (report) _nestingLimit();
           }
         case CssTokenType.rightParen ||
             CssTokenType.rightBracket ||
@@ -445,7 +453,12 @@ final class _Parser {
     if (depth > maxCssNesting || poisoned) {
       // A regra cai: o prelúdio já registrou o limite, ou o salto do bloco
       // registra agora.
-      _consumeBlock(const CssToken(CssTokenType.leftBrace), depth, null);
+      _consumeBlock(
+        const CssToken(CssTokenType.leftBrace),
+        depth,
+        null,
+        report: !poisoned,
+      );
       return;
     }
     switch (parseSelectorList(prelude, namespaces: _namespaces)) {
@@ -499,7 +512,12 @@ final class _Parser {
     }
     void skipBlock() {
       if (hasBlock) {
-        _consumeBlock(const CssToken(CssTokenType.leftBrace), depth + 1, null);
+        _consumeBlock(
+          const CssToken(CssTokenType.leftBrace),
+          depth + 1,
+          null,
+          report: !poisoned,
+        );
       }
     }
 
@@ -535,31 +553,76 @@ final class _Parser {
         }
       case 'namespace':
         skipBlock();
-        _rulesSeen = true;
-        if (!hasBlock && topLevel && !_namespacesClosed) _namespace(prelude);
+        if (!hasBlock) {
+          final prefix = _namespaceOf(prelude);
+          if (prefix != null) {
+            // Só um @namespace válido conta para a posição.
+            _rulesSeen = true;
+            if (topLevel && !_namespacesClosed && prefix.isNotEmpty) {
+              _namespaces.add(prefix);
+            }
+          }
+        }
       default:
         skipBlock();
-        if (_isKnownAtRule(name) && (hasBlock || name != 'layer')) {
-          _rulesSeen = true;
-          _namespacesClosed = true;
+        if (_isKnownAtRule(name) && _atRuleValid(name, prelude, hasBlock)) {
+          if (name == 'layer' && !hasBlock) {
+            // CSS Cascade 5 §2.2: um `@layer` sem bloco antes do primeiro
+            // `@import` é ignorado; depois de um `@import`, invalida os
+            // seguintes.
+            if (_importSeen) _rulesSeen = true;
+          } else {
+            _rulesSeen = true;
+            _namespacesClosed = true;
+          }
         }
     }
   }
 
-  /// `@namespace prefixo url;` guarda o prefixo; o namespace padrão (sem
-  /// prefixo) é ignorado.
-  void _namespace(List<CssToken> prelude) {
-    final words = [
-      for (final t in prelude)
-        if (t.type != CssTokenType.whitespace) t,
-    ];
-    if (words.length < 2 || words[0].type != CssTokenType.ident) return;
-    final uri = words[1];
-    if (uri.type == CssTokenType.string ||
-        uri.type == CssTokenType.url ||
-        (uri.type == CssTokenType.function &&
-            cssAsciiEquals(uri.value, 'url'))) {
-      _namespaces.add(words[0].value);
+  /// Prefixo de um `@namespace [prefixo] <string>|url(…);` válido ('' se for
+  /// o namespace padrão); `null` se o prelúdio é inválido (CSS Namespaces 3
+  /// §3), inclusive com lixo depois do url.
+  static String? _namespaceOf(List<CssToken> prelude) {
+    var i = 0;
+    while (i < prelude.length && prelude[i].type == CssTokenType.whitespace) {
+      i++;
+    }
+    var prefix = '';
+    if (i < prelude.length && prelude[i].type == CssTokenType.ident) {
+      prefix = prelude[i].value;
+      i++;
+    }
+    final parsed = _importHref(prelude.sublist(i));
+    if (parsed == null) return null;
+    for (var k = i + parsed.$2; k < prelude.length; k++) {
+      if (prelude[k].type != CssTokenType.whitespace) return null;
+    }
+    return prefix;
+  }
+
+  /// Se a at-rule reconhecida é válida (só a válida muda a posição do
+  /// `@import`): as que exigem bloco o têm; `@supports` começa por uma
+  /// condição; `@layer` sem bloco tem nomes.
+  static bool _atRuleValid(String name, List<CssToken> prelude, bool hasBlock) {
+    CssToken? first;
+    for (final t in prelude) {
+      if (t.type != CssTokenType.whitespace) {
+        first = t;
+        break;
+      }
+    }
+    switch (name) {
+      case 'layer':
+        return hasBlock || first != null;
+      case 'supports':
+        return hasBlock &&
+            first != null &&
+            (first.type == CssTokenType.leftParen ||
+                first.type == CssTokenType.function ||
+                (first.type == CssTokenType.ident &&
+                    cssAsciiEquals(first.value, 'not')));
+      default:
+        return hasBlock;
     }
   }
 
@@ -610,6 +673,7 @@ final class _Parser {
       _lateImport(href);
       return;
     }
+    _importSeen = true;
     var i = after;
     while (i < prelude.length && prelude[i].type == CssTokenType.whitespace) {
       i++;
@@ -736,15 +800,24 @@ final class _Parser {
           buffer.add(t);
           if (!_consumeBlock(t, depth + 1, buffer)) poisoned = true;
           if (custom) continue;
-          // Um `{}` depois de conteúdo: falha ao fechar o bloco.
+          // Um `{}` depois de conteúdo: falha ao fechar o bloco. Com o limite
+          // estourado o buffer não tem os fechamentos e não pode ser relido:
+          // a regra aninhada acaba neste `}`.
           if (content) {
+            if (poisoned) return;
             _fail(buffer, depth);
             return;
           }
+          final blockEnd = buffer.length;
           // Um `{}` no começo só vale como o valor inteiro (com
           // `!important`, que o CSS Syntax tira antes de conferir).
           if (!_onlyImportantFollows(buffer)) {
-            _fail(buffer, depth);
+            if (poisoned) {
+              // Relê só a cauda depois do bloco descartado.
+              _unread(buffer.sublist(blockEnd));
+            } else {
+              _fail(buffer, depth);
+            }
             return;
           }
           return; // sintaxe válida; `{}` não é valor de nenhuma propriedade
