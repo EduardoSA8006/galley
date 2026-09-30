@@ -24,12 +24,16 @@ Map<String, ElementInfo> _infos(String body) {
     '<html xmlns="http://www.w3.org/1999/xhtml"><body>$body</body></html>',
   );
   final out = <String, ElementInfo>{};
-  final stack = [ElementInfo.root(document.documentElement!)];
+  final steps = MatchSteps(1 << 30);
+  final stack = [ChildCursor.root(document.documentElement!, steps).next()!];
   while (stack.isNotEmpty) {
     final e = stack.removeLast();
     final id = e.id;
     if (id != null) out[id] = e;
-    stack.addAll(e.children());
+    final children = ChildCursor(e, steps);
+    for (var c = children.next(); c != null; c = children.next()) {
+      stack.add(c);
+    }
   }
   return out;
 }
@@ -101,9 +105,10 @@ void main() {
     });
 
     test('a raiz é :first-child (Selectors 4 não exige pai)', () {
-      final root = ElementInfo.root(
+      final root = ChildCursor.root(
         html.parse('<html><body></body></html>').documentElement!,
-      );
+        MatchSteps(1 << 30),
+      ).next()!;
       expect(
         matchSelector(_selector('html:first-child'), root, MatchSteps(9)),
         isTrue,

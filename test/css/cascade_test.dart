@@ -628,6 +628,37 @@ void main() {
     });
   });
 
+  group('cessão depois de um salto', () {
+    test('um salto grande de passos dá uma cessão, não uma rajada', () {
+      final document = html.parse('<html><body></body></html>');
+      // A montagem do primeiro p soma ~16 000 passos de uma vez.
+      document.body!.append(
+        Element.tag('p')..attributes['class'] = 'a'.padRight(1 << 20),
+      );
+      for (var i = 0; i < 10000; i++) {
+        document.body!.append(Element.tag('p'));
+      }
+      final marks = <int>[];
+      for (final _ in computeStyles(
+        document,
+        SectionSheets.empty,
+        sectionPath: _section,
+        sink: DiagnosticSink(),
+        into: CascadeResult(),
+        onYield: marks.add,
+      )) {}
+      marks.removeLast(); // a marca do fim, que não é cessão
+      expect(marks.length, greaterThan(10));
+      for (var i = 1; i < marks.length; i++) {
+        expect(
+          marks[i] - marks[i - 1],
+          greaterThanOrEqualTo(cascadeYieldSteps),
+          reason: 'cessões ${i - 1} e $i',
+        );
+      }
+    });
+  });
+
   group('cessão do parse de style=""', () {
     test(
       'um texto novo conta o tamanho: 2 000 de 8 KiB cedem ~2 000 vezes',

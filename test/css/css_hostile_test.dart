@@ -300,4 +300,55 @@ void main() {
       expect(elapsed, lessThan(_limit));
     },
   );
+
+  group('cessão ao montar irmãos', () {
+    /// Maior intervalo, em passos, entre duas cessões (e até o fim).
+    (int, Duration) maxGap(Document document, String css) {
+      final sheets = css.isEmpty ? SectionSheets.empty : _sheets(css);
+      final marks = <int>[0];
+      final sw = Stopwatch()..start();
+      for (final _ in computeStyles(
+        document,
+        sheets,
+        sectionPath: _section,
+        sink: DiagnosticSink(),
+        into: CascadeResult(),
+        onYield: marks.add,
+      )) {}
+      sw.stop();
+      var gap = 0;
+      for (var i = 1; i < marks.length; i++) {
+        final d = marks[i] - marks[i - 1];
+        if (d > gap) gap = d;
+      }
+      return (gap, sw.elapsed);
+    }
+
+    /// Passos de montar um `<p>` com `class` de [units] unidades.
+    int build(int units) => 1 + (1 + units) ~/ 64;
+
+    test('40 <p> com class de 1 MiB: cede a cada elemento montado', () {
+      final (document, body) = _empty();
+      final cls = 'a'.padRight(1 << 20);
+      for (var i = 0; i < 40; i++) {
+        body.append(_el('p', {'class': cls}));
+      }
+      final (gap, elapsed) = maxGap(document, '.a { font-style: italic }');
+      // Montados todos quando o body é visitado, seriam 40 × 16 385 passos
+      // sem ceder; montados na visita, um elemento e uma janela.
+      expect(gap, lessThanOrEqualTo(build(1 << 20) + cascadeYieldSteps));
+      expect(elapsed, lessThan(_limit));
+    });
+
+    test('5 000 <p> com class de 2 KiB: o intervalo fica numa janela', () {
+      final (document, body) = _empty();
+      final cls = 'a'.padRight(2048);
+      for (var i = 0; i < 5000; i++) {
+        body.append(_el('p', {'class': cls}));
+      }
+      final (gap, elapsed) = maxGap(document, '.a { font-style: italic }');
+      expect(gap, lessThanOrEqualTo(build(2048) + cascadeYieldSteps));
+      expect(elapsed, lessThan(_limit));
+    });
+  });
 }

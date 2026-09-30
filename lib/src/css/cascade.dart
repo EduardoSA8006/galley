@@ -4,8 +4,10 @@
 ///
 /// Linear na seção:
 /// - a caminhada visita cada nó uma vez (pilha explícita, sem recursão, sem
-///   `children` indexado); cada [ElementInfo] é montado uma vez, quando o pai
-///   é visitado;
+///   `children` indexado); cada [ElementInfo] é montado uma vez, quando ele
+///   é visitado, e o custo de montá-lo entra na cessão antes do trabalho
+///   seguinte (o total de irmãos sai de uma passada que só testa o tipo dos
+///   nós);
 /// - classes do elemento num `Set`: `class="a a a …"` não visita o balde `a`
 ///   N vezes;
 /// - todo o trabalho das regras do livro paga orçamento (consulta a balde,
@@ -24,6 +26,7 @@ library;
 import 'dart:typed_data';
 
 import 'package:html/dom.dart';
+import 'package:meta/meta.dart';
 
 import '../diagnostics/diagnostic.dart';
 import '../diagnostics/exceptions.dart';
@@ -92,7 +95,8 @@ final class SectionStyles {
 
 /// Cascata da seção (doc/08 §1): um `yield` a cada [cascadeYieldSteps]
 /// passos (§10.6). Ao terminar, [into] recebe o resultado. Não muda o DOM.
-/// [budget] existe para os testes das bordas do orçamento.
+/// [budget] existe para os testes das bordas do orçamento; [onYield], para os
+/// da cessão: recebe o total de passos a cada `yield` e uma vez no fim.
 Iterable<void> computeStyles(
   Document document,
   SectionSheets sheets, {
@@ -101,9 +105,18 @@ Iterable<void> computeStyles(
   required CascadeResult into,
   bool recordOrigins = false,
   int budget = cascadeBudget,
+  @visibleForTesting void Function(int steps)? onYield,
 }) sync* {
-  final cascade = _Cascade(sheets, sectionPath, sink, recordOrigins, budget);
+  final cascade = _Cascade(
+    sheets,
+    sectionPath,
+    sink,
+    recordOrigins,
+    budget,
+    onYield,
+  );
   yield* cascade.run(document);
+  onYield?.call(cascade._steps.total);
   into._styles = cascade.result();
 }
 
@@ -129,15 +142,13 @@ SectionStyles computeStylesSync(
   return into.styles;
 }
 
-/// Um nível da caminhada: os filhos de [parent], o próximo a visitar e o
-/// estilo do pai.
+/// Um nível da caminhada: os filhos do pai, montados um a um, e o estilo
+/// do pai.
 final class _Frame {
-  _Frame(this.parent, this.children, this.parentStyle);
+  _Frame(this.children, this.parentStyle);
 
-  final ElementInfo? parent;
-  final List<ElementInfo> children;
+  final ChildCursor children;
   final ComputedStyle parentStyle;
-  int next = 0;
 }
 
 /// Camadas de origem e importância (CSS Cascade 4 §6.1; spec §10.5).
@@ -158,6 +169,7 @@ final class _Cascade {
     this._sink,
     this._recordOrigins,
     int budget,
+    this._onYield,
   ) : _steps = MatchSteps(budget),
       _book = RuleIndex([
         for (final s in sheets.sheets)
@@ -167,6 +179,7 @@ final class _Cascade {
   final String _section;
   final DiagnosticSink _sink;
   final bool _recordOrigins;
+  final void Function(int steps)? _onYield;
   final MatchSteps _steps;
   final RuleIndex _book;
   final AncestorFilter _filter = AncestorFilter();
@@ -213,10 +226,15 @@ final class _Cascade {
     onStrict: (m) => EpubSectionParseException(m, href: href),
   );
 
-  /// `yield` a cada [cascadeYieldSteps] passos de todo o trabalho.
+  /// `yield` a cada [cascadeYieldSteps] passos de todo o trabalho. A
+  /// próxima janela começa no total de agora: depois de um salto grande (um
+  /// elemento de `class` enorme, um `style=""` novo), uma cessão só, e não
+  /// uma rajada de `yield` vazios.
   bool get _shouldYield {
-    if (_steps.total < _nextYield) return false;
-    _nextYield += cascadeYieldSteps;
+    final total = _steps.total;
+    if (total < _nextYield) return false;
+    _nextYield = total + cascadeYieldSteps;
+    _onYield?.call(total);
     return true;
   }
 
@@ -233,20 +251,21 @@ final class _Cascade {
     final root = document.documentElement;
     if (root != null) {
       final frames = <_Frame>[
-        _Frame(null, [ElementInfo.root(root)], ComputedStyle.initial),
+        _Frame(ChildCursor.root(root, _steps), ComputedStyle.initial),
       ];
       while (frames.isNotEmpty) {
         final frame = frames.last;
-        if (frame.next == frame.children.length) {
+        // Monta o próximo irmão e soma o custo de montá-lo (doc/08 §3).
+        final e = frame.children.next();
+        if (e == null) {
           frames.removeLast();
-          final parent = frame.parent;
+          final parent = frame.children.parent;
           if (parent != null && parent.depth < maxCascadeDepth) {
             _filter.pop(parent);
           }
           continue;
         }
-        final e = frame.children[frame.next++];
-        _steps.add(1 + e.readUnits ~/ 64);
+        if (_shouldYield) yield null;
         final ComputedStyle style;
         if (e.depth > maxCascadeDepth) {
           style = _deep(e, frame.parentStyle);
@@ -256,10 +275,10 @@ final class _Cascade {
         }
         _styles[e.element] = _intern.putIfAbsent(style, () => style);
         if (!e.isTemplate && e.element.nodes.isNotEmpty) {
-          final children = e.children();
-          if (children.isNotEmpty) {
+          final children = ChildCursor(e, _steps);
+          if (children.count > 0) {
             if (e.depth < maxCascadeDepth) _filter.push(e);
-            frames.add(_Frame(e, children, style));
+            frames.add(_Frame(children, style));
           }
         }
         if (_shouldYield) yield null;
@@ -353,6 +372,9 @@ final class _Cascade {
     for (final entries in buckets) {
       _steps.add(1);
       if (book && _steps.exhausted) return;
+      // Cede também entre baldes vazios: 150 000 classes são 150 000
+      // consultas.
+      if (_shouldYield) yield null;
       var next = 0;
       while (next < entries.length) {
         next = _candidates(entries, next, e, book: book);

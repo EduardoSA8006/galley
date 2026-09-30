@@ -19,14 +19,15 @@ import 'tokenizer.dart';
 
 const String htmlNamespace = 'http://www.w3.org/1999/xhtml';
 
-/// Um elemento visto pela cascata, montado uma vez quando o pai é visitado
-/// (spec do CSS §10.2).
+/// Um elemento visto pela cascata, montado só quando ele é visitado
+/// ([ChildCursor]; spec do CSS §10.2).
 final class ElementInfo {
   ElementInfo._(
     this.element, {
     required this.parent,
     required this.previous,
     required this.index,
+    required this.siblingCount,
     required this.depth,
   }) : localName = element.localName ?? '',
        isHtml = element.namespaceUri == htmlNamespace {
@@ -47,11 +48,6 @@ final class ElementInfo {
     listDepth = p == null ? 0 : p.listDepth + (p.isList ? 1 : 0);
   }
 
-  /// O elemento raiz do documento (profundidade 1).
-  factory ElementInfo.root(Element root) =>
-      ElementInfo._(root, parent: null, previous: null, index: 1, depth: 1)
-        ..siblingCount = 1;
-
   final Element element;
 
   /// Como está no DOM (o `package:html` já baixa os nomes HTML).
@@ -70,7 +66,7 @@ final class ElementInfo {
 
   /// Posição (base 1) entre os irmãos-elemento, e quantos são.
   final int index;
-  int siblingCount = 0;
+  final int siblingCount;
 
   /// A raiz tem 1.
   final int depth;
@@ -81,6 +77,10 @@ final class ElementInfo {
 
   /// Unidades de código de nome, `id` e `class` lidas ao montar (§10.6).
   late final int readUnits;
+
+  /// Passos de montar este elemento (doc/08 §3): um, mais um a cada 64
+  /// unidades lidas.
+  int get buildSteps => 1 + readUnits ~/ 64;
 
   bool get isTemplate => isHtml && localName == 'template';
 
@@ -95,28 +95,70 @@ final class ElementInfo {
   /// Quantos ancestrais são listas ([isList]), herdado do pai em O(1): o
   /// `circle`/`square` das listas aninhadas sai daqui, sem descendente.
   late final int listDepth;
+}
 
-  /// Os filhos-elemento, numa passada pelos `nodes` (nunca `children`
-  /// indexado, doc/03 §8).
-  List<ElementInfo> children() {
-    final out = <ElementInfo>[];
-    ElementInfo? previous;
-    for (final node in element.nodes) {
+/// Os filhos-elemento de um pai, montados um a um em [next] (nunca
+/// `children` indexado, doc/03 §8): o [ElementInfo] de um irmão só é
+/// montado quando ele é visitado, e [next] soma em [steps] o custo de
+/// montá-lo ([ElementInfo.buildSteps]) antes de devolvê-lo, para a cessão
+/// vir antes do trabalho seguinte.
+///
+/// O total de irmãos (`:last-child`) sai de uma passada que só testa o tipo
+/// de cada nó, sem ler nome, classe nem atributo: O(nós do pai), uma vez
+/// por pai.
+final class ChildCursor {
+  /// Os filhos-elemento de [parent].
+  ChildCursor(ElementInfo this.parent, this.steps)
+    : _nodes = parent.element.nodes,
+      _depth = parent.depth + 1,
+      _count = _elementCount(parent.element.nodes);
+
+  /// Só a raiz do documento (profundidade 1, `:first-child` e
+  /// `:last-child`, como no Selectors 4, que não exige pai).
+  ChildCursor.root(Element root, this.steps)
+    : parent = null,
+      _nodes = [root],
+      _depth = 1,
+      _count = 1;
+
+  final ElementInfo? parent;
+  final MatchSteps steps;
+  final List<Node> _nodes;
+  final int _depth;
+  final int _count;
+  int _position = 0;
+  int _index = 0;
+  ElementInfo? _previous;
+
+  /// Quantos filhos-elemento o pai tem.
+  int get count => _count;
+
+  /// O próximo filho-elemento, montado agora, ou `null` no fim.
+  ElementInfo? next() {
+    while (_position < _nodes.length) {
+      final node = _nodes[_position++];
       if (node is! Element) continue;
       final info = ElementInfo._(
         node,
-        parent: this,
-        previous: previous,
-        index: out.length + 1,
-        depth: depth + 1,
+        parent: parent,
+        previous: _previous,
+        index: ++_index,
+        siblingCount: _count,
+        depth: _depth,
       );
-      out.add(info);
-      previous = info;
+      _previous = info;
+      steps.add(info.buildSteps);
+      return info;
     }
-    for (final info in out) {
-      info.siblingCount = out.length;
+    return null;
+  }
+
+  static int _elementCount(List<Node> nodes) {
+    var n = 0;
+    for (final node in nodes) {
+      if (node is Element) n++;
     }
-    return out;
+    return n;
   }
 }
 
