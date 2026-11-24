@@ -7,7 +7,8 @@ import 'package:galley_benchmark/src/runner.dart';
 
 /// Executa um benchmark: `--bench <id> --iterations <n>`.
 ///
-/// Imprime exatamente uma linha `checksum=<int>`. Com `--list`, imprime os
+/// Imprime a linha `checksum=<int>`; com `--timing`, imprime antes a linha
+/// `ns=<int>` (tempo de relógio das iterações 2 a n, sem `setUp`). Com `--list`, imprime os
 /// ids do catálogo, um por linha, e sai com 0. Id desconhecido ou argumentos
 /// inválidos saem com código 64; exceção em `setUp`/`run` sai com 70 (ver
 /// `runBench`).
@@ -15,6 +16,11 @@ Future<void> main(List<String> args) async {
   final parser = ArgParser()
     ..addFlag('list', negatable: false, help: 'Lista os ids do catálogo.')
     ..addOption('bench', help: 'Id do benchmark.')
+    ..addFlag(
+      'timing',
+      negatable: false,
+      help: 'Imprime ns=<tempo das iterações 2..n> (exige --iterations ≥ 2).',
+    )
     ..addOption('iterations', defaultsTo: '1', help: 'Número de ciclos.');
   final ArgResults parsed;
   final int iterations;
@@ -22,6 +28,9 @@ Future<void> main(List<String> args) async {
     parsed = parser.parse(args);
     iterations = int.parse(parsed.option('iterations')!);
     if (iterations < 1) throw const FormatException('iterations < 1');
+    if (parsed.flag('timing') && iterations < 2) {
+      throw const FormatException('--timing exige --iterations ≥ 2');
+    }
     if (!parsed.flag('list') && parsed.option('bench') == null) {
       throw const FormatException('--bench é obrigatório');
     }
@@ -48,6 +57,7 @@ Future<void> main(List<String> args) async {
     iterations,
     stdoutSink: stdout,
     stderrSink: stderr,
+    timing: parsed.flag('timing'),
   );
   await _exit(code);
 }

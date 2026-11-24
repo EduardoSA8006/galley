@@ -31,4 +31,30 @@ void main() {
     final r = await _run(['--iterations', '1']);
     expect(r.exitCode, 64);
   });
+
+  test('--timing imprime ns= e checksum=', () async {
+    final r = await _run([
+      '--bench',
+      'harness/noop',
+      '--iterations',
+      '3',
+      '--timing',
+    ]);
+    expect(r.exitCode, 0, reason: '${r.stderr}');
+    final lines = (r.stdout as String).trim().split('\n');
+    expect(lines.first, matches(RegExp(r'^ns=\d+$')));
+    expect(lines.last, 'checksum=0');
+  });
+
+  test('--timing com 1 iteração sai com 64', () async {
+    final r = await _run([
+      '--bench',
+      'harness/noop',
+      '--iterations',
+      '1',
+      '--timing',
+    ]);
+    expect(r.exitCode, 64);
+    expect(r.stderr as String, contains('--timing'));
+  });
 }

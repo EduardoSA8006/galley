@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:galley_benchmark/src/modes/instructions.dart';
+import 'package:galley_benchmark/src/modes/orchestration.dart';
 import 'package:test/test.dart';
 
 /// Saída real do cachegrind (`--cache-sim=no`) sobre o `bench_runner`.

@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../bmf.dart' as bmf;
-import 'build.dart';
+import 'orchestration.dart';
 
 /// Contador de instruções usado no modo `instructions`.
 enum Counter {
@@ -85,24 +85,7 @@ final class CounterUnavailable implements Exception {
   String toString() => 'CounterUnavailable: $message';
 }
 
-/// Falha ao medir um benchmark (o `bench_runner` falhou ou a saída é
-/// inesperada).
-final class MeasurementFailure implements Exception {
-  /// Cria a falha.
-  const MeasurementFailure(this.message, {this.exitCode});
-
-  /// Descrição da falha.
-  final String message;
-
-  /// Código de saída do `bench_runner`, se ele chegou a sair.
-  final int? exitCode;
-
-  @override
-  String toString() => 'MeasurementFailure: $message';
-}
-
 final _iRefs = RegExp(r'I\s+refs:\s+([\d,]+)');
-final _checksum = RegExp(r'^checksum=(-?\d+)\s*$', multiLine: true);
 
 /// Lê a contagem `I refs` do stderr do cachegrind.
 ///
@@ -222,7 +205,7 @@ Future<CountedRun> runCounted(
     ],
     Counter.perf => ['stat', '-x,', '-e', 'instructions:u', '--', ...runner],
   };
-  final r = await _runWithTimeout(
+  final r = await runWithTimeout(
     tool,
     args,
     environment: {...?environment, 'DART_VM_OPTIONS': deterministicVmOptions},
@@ -253,7 +236,7 @@ Future<CountedRun> runCounted(
   if (count == null) {
     throw MeasurementFailure('$benchId: contagem ausente na saída:\n$err');
   }
-  final m = _checksum.firstMatch(out);
+  final m = checksumPattern.firstMatch(out);
   if (m == null) {
     throw MeasurementFailure('$benchId: checksum ausente na saída:\n$out');
   }
@@ -273,59 +256,6 @@ CounterUnavailable? _perfUnavailable(int exitCode, String err) {
     return CounterUnavailable.perfBlocked(_paranoid());
   }
   return null;
-}
-
-/// Roda [executable] e espera até [timeout]; ao estourar, mata o processo e
-/// todos os descendentes e lança [MeasurementFailure] citando [what].
-Future<ProcessResult> _runWithTimeout(
-  String executable,
-  List<String> args, {
-  required Map<String, String> environment,
-  required String? workingDirectory,
-  required Duration timeout,
-  required String what,
-}) async {
-  final p = await Process.start(
-    executable,
-    args,
-    environment: environment,
-    workingDirectory: workingDirectory,
-  );
-  final out = p.stdout.transform(utf8.decoder).join();
-  final err = p.stderr.transform(utf8.decoder).join();
-  final int code;
-  try {
-    code = await p.exitCode.timeout(timeout);
-  } on TimeoutException {
-    await _killTree(p.pid);
-    await p.exitCode;
-    // Netos órfãos podem segurar os pipes; não esperamos pela saída.
-    unawaited(out.then((_) {}, onError: (_) {}));
-    unawaited(err.then((_) {}, onError: (_) {}));
-    throw MeasurementFailure(
-      '$what: tempo esgotado após ${timeout.inSeconds} s; processo morto',
-    );
-  }
-  return ProcessResult(p.pid, code, await out, await err);
-}
-
-/// Mata [pid] e os descendentes (via `pgrep -P`), dos netos para cima.
-Future<void> _killTree(int pid) async {
-  final children = <int>[];
-  try {
-    final r = await Process.run('pgrep', ['-P', '$pid']);
-    children.addAll(
-      const LineSplitter().convert(r.stdout as String).map(int.parse),
-    );
-  } on Object {
-    // Sem pgrep: mata só o processo direto.
-  }
-  // Para os filhos antes de descer, para não renascerem netos.
-  Process.killPid(pid, ProcessSignal.sigstop);
-  for (final child in children) {
-    await _killTree(child);
-  }
-  Process.killPid(pid, ProcessSignal.sigkill);
 }
 
 /// Contagem de instruções de um benchmark numa versão, com os dados brutos.
@@ -424,18 +354,6 @@ Future<InstructionCount> countInstructions(
     high: b.instructions,
     checksum: b.checksum,
   );
-}
-
-/// Ids do catálogo de [exe] (`bench_runner --list`), ou `null` se esse
-/// `bench_runner` não tiver `--list` (versões antigas).
-Future<List<String>?> listBenches(File exe) async {
-  final r = await Process.run(exe.path, ['--list']);
-  if (r.exitCode != 0) return null;
-  return const LineSplitter()
-      .convert(r.stdout as String)
-      .map((l) => l.trim())
-      .where((l) => l.isNotEmpty)
-      .toList();
 }
 
 /// Situação de um benchmark no gate.
@@ -684,7 +602,7 @@ String renderReport(GateResult r, {Counter? counter}) {
 const int exitCounterUnavailable = 69;
 
 /// Código de saída quando a preparação ou a medição falha (EX_SOFTWARE).
-const int exitInstructionsFailure = 70;
+const int exitInstructionsFailure = exitMeasurementFailure;
 
 /// Executa o modo `instructions`: mede [baseRef] e [headRef] no mesmo
 /// processo e decide o gate.
@@ -707,147 +625,68 @@ Future<int> runInstructions({
   int highIterations = defaultHighIterations,
   Duration timeout = defaultRunTimeout,
   StringSink? log,
-}) async {
+}) {
   final logSink = log ?? stderr;
-  final workDir = await Directory.systemTemp.createTemp('galley-instr-');
-  final checkouts = <Directory>[];
-  Directory? repo;
-  try {
-    counterExecutable(counter);
-    final root = repo = await repoRoot();
-
-    Future<Directory> checkout(String ref) async {
-      logSink.writeln('Preparando $ref…');
-      final dir = await prepareCheckout(ref, workDir, repo: root);
-      checkouts.add(dir);
-      return dir;
-    }
-
-    final headDir = await checkout(headRef);
-    if (!hasBenchRunner(headDir)) {
-      throw BuildFailure('o head ($headRef) não tem $benchRunnerPath');
-    }
-    final baseDir = await checkout(baseRef);
-    final notes = <String>[];
-
-    logSink.writeln('Compilando o bench_runner do head…');
-    final headExe = await compileRunner(
-      checkout: headDir,
-      outPath: '${workDir.path}/head-runner',
-    );
-    File? baseExe;
-    if (hasBenchRunner(baseDir)) {
-      logSink.writeln('Compilando o bench_runner da base…');
-      baseExe = await compileRunner(
-        checkout: baseDir,
-        outPath: '${workDir.path}/base-runner',
+  return runSession('galley-instr-', log: logSink, (session) async {
+    try {
+      counterExecutable(counter);
+      final v = await session.prepare(
+        baseRef: baseRef,
+        headRef: headRef,
+        only: only,
       );
-    } else {
-      notes.add(
-        'A base ($baseRef) não tem `benchmark/`: todos os benchmarks do head '
-        'entram como `added`.',
-      );
-    }
-
-    bool selected(String id) =>
-        !id.startsWith('harness/') && (only.isEmpty || only.contains(id));
-    final headIds = (await listBenches(headExe))?.where(selected).toList();
-    if (headIds == null) {
-      throw const BuildFailure('o bench_runner do head não aceitou --list');
-    }
-    final unknown = only.where((id) => !headIds.contains(id)).toList();
-    if (unknown.isNotEmpty) {
-      throw BuildFailure('benchmarks desconhecidos no head: $unknown');
-    }
-    // `null`: a base tem bench_runner, mas sem --list (versão antiga); cada
-    // id do head é tentado e o código 64 significa "não existe na base".
-    final baseIds = baseExe == null
-        ? const <String>[]
-        : (await listBenches(baseExe))?.where(selected).toList();
-
-    final ids = {...headIds, ...?baseIds}.toList()..sort();
-    final base = <String, InstructionCount>{};
-    final head = <String, InstructionCount>{};
-    for (final id in ids) {
-      if (baseExe != null && (baseIds == null || baseIds.contains(id))) {
-        logSink.writeln('base  $id');
-        try {
-          base[id] = await countInstructions(
-            baseExe,
+      final base = <String, InstructionCount>{};
+      final head = <String, InstructionCount>{};
+      for (final id in v.allIds) {
+        if (v.baseMayHave(id)) {
+          logSink.writeln('base  $id');
+          try {
+            base[id] = await countInstructions(
+              v.baseExe!,
+              id,
+              counter,
+              workingDirectory: v.baseWorkDir,
+              lowIterations: lowIterations,
+              highIterations: highIterations,
+              timeout: timeout,
+            );
+          } on MeasurementFailure catch (e) {
+            if (v.baseIds != null || e.exitCode != 64) rethrow;
+          }
+        }
+        if (v.headIds.contains(id)) {
+          logSink.writeln('head  $id');
+          head[id] = await countInstructions(
+            v.headExe,
             id,
             counter,
-            workingDirectory: Directory('${baseDir.path}/benchmark'),
+            workingDirectory: v.headWorkDir,
             lowIterations: lowIterations,
             highIterations: highIterations,
             timeout: timeout,
           );
-        } on MeasurementFailure catch (e) {
-          if (baseIds != null || e.exitCode != 64) rethrow;
         }
       }
-      if (headIds.contains(id)) {
-        logSink.writeln('head  $id');
-        head[id] = await countInstructions(
-          headExe,
-          id,
-          counter,
-          workingDirectory: Directory('${headDir.path}/benchmark'),
-          lowIterations: lowIterations,
-          highIterations: highIterations,
-          timeout: timeout,
+
+      final result = evaluateGate(base: base, head: head, notes: v.notes);
+      final report = renderReport(result, counter: counter);
+      if (outPath != null) {
+        await File(outPath).writeAsString(
+          const JsonEncoder.withIndent('  ').convert(result.toBmf()),
         );
       }
+      if (reportPath != null) await File(reportPath).writeAsString(report);
+      stdout.write(report);
+      if (result.checksumMismatches.isNotEmpty) {
+        logSink.writeln(
+          'Checksums divergentes entre base e head: '
+          '${result.checksumMismatches.join(', ')}',
+        );
+      }
+      return result.exitCode;
+    } on CounterUnavailable catch (e) {
+      logSink.writeln('Contador indisponível: ${e.message}');
+      return exitCounterUnavailable;
     }
-
-    final result = evaluateGate(base: base, head: head, notes: notes);
-    final report = renderReport(result, counter: counter);
-    if (outPath != null) {
-      await File(outPath).writeAsString(
-        const JsonEncoder.withIndent('  ').convert(result.toBmf()),
-      );
-    }
-    if (reportPath != null) await File(reportPath).writeAsString(report);
-    stdout.write(report);
-    if (result.checksumMismatches.isNotEmpty) {
-      logSink.writeln(
-        'Checksums divergentes entre base e head: '
-        '${result.checksumMismatches.join(', ')}',
-      );
-    }
-    return result.exitCode;
-  } on CounterUnavailable catch (e) {
-    logSink.writeln('Contador indisponível: ${e.message}');
-    return exitCounterUnavailable;
-  } on BuildFailure catch (e) {
-    logSink.writeln('Falha na preparação: ${e.message}');
-    return exitInstructionsFailure;
-  } on MeasurementFailure catch (e) {
-    logSink.writeln('Falha na medição: ${e.message}');
-    return exitInstructionsFailure;
-  } on ProcessException catch (e) {
-    logSink.writeln(
-      'Falha ao executar ${e.executable}: ${e.message} '
-      '(está instalado e no PATH?)',
-    );
-    return exitInstructionsFailure;
-  } on FileSystemException catch (e) {
-    logSink.writeln(
-      'Falha de arquivo: ${e.message}${e.path == null ? '' : ' (${e.path})'}'
-      '${e.osError == null ? '' : ': ${e.osError!.message}'}',
-    );
-    return exitInstructionsFailure;
-  } on ArgumentError catch (e) {
-    // Parâmetros inválidos (ex.: iterações) viram mensagem, sem stack trace.
-    logSink.writeln('Argumento inválido: ${e.message}');
-    return exitInstructionsFailure;
-  } finally {
-    for (final dir in checkouts) {
-      await removeCheckout(dir, repo: repo);
-    }
-    try {
-      await workDir.delete(recursive: true);
-    } on FileSystemException {
-      // Diretório temporário: o sistema limpa depois.
-    }
-  }
+  });
 }
