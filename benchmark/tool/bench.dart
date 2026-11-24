@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:galley_benchmark/src/modes/ab.dart';
+import 'package:galley_benchmark/src/modes/compare.dart';
 import 'package:galley_benchmark/src/modes/instructions.dart';
 import 'package:galley_benchmark/src/modes/local.dart';
 
@@ -22,6 +23,12 @@ import 'package:galley_benchmark/src/modes/local.dart';
 ///   300 MiB, no corpus público e no privado (`GALLEY_PRIVATE_CORPUS`,
 ///   anonimizado). Aceita `--out`, `--report` e `--upload` (stub até a
 ///   Task 10). Sai com 70 se algum livro falha.
+/// - `compare`: Galley contra `epubx`, `epub_plus` e `epub_pro` (abrir, ler o
+///   spine inteiro, ler um recurso do livro de 50 MiB e RSS de pico) nos
+///   livros escritos à mão, no sintético de 50 MiB e no corpus público.
+///   Aceita `--out`, `--report` e `--runs` (padrão 5). Não reprova antes da
+///   1.0: falha de parser vira `falhou` na tabela; sai com 70 só se a
+///   preparação falha.
 ///
 /// Argumentos inválidos saem com 64.
 Future<void> main(List<String> args) async {
@@ -76,7 +83,16 @@ Future<void> main(List<String> args) async {
       negatable: false,
       help: 'Envia o BMF ao Bencher (testbed local-dev).',
     );
+  final compare = ArgParser()
+    ..addOption('out', help: 'Arquivo BMF (JSON) de saída.')
+    ..addOption('report', help: 'Relatório em Markdown.')
+    ..addOption(
+      'runs',
+      defaultsTo: '$defaultCompareRuns',
+      help: 'Execuções (processos) por célula para a mediana do tempo.',
+    );
   final parser = ArgParser()
+    ..addCommand('compare', compare)
     ..addCommand('local', local)
     ..addCommand('instructions', instructions)
     ..addCommand('ab', ab);
@@ -86,9 +102,19 @@ Future<void> main(List<String> args) async {
     final parsed = parser.parse(args);
     final command = parsed.command;
     if (command == null) {
-      throw const FormatException('informe o modo (instructions, ab ou local)');
+      throw const FormatException(
+        'informe o modo (instructions, ab, local ou compare)',
+      );
     }
-    if (command.name == 'local') {
+    if (command.name == 'compare') {
+      final runs = int.parse(command.option('runs')!);
+      if (runs < 1) throw const FormatException('runs < 1');
+      code = await runCompare(
+        outPath: command.option('out'),
+        reportPath: command.option('report'),
+        runs: runs,
+      );
+    } else if (command.name == 'local') {
       code = await runLocal(
         outPath: command.option('out'),
         reportPath: command.option('report'),
@@ -131,10 +157,10 @@ Future<void> main(List<String> args) async {
       );
     }
   } on FormatException catch (e) {
-    await _invalidArgs(e.message, instructions, ab, local);
+    await _invalidArgs(e.message, instructions, ab, local, compare);
   } on ArgumentError catch (e) {
     // Opção obrigatória ausente ou valor fora da lista permitida.
-    await _invalidArgs('${e.message}', instructions, ab, local);
+    await _invalidArgs('${e.message}', instructions, ab, local, compare);
   }
   await stdout.flush();
   await stderr.flush();
@@ -147,11 +173,12 @@ Future<Never> _invalidArgs(
   ArgParser a,
   ArgParser b,
   ArgParser c,
+  ArgParser d,
 ) async {
   stderr.writeln(
     'Argumentos inválidos: $message\n'
-    'Uso: dart run tool/bench.dart <instructions|ab|local> [opções]\n'
-    'instructions:\n${a.usage}\nab:\n${b.usage}\nlocal:\n${c.usage}',
+    'Uso: dart run tool/bench.dart <instructions|ab|local|compare> [opções]\n'
+    'instructions:\n${a.usage}\nab:\n${b.usage}\nlocal:\n${c.usage}\ncompare:\n${d.usage}',
   );
   await stderr.flush();
   exit(64);

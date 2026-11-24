@@ -40,6 +40,14 @@ jobs:
           dart pub get
           dart analyze --fatal-infos
           dart test -x slow
+      # O epubx (image ^3) não resolve junto com o epub_plus/epub_pro (image
+      # ^4): tem pacote e executável próprios para o modo compare.
+      - name: Analisar e testar o runner do epubx
+        working-directory: benchmark/competitors/epubx_runner
+        run: |
+          dart pub get
+          dart analyze --fatal-infos
+          dart test
 
   integration:
     name: integration (${{ matrix.platform }})

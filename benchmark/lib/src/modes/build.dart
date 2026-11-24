@@ -128,3 +128,24 @@ Future<File> compileRunner({
   if (r.exitCode != 0) _fail('dart compile exe em ${checkout.path} falhou', r);
   return File(outPath);
 }
+
+/// Compila em AOT o executável do `epubx` (pacote satélite em
+/// [satelliteDir], com seu próprio `pubspec.yaml`) para [outPath].
+///
+/// Quem chama garante o `dart pub get` no satélite.
+Future<File> compileEpubxRunner({
+  required Directory satelliteDir,
+  required String outPath,
+}) async {
+  final r = await _run(Platform.resolvedExecutable, [
+    'compile',
+    'exe',
+    'bin/epubx_runner.dart',
+    '-o',
+    File(outPath).absolute.path,
+  ], workingDirectory: satelliteDir.path);
+  if (r.exitCode != 0) {
+    _fail('dart compile exe em ${satelliteDir.path} falhou', r);
+  }
+  return File(outPath);
+}
