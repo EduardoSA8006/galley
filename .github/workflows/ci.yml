@@ -23,3 +23,84 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed .
       - run: flutter analyze --fatal-infos
       - run: flutter test
+      - name: Analisar o app de exemplo
+        working-directory: example
+        run: |
+          flutter pub get
+          flutter analyze --fatal-infos
+
+  integration:
+    name: integration (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+          - platform: macos
+            os: macos-latest
+          - platform: windows
+            os: windows-latest
+          - platform: android
+            os: ubuntu-latest
+          - platform: ios
+            os: macos-latest
+    defaults:
+      run:
+        working-directory: example
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          cache: true
+      - run: flutter pub get
+
+      - name: Dependências do Linux
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgtk-3-dev xvfb
+      # Um arquivo por vez: no Linux, subir o app uma segunda vez na mesma
+      # sessão falha com "Unable to start the app on the device".
+      - name: Testes de integração (linux)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          for f in integration_test/*_test.dart; do
+            xvfb-run -a flutter test "$f" -d linux
+          done
+
+      - name: Testes de integração (macos)
+        if: matrix.platform == 'macos'
+        run: flutter test integration_test -d macos
+
+      - name: Testes de integração (windows)
+        if: matrix.platform == 'windows'
+        run: flutter test integration_test -d windows
+
+      - name: Habilitar KVM
+        if: matrix.platform == 'android'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Testes de integração (android)
+        if: matrix.platform == 'android'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          working-directory: example
+          script: flutter test integration_test
+
+      - name: Testes de integração (ios)
+        if: matrix.platform == 'ios'
+        shell: bash
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k,v in d.items() if 'iOS' in k for x in v if 'iPhone' in x['name']))")
+          xcrun simctl boot "$UDID"
+          flutter test integration_test -d "$UDID"
