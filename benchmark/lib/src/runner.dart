@@ -1,3 +1,7 @@
+import 'dart:io';
+
+import 'package:galley/galley.dart';
+
 import 'bench.dart';
 
 /// Código de saída quando o benchmark lança uma exceção.
@@ -55,4 +59,44 @@ Future<int> runBench(
     stdoutSink.writeln('checksum=$checksum');
   }
   return code;
+}
+
+/// Abre o EPUB em [path] com `EpubBook.open`, lê todos os recursos do spine e
+/// escreve em [stdoutSink] `ns=<nanossegundos de abertura + leitura>`,
+/// `rss=<ProcessInfo.maxRss no fim>` e `checksum=<int>`.
+///
+/// Uma falha vira uma mensagem em [stderrSink] e [exitBenchFailure]. A
+/// mensagem pode citar o caminho do arquivo; quem chama com livros privados
+/// precisa filtrá-la.
+Future<int> measureOpen(
+  String path, {
+  required StringSink stdoutSink,
+  required StringSink stderrSink,
+}) async {
+  final clock = Stopwatch()..start();
+  var checksum = 0;
+  try {
+    final book = await EpubBook.open(path);
+    try {
+      checksum =
+          book.manifest.length +
+          book.spine.items.length +
+          book.metadata.titles.length;
+      for (final item in book.spine.items) {
+        checksum += (await book.resource(item.item.path)).length;
+      }
+    } finally {
+      await book.close();
+    }
+  } on Object catch (e, st) {
+    stderrSink.writeln('Falha ao abrir: $e\n$st');
+    return exitBenchFailure;
+  }
+  clock.stop();
+  final ns = (clock.elapsedTicks * 1e9 / clock.frequency).round();
+  stdoutSink
+    ..writeln('ns=$ns')
+    ..writeln('rss=${ProcessInfo.maxRss}')
+    ..writeln('checksum=$checksum');
+  return 0;
 }

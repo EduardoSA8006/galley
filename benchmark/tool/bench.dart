@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:galley_benchmark/src/modes/ab.dart';
 import 'package:galley_benchmark/src/modes/instructions.dart';
+import 'package:galley_benchmark/src/modes/local.dart';
 
 /// Orquestrador dos benchmarks: `dart run tool/bench.dart <modo> [opções]`.
 ///
@@ -16,6 +17,11 @@ import 'package:galley_benchmark/src/modes/instructions.dart';
 ///   das medianas. Aceita `--out`, `--report` e `--bench`. Sai com 1 se o IC
 ///   de algum benchmark fica inteiro acima de +5%, com 2 se os checksums
 ///   divergem e com 70 em falha.
+/// - `local`: mede o checkout atual na máquina do mantenedor (tempo absoluto,
+///   RSS de pico e instruções nativas com `perf`) em livros sintéticos de 50 e
+///   300 MiB, no corpus público e no privado (`GALLEY_PRIVATE_CORPUS`,
+///   anonimizado). Aceita `--out`, `--report` e `--upload` (stub até a
+///   Task 10). Sai com 70 se algum livro falha.
 ///
 /// Argumentos inválidos saem com 64.
 Future<void> main(List<String> args) async {
@@ -62,7 +68,16 @@ Future<void> main(List<String> args) async {
       defaultsTo: '${defaultAbTimeout.inMinutes}',
       help: 'Tempo máximo de cada execução do bench_runner.',
     );
+  final local = ArgParser()
+    ..addOption('out', help: 'Arquivo BMF (JSON) de saída.')
+    ..addOption('report', help: 'Relatório em Markdown.')
+    ..addFlag(
+      'upload',
+      negatable: false,
+      help: 'Envia o BMF ao Bencher (testbed local-dev).',
+    );
   final parser = ArgParser()
+    ..addCommand('local', local)
     ..addCommand('instructions', instructions)
     ..addCommand('ab', ab);
 
@@ -71,9 +86,15 @@ Future<void> main(List<String> args) async {
     final parsed = parser.parse(args);
     final command = parsed.command;
     if (command == null) {
-      throw const FormatException('informe o modo (instructions ou ab)');
+      throw const FormatException('informe o modo (instructions, ab ou local)');
     }
-    if (command.name == 'ab') {
+    if (command.name == 'local') {
+      code = await runLocal(
+        outPath: command.option('out'),
+        reportPath: command.option('report'),
+        upload: command.flag('upload'),
+      );
+    } else if (command.name == 'ab') {
       final rounds = int.parse(command.option('rounds')!);
       final minutes = int.parse(command.option('timeout-minutes')!);
       if (rounds < 3) throw const FormatException('rounds < 3');
@@ -110,10 +131,10 @@ Future<void> main(List<String> args) async {
       );
     }
   } on FormatException catch (e) {
-    await _invalidArgs(e.message, instructions, ab);
+    await _invalidArgs(e.message, instructions, ab, local);
   } on ArgumentError catch (e) {
     // Opção obrigatória ausente ou valor fora da lista permitida.
-    await _invalidArgs('${e.message}', instructions, ab);
+    await _invalidArgs('${e.message}', instructions, ab, local);
   }
   await stdout.flush();
   await stderr.flush();
@@ -121,11 +142,16 @@ Future<void> main(List<String> args) async {
 }
 
 /// Escreve o erro de argumentos e o uso no stderr e sai com 64.
-Future<Never> _invalidArgs(String message, ArgParser a, ArgParser b) async {
+Future<Never> _invalidArgs(
+  String message,
+  ArgParser a,
+  ArgParser b,
+  ArgParser c,
+) async {
   stderr.writeln(
     'Argumentos inválidos: $message\n'
-    'Uso: dart run tool/bench.dart <instructions|ab> [opções]\n'
-    'instructions:\n${a.usage}\nab:\n${b.usage}',
+    'Uso: dart run tool/bench.dart <instructions|ab|local> [opções]\n'
+    'instructions:\n${a.usage}\nab:\n${b.usage}\nlocal:\n${c.usage}',
   );
   await stderr.flush();
   exit(64);

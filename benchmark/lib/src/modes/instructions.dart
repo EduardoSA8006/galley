@@ -184,7 +184,9 @@ String _paranoid() {
 /// [deterministicVmOptions], e roda em [workingDirectory] (o `benchmark/`
 /// do checkout, de onde o `bench_runner` acha o `corpus/`). Se passar de
 /// [timeout], o processo e os filhos são mortos e a execução falha com
-/// [MeasurementFailure].
+/// [MeasurementFailure]. Com [runnerArgs], o `bench_runner` recebe esses
+/// argumentos no lugar de `--bench <benchId> --iterations <n>` (e [benchId]
+/// serve só de rótulo nas mensagens, então pode ser um id anônimo).
 Future<CountedRun> runCounted(
   File exe,
   String benchId,
@@ -193,9 +195,13 @@ Future<CountedRun> runCounted(
   Map<String, String>? environment,
   Directory? workingDirectory,
   Duration timeout = defaultRunTimeout,
+  List<String>? runnerArgs,
 }) async {
   final tool = counterExecutable(counter, environment: environment);
-  final runner = [exe.path, '--bench', benchId, '--iterations', '$iterations'];
+  final runner = [
+    exe.path,
+    ...runnerArgs ?? ['--bench', benchId, '--iterations', '$iterations'],
+  ];
   final args = switch (counter) {
     Counter.valgrind => [
       '--tool=cachegrind',

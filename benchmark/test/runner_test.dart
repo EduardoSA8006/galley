@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:galley_benchmark/src/corpus/synthetic.dart';
 import 'package:test/test.dart';
 
 Future<ProcessResult> _run(List<String> args) => Process.run(
@@ -56,5 +57,26 @@ void main() {
     ]);
     expect(r.exitCode, 64);
     expect(r.stderr as String, contains('--timing'));
+  });
+
+  test('--measure-open imprime ns=, rss= e checksum= de um EPUB', () async {
+    final dir = Directory.systemTemp.createTempSync('galley-open-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final book = await writeSyntheticBook(
+      '${dir.path}/livro.epub',
+      targetBytes: 200 * 1024,
+      chapters: 3,
+    );
+    final r = await _run(['--measure-open', book.path]);
+    expect(r.exitCode, 0, reason: '${r.stderr}');
+    final out = r.stdout as String;
+    expect(out, matches(RegExp(r'^ns=\d+$', multiLine: true)));
+    expect(out, matches(RegExp(r'^rss=[1-9]\d+$', multiLine: true)));
+    expect(out, matches(RegExp(r'^checksum=\d+$', multiLine: true)));
+  });
+
+  test('--measure-open com arquivo inexistente sai com 70', () async {
+    final r = await _run(['--measure-open', '/nao/existe.epub']);
+    expect(r.exitCode, 70);
   });
 }

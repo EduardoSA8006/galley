@@ -12,6 +12,18 @@ double median(List<double> xs) {
       : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+/// Percentil [p] (0 a 1) de [xs] pelo método do posto mais próximo.
+///
+/// Não altera a lista. Lança [ArgumentError] se [xs] for vazia ou se [p]
+/// estiver fora de [0, 1].
+double percentile(List<double> xs, double p) {
+  if (xs.isEmpty) throw ArgumentError.value(xs, 'xs', 'lista vazia');
+  if (p < 0 || p > 1) throw ArgumentError.value(p, 'p', 'deve estar em [0, 1]');
+  final sorted = List<double>.of(xs)..sort();
+  final rank = (p * sorted.length).ceil().clamp(1, sorted.length);
+  return sorted[rank - 1];
+}
+
 /// Intervalo de confiança da razão das medianas.
 typedef RatioInterval = ({double lower, double point, double upper});
 

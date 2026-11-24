@@ -7,6 +7,9 @@ import 'package:galley_benchmark/src/runner.dart';
 
 /// Executa um benchmark: `--bench <id> --iterations <n>`.
 ///
+/// Com `--measure-open <caminho>`, abre o EPUB, lê o spine e imprime `ns=`,
+/// `rss=` (`ProcessInfo.maxRss`) e `checksum=` (ver `measureOpen`).
+///
 /// Imprime a linha `checksum=<int>`; com `--timing`, imprime antes a linha
 /// `ns=<int>` (tempo de relógio das iterações 2 a n, sem `setUp`). Com `--list`, imprime os
 /// ids do catálogo, um por linha, e sai com 0. Id desconhecido ou argumentos
@@ -16,6 +19,11 @@ Future<void> main(List<String> args) async {
   final parser = ArgParser()
     ..addFlag('list', negatable: false, help: 'Lista os ids do catálogo.')
     ..addOption('bench', help: 'Id do benchmark.')
+    ..addOption(
+      'measure-open',
+      help:
+          'Abre o EPUB do caminho, lê o spine e imprime ns=, rss= e checksum=.',
+    )
     ..addFlag(
       'timing',
       negatable: false,
@@ -31,8 +39,10 @@ Future<void> main(List<String> args) async {
     if (parsed.flag('timing') && iterations < 2) {
       throw const FormatException('--timing exige --iterations ≥ 2');
     }
-    if (!parsed.flag('list') && parsed.option('bench') == null) {
-      throw const FormatException('--bench é obrigatório');
+    if (!parsed.flag('list') &&
+        parsed.option('bench') == null &&
+        parsed.option('measure-open') == null) {
+      throw const FormatException('--bench ou --measure-open é obrigatório');
     }
   } on FormatException catch (e) {
     stderr.writeln('Argumentos inválidos: ${e.message}\n${parser.usage}');
@@ -43,6 +53,12 @@ Future<void> main(List<String> args) async {
       stdout.writeln(bench.id);
     }
     await _exit(0);
+  }
+  final openPath = parsed.option('measure-open');
+  if (openPath != null) {
+    await _exit(
+      await measureOpen(openPath, stdoutSink: stdout, stderrSink: stderr),
+    );
   }
   final id = parsed.option('bench')!;
   final Bench bench;
