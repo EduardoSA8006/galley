@@ -38,3 +38,5 @@ migrate_working_dir/
 docs/superpowers/
 doc/logo/gen.py
 example/build/
+benchmark/
+corpus/

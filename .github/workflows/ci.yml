@@ -34,6 +34,12 @@ jobs:
         run: |
           flutter pub get
           flutter analyze --fatal-infos
+      - name: Analisar e testar o pacote de benchmark
+        working-directory: benchmark
+        run: |
+          dart pub get
+          dart analyze --fatal-infos
+          dart test
 
   integration:
     name: integration (${{ matrix.platform }})
