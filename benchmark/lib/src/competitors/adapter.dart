@@ -8,25 +8,31 @@ abstract interface class ParserAdapter {
   /// Nome do adaptador (`galley`, `epubx`, `epub_plus`, `epub_pro`).
   String get name;
 
-  /// Abre o EPUB de [path] com a API idiomática do pacote.
-  ///
-  /// Os parsers concorrentes leem o livro inteiro aqui (`readBook`); o Galley
-  /// só abre o contêiner e o pacote (leitura preguiçosa).
+  /// Abre o EPUB de [path] pelo caminho preguiçoso idiomático do pacote: lê
+  /// o arquivo, decodifica o diretório do zip e faz o parse do OPF e da
+  /// navegação, sem ler o conteúdo dos recursos (`EpubBook.open` no Galley,
+  /// `EpubReader.openBook` nos concorrentes). Os recursos vêm depois, um a um.
   Future<void> open(String path);
+
+  /// Abre [path] lendo o livro inteiro para a memória (`EpubReader.readBook`
+  /// nos concorrentes). O Galley não tem equivalente: lança
+  /// [UnsupportedError] e não é medido nessa métrica.
+  Future<void> openEager(String path);
 
   /// Quantidade de itens do spine do livro aberto.
   int get spineLength;
 
-  /// Soma dos bytes dos documentos do spine, em ordem.
-  ///
-  /// Os concorrentes só expõem o texto já decodificado; os bytes são os do
-  /// UTF-8 desse texto (iguais aos do arquivo quando o parser não normaliza).
+  /// Soma dos bytes dos documentos do spine, em ordem, lendo cada um pela
+  /// referência do livro aberto por [open] (`readContentAsBytes` nos
+  /// concorrentes, `EpubBook.resource` no Galley): bytes crus, sem decodificar
+  /// nem recodificar texto, então a soma é a mesma nos quatro.
   Future<int> readAllSpine();
 
   /// Tamanho em bytes do recurso em [hrefOrPath].
   ///
-  /// Aceita o caminho completo no arquivo (`OEBPS/text/ch1.xhtml`) ou o href
-  /// relativo ao OPF (`text/ch1.xhtml`). Lança se o recurso não existe.
+  /// Aceita o caminho completo no arquivo (`OEBPS/text/ch1.xhtml`); os
+  /// concorrentes também aceitam o href relativo ao OPF. Lê só esse recurso
+  /// pelo livro aberto por [open]. Lança se o recurso não existe.
   Future<int> readOne(String hrefOrPath);
 
   /// Libera os recursos do livro aberto.

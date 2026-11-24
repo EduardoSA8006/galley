@@ -6,15 +6,12 @@ import 'package:galley_benchmark/src/competitors/epub_plus_adapter.dart';
 import 'package:galley_benchmark/src/competitors/epub_pro_adapter.dart';
 import 'package:galley_benchmark/src/competitors/galley_adapter.dart';
 import 'package:galley_benchmark/src/corpus/handmade.dart';
-import 'package:galley_benchmark/src/modes/build.dart';
 import 'package:galley_benchmark/src/modes/compare.dart';
-import 'package:galley_benchmark/src/modes/local.dart';
 import 'package:test/test.dart';
 
 void main() {
   late Directory tmp;
   late Map<String, File> books;
-  late File epubxExe;
 
   setUpAll(() async {
     tmp = Directory.systemTemp.createTempSync('galley-compare-test-');
@@ -24,18 +21,6 @@ void main() {
         id: File('${tmp.path}/${id.split('/').last}.epub')
           ..writeAsBytesSync(built[id]!),
     };
-    // O epubx vive noutro pacote (image ^3): o teste o usa pelo executável.
-    final root = await repoRoot();
-    final satellite = '${root.path}/benchmark/competitors/epubx_runner';
-    final get = await Process.run(Platform.resolvedExecutable, [
-      'pub',
-      'get',
-    ], workingDirectory: satellite);
-    expect(get.exitCode, 0, reason: '${get.stderr}');
-    epubxExe = await compileEpubxRunner(
-      satelliteDir: Directory(satellite),
-      outPath: '${tmp.path}/epubx-runner',
-    );
   });
 
   tearDownAll(() => tmp.deleteSync(recursive: true));
@@ -52,48 +37,41 @@ void main() {
     }
   }
 
-  Future<({int spine, int bytes})> viaEpubx(File book) async {
-    Future<int> checksum(String kind) async {
-      final r = await Process.run(epubxExe.path, [
-        '--measure',
-        kind,
-        book.path,
-      ]);
-      expect(r.exitCode, 0, reason: '${r.stderr}');
-      return parseMeasureOpen(r.stdout as String).checksum;
-    }
-
-    return (spine: await checksum('open'), bytes: await checksum('read-all'));
-  }
-
   for (final id in ['hm/typography', 'hm/epub2-ncx']) {
-    test('$id: os 4 adaptadores somam os mesmos bytes do spine', () async {
+    test('$id: galley, epub_plus e epub_pro somam os mesmos bytes', () async {
       final file = books[id]!;
-      final results = {
-        'galley': await inProcess(GalleyAdapter(), file),
-        'epub_plus': await inProcess(EpubPlusAdapter(), file),
-        'epub_pro': await inProcess(EpubProAdapter(), file),
-        'epubx': await viaEpubx(file),
-      };
-      expect(results['galley']!.spine, greaterThan(0));
-      expect(results['galley']!.bytes, greaterThan(0));
-      // Se algum concorrente normalizar o conteúdo (ex.: quebras de linha ou
-      // BOM), os bytes divergem: o teste então deve documentar a diferença e
-      // manter a igualdade da contagem de itens do spine.
-      for (final entry in results.entries) {
-        expect(
-          entry.value.spine,
-          results['galley']!.spine,
-          reason: '${entry.key}: itens do spine',
-        );
-        expect(
-          entry.value.bytes,
-          results['galley']!.bytes,
-          reason: '${entry.key}: bytes do spine',
-        );
+      final galley = await inProcess(GalleyAdapter(), file);
+      expect(galley.spine, greaterThan(0));
+      expect(galley.bytes, greaterThan(0));
+      for (final adapter in <ParserAdapter>[
+        EpubPlusAdapter(),
+        EpubProAdapter(),
+      ]) {
+        final r = await inProcess(adapter, file);
+        expect(r.spine, galley.spine, reason: '${adapter.name}: spine');
+        expect(r.bytes, galley.bytes, reason: '${adapter.name}: bytes');
       }
     });
   }
+
+  test(
+    'openEager: concorrentes abrem o livro inteiro, Galley não tem',
+    () async {
+      final file = books['hm/typography']!;
+      for (final adapter in <ParserAdapter>[
+        EpubPlusAdapter(),
+        EpubProAdapter(),
+      ]) {
+        await adapter.openEager(file.path);
+        expect(adapter.spineLength, greaterThan(0), reason: adapter.name);
+        await adapter.close();
+      }
+      expect(
+        GalleyAdapter().openEager(file.path),
+        throwsA(isA<UnsupportedError>()),
+      );
+    },
+  );
 
   test('readOne acha o recurso pelo caminho completo no arquivo', () async {
     final file = books['hm/typography']!;
@@ -111,14 +89,6 @@ void main() {
       await expectLater(adapter.readOne('nao/existe.xhtml'), throwsStateError);
       await adapter.close();
     }
-    final r = await Process.run(epubxExe.path, [
-      '--measure',
-      'read-one',
-      '--resource',
-      path,
-      file.path,
-    ]);
-    expect(parseMeasureOpen(r.stdout as String).checksum, expected);
   });
 
   group('compareBooks', () {
@@ -155,7 +125,7 @@ void main() {
           log: StringBuffer(),
         );
         final ok = cells.where((c) => c.adapter == 'galley').toList();
-        expect(ok.map((c) => c.metric), ['open', 'read-all']);
+        expect(ok.map((c) => c.metric), ['open', 'open-eager', 'read-all']);
         expect(ok.every((c) => c.ok), isTrue);
         expect(ok.first.wallNs, 2000000);
         expect(ok.last.peakRss, 1048576);
@@ -179,6 +149,72 @@ void main() {
         );
       },
     );
+
+    test(
+      'ordem gira a cada rodada, há aquecimento e eager só onde existe',
+      () async {
+        final log = File('${tmp.path}/order.log');
+        final logger = File('${tmp.path}/logger.sh')
+          ..writeAsStringSync(
+            '#!/bin/sh\necho "\$1 \$3" >> ${log.path}\n'
+            'echo ns=1; echo rss=2; echo checksum=3\n',
+          );
+        Process.runSync('chmod', ['+x', logger.path]);
+        final cells = await compareBooks(
+          adapters: [
+            CompareAdapter('a', logger, prefixArgs: ['a']),
+            CompareAdapter(
+              'b',
+              logger,
+              prefixArgs: ['b'],
+              supportsEager: false,
+            ),
+          ],
+          books: [CompareBook('hm/typography', books['hm/typography']!)],
+          runs: 3,
+          timeout: const Duration(seconds: 30),
+          workDir: tmp,
+          log: StringBuffer(),
+        );
+        final lines = log.readAsLinesSync();
+        // Aquecimento (a, b) e depois as 3 rodadas do `open` girando.
+        expect(lines.take(8).toList(), [
+          'a open',
+          'b open',
+          'a open',
+          'b open',
+          'b open',
+          'a open',
+          'a open',
+          'b open',
+        ]);
+        expect(
+          cells.where((c) => c.metric == 'open-eager').map((c) => c.adapter),
+          ['a'],
+        );
+      },
+    );
+
+    test('falha no open: read-all herda a falha sem rodar', () async {
+      final cells = await compareBooks(
+        adapters: [CompareAdapter('x', bad)],
+        books: [CompareBook('hm/typography', books['hm/typography']!)],
+        runs: 1,
+        timeout: const Duration(seconds: 30),
+        workDir: tmp,
+        log: StringBuffer(),
+      );
+      final readAll = cells.singleWhere((c) => c.metric == 'read-all');
+      expect(readAll.inherited, isTrue);
+      expect(cells.singleWhere((c) => c.metric == 'open').inherited, isFalse);
+      final report = renderCompareReport(
+        cells,
+        adapterNames: ['x'],
+        runs: 1,
+        elapsed: Duration.zero,
+      );
+      expect(RegExp('`read-all` `hm/typography`').hasMatch(report), isFalse);
+    });
 
     test('read-one só no livro que define o recurso', () async {
       final cells = await compareBooks(

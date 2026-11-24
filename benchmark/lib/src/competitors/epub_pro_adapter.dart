@@ -1,61 +1,70 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:epub_pro/epub_pro.dart' as lib;
 
 import 'adapter.dart';
 
-/// Adaptador do `epub_pro`: `EpubReader.readBook` sobre os bytes do arquivo
-/// (a API idiomática lê o livro inteiro: HTML, CSS, imagens e fontes).
+/// Adaptador do `epub_pro`.
+///
+/// `open` usa `EpubReader.openBook` (leitura preguiçosa: `EpubBookRef`) e os
+/// recursos saem de `EpubContentFileRef.readContentAsBytes`; `openEager` usa
+/// `EpubReader.readBook`.
 ///
 /// A lógica é a mesma dos adaptadores do `epub_plus` e do `epubx`: as três
 /// bibliotecas são da mesma família, mas os tipos são distintos e não
 /// compartilham interface.
 final class EpubProAdapter implements ParserAdapter {
-  lib.EpubBook? _book;
+  lib.EpubBookRef? _ref;
+  lib.EpubBook? _eager;
 
   @override
   String get name => 'epub_pro';
 
-  lib.EpubBook get _open => _book ?? (throw StateError('livro não aberto'));
+  lib.EpubBookRef get _open => _ref ?? (throw StateError('livro não aberto'));
 
   @override
   Future<void> open(String path) async =>
-      _book = await lib.EpubReader.readBook(await File(path).readAsBytes());
+      _ref = await lib.EpubReader.openBook(await File(path).readAsBytes());
 
   @override
-  int get spineLength => _open.schema?.package?.spine?.items.length ?? 0;
+  Future<void> openEager(String path) async =>
+      _eager = await lib.EpubReader.readBook(await File(path).readAsBytes());
 
-  Map<String, lib.EpubTextContentFile> get _html =>
-      _open.content?.html ?? const {};
+  @override
+  int get spineLength =>
+      (_ref?.schema ?? _eager?.schema)?.package?.spine?.items.length ?? 0;
 
   @override
   Future<int> readAllSpine() async {
     final package = _open.schema?.package;
-    final manifest = package?.manifest?.items ?? const <lib.EpubManifestItem>[];
+    final hrefById = {
+      for (final m
+          in package?.manifest?.items ?? const <lib.EpubManifestItem>[])
+        m.id: m.href,
+    };
+    final html = _open.content?.html ?? const {};
     var total = 0;
     for (final ref in package?.spine?.items ?? const <lib.EpubSpineItemRef>[]) {
-      final item = manifest.firstWhere((m) => m.id == ref.idRef);
-      final key = matchResourceKey(_html.keys, item.href ?? '');
-      final text = key == null ? null : _html[key]?.content;
-      if (text == null) throw StateError('sem conteúdo para ${item.href}');
-      total += utf8.encode(text).length;
+      final href = hrefById[ref.idRef] ?? '';
+      final file = html[href] ?? html[matchResourceKey(html.keys, href)];
+      if (file == null) throw StateError('sem referência para $href');
+      total += (await file.readContentAsBytes()).length;
     }
     return total;
   }
 
   @override
   Future<int> readOne(String hrefOrPath) async {
-    final content = _open.content;
-    final key = matchResourceKey(content?.allFiles.keys ?? [], hrefOrPath);
-    final file = key == null ? null : content!.allFiles[key];
-    return switch (file) {
-      lib.EpubTextContentFile(:final content?) => utf8.encode(content).length,
-      lib.EpubByteContentFile(:final content?) => content.length,
-      _ => throw StateError('recurso não encontrado: $hrefOrPath'),
-    };
+    final files = _open.content?.allFiles ?? const {};
+    final key = matchResourceKey(files.keys, hrefOrPath);
+    final file = key == null ? null : files[key];
+    if (file == null) throw StateError('recurso não encontrado: $hrefOrPath');
+    return (await file.readContentAsBytes()).length;
   }
 
   @override
-  Future<void> close() async => _book = null;
+  Future<void> close() async {
+    _ref = null;
+    _eager = null;
+  }
 }

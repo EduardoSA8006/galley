@@ -16,6 +16,10 @@ final class GalleyAdapter implements ParserAdapter {
   Future<void> open(String path) async => _book = await EpubBook.open(path);
 
   @override
+  Future<void> openEager(String path) async =>
+      throw UnsupportedError('o Galley não tem leitura integral (eager)');
+
+  @override
   int get spineLength => _open.spine.items.length;
 
   @override

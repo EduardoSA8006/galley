@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/args.dart';
@@ -13,58 +12,67 @@ import '../../../lib/src/competitors/adapter.dart';
 // ignore: avoid_relative_lib_imports
 import '../../../lib/src/competitors/measure.dart';
 
-/// Adaptador do `epubx`: `EpubReader.readBook` sobre os bytes do arquivo (a
-/// API idiomática lê o livro inteiro: HTML, CSS, imagens e fontes).
+/// Adaptador do `epubx`.
 ///
-/// A lógica é a mesma dos adaptadores do `epub_plus` e do `epub_pro` (em
-/// `benchmark/lib/src/competitors`); aqui os campos têm nomes em PascalCase.
+/// `open` usa `EpubReader.openBook` (leitura preguiçosa: `EpubBookRef`) e os
+/// recursos saem de `EpubContentFileRef.readContentAsBytes`; `openEager` usa
+/// `EpubReader.readBook`. A lógica é a mesma dos adaptadores do `epub_plus` e
+/// do `epub_pro` (em `benchmark/lib/src/competitors`); aqui os campos têm
+/// nomes em PascalCase.
 final class EpubxAdapter implements ParserAdapter {
-  lib.EpubBook? _book;
+  lib.EpubBookRef? _ref;
+  lib.EpubBook? _eager;
 
   @override
   String get name => 'epubx';
 
-  lib.EpubBook get _open => _book ?? (throw StateError('livro não aberto'));
+  lib.EpubBookRef get _open => _ref ?? (throw StateError('livro não aberto'));
 
   @override
   Future<void> open(String path) async =>
-      _book = await lib.EpubReader.readBook(await File(path).readAsBytes());
+      _ref = await lib.EpubReader.openBook(await File(path).readAsBytes());
 
   @override
-  int get spineLength => _open.Schema?.Package?.Spine?.Items?.length ?? 0;
+  Future<void> openEager(String path) async =>
+      _eager = await lib.EpubReader.readBook(await File(path).readAsBytes());
+
+  @override
+  int get spineLength =>
+      (_ref?.Schema ?? _eager?.Schema)?.Package?.Spine?.Items?.length ?? 0;
 
   @override
   Future<int> readAllSpine() async {
     final package = _open.Schema?.Package;
-    final manifest = package?.Manifest?.Items ?? const <lib.EpubManifestItem>[];
-    final html =
-        _open.Content?.Html ?? const <String, lib.EpubTextContentFile>{};
+    final hrefById = {
+      for (final m
+          in package?.Manifest?.Items ?? const <lib.EpubManifestItem>[])
+        m.Id: m.Href,
+    };
+    final html = _open.Content?.Html ?? {};
     var total = 0;
     for (final ref in package?.Spine?.Items ?? const <lib.EpubSpineItemRef>[]) {
-      final item = manifest.firstWhere((m) => m.Id == ref.IdRef);
-      final key = matchResourceKey(html.keys, item.Href ?? '');
-      final text = key == null ? null : html[key]?.Content;
-      if (text == null) throw StateError('sem conteúdo para ${item.Href}');
-      total += utf8.encode(text).length;
+      final href = hrefById[ref.IdRef] ?? '';
+      final file = html[href] ?? html[matchResourceKey(html.keys, href)];
+      if (file == null) throw StateError('sem referência para $href');
+      total += (await file.readContentAsBytes()).length;
     }
     return total;
   }
 
   @override
   Future<int> readOne(String hrefOrPath) async {
-    final files =
-        _open.Content?.AllFiles ?? const <String, lib.EpubContentFile>{};
+    final files = _open.Content?.AllFiles ?? {};
     final key = matchResourceKey(files.keys, hrefOrPath);
     final file = key == null ? null : files[key];
-    return switch (file) {
-      lib.EpubTextContentFile(:final Content?) => utf8.encode(Content).length,
-      lib.EpubByteContentFile(:final Content?) => Content.length,
-      _ => throw StateError('recurso não encontrado: $hrefOrPath'),
-    };
+    if (file == null) throw StateError('recurso não encontrado: $hrefOrPath');
+    return (await file.readContentAsBytes()).length;
   }
 
   @override
-  Future<void> close() async => _book = null;
+  Future<void> close() async {
+    _ref = null;
+    _eager = null;
+  }
 }
 
 /// Mede o `epubx` com o mesmo contrato do `bench_runner --adapter`:

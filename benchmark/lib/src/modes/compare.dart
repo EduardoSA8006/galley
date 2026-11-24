@@ -23,7 +23,12 @@ const Duration defaultCompareTimeout = Duration(minutes: 5);
 const String syntheticMiddleChapter = 'OEBPS/text/ch100.xhtml';
 
 /// Métricas medidas, na ordem das colunas do relatório.
-const List<String> compareMetrics = ['open', 'read-all', 'read-one'];
+const List<String> compareMetrics = [
+  'open',
+  'open-eager',
+  'read-all',
+  'read-one',
+];
 
 /// Parser a comparar: um executável que aceita
 /// `<args> --measure <métrica> [--resource <caminho>] <livro>` e imprime
@@ -31,7 +36,12 @@ const List<String> compareMetrics = ['open', 'read-all', 'read-one'];
 final class CompareAdapter {
   /// Cria o adaptador [name], medido por [exe] com [prefixArgs] antes dos
   /// argumentos da medida (ex.: `--adapter galley` no `bench_runner`).
-  const CompareAdapter(this.name, this.exe, {this.prefixArgs = const []});
+  const CompareAdapter(
+    this.name,
+    this.exe, {
+    this.prefixArgs = const [],
+    this.supportsEager = true,
+  });
 
   /// Nome do parser (`galley`, `epub_plus`, `epub_pro`, `epubx`).
   final String name;
@@ -41,6 +51,9 @@ final class CompareAdapter {
 
   /// Argumentos fixos antes dos da medida.
   final List<String> prefixArgs;
+
+  /// Se tem leitura integral (`open-eager`); o Galley não tem.
+  final bool supportsEager;
 }
 
 /// Livro a medir.
@@ -72,6 +85,7 @@ final class CompareCell {
     this.peakRss,
     this.checksum,
     this.failure,
+    this.inherited = false,
   });
 
   /// Nome do adaptador.
@@ -95,6 +109,9 @@ final class CompareCell {
 
   /// Motivo da falha, se falhou.
   final String? failure;
+
+  /// Se a falha é herdada da falha do `open` do mesmo par (não foi medida).
+  final bool inherited;
 
   /// Se a medição funcionou.
   bool get ok => failure == null && wallNs != null;
@@ -137,52 +154,19 @@ Future<OpenMeasurement> _runOnce(
   }
 }
 
-Future<CompareCell> _cell(
-  CompareAdapter adapter,
-  CompareBook book,
-  String metric, {
-  required int runs,
-  required Duration timeout,
-  required Directory workDir,
-}) async {
-  try {
-    final samples = [
-      for (var i = 0; i < runs; i++)
-        await _runOnce(adapter, book, metric, workDir, timeout),
-    ];
-    final checksum = samples.first.checksum;
-    if (samples.any((s) => s.checksum != checksum)) {
-      throw const MeasurementFailure('checksum instável entre execuções');
-    }
-    return CompareCell(
-      adapter: adapter.name,
-      book: book.key,
-      metric: metric,
-      wallNs: median([for (final s in samples) s.ns.toDouble()]),
-      peakRss: samples
-          .map((s) => s.rss)
-          .reduce((a, b) => a > b ? a : b)
-          .toDouble(),
-      checksum: checksum,
-    );
-  } on MeasurementFailure catch (e) {
-    return CompareCell(
-      adapter: adapter.name,
-      book: book.key,
-      metric: metric,
-      failure: e.message,
-    );
-  }
-}
-
 /// Mede cada [adapters] × [books] × métricas, cada execução num processo
 /// próprio com a VM de produção, e devolve as células.
 ///
-/// `open` e `read-all` valem para todo livro; `read-one`, só para o que
-/// define [CompareBook.readOneResource]. Uma falha vira uma célula com
-/// [CompareCell.failure] e não aborta nada; se o `open` de um adaptador
-/// falha num livro, as demais métricas dele nesse livro herdam a falha sem
-/// rodar. Progresso em [log].
+/// `open`, `read-all` e `open-eager` valem para todo livro (`open-eager` só
+/// para quem tem [CompareAdapter.supportsEager]); `read-one`, só para o que
+/// define [CompareBook.readOneResource]. Em cada métrica as [runs] execuções
+/// rodam em rodadas e a ordem dos adaptadores gira a cada rodada, para
+/// nenhum ficar sempre primeiro (cache de arquivo, ruído térmico). Antes de
+/// cada livro, uma execução de aquecimento descartada de cada adaptador, na
+/// mesma ordem, deixa o arquivo no cache de página para todos. Uma falha vira
+/// uma célula com [CompareCell.failure] e não aborta nada; se o `open` de um
+/// adaptador falha num livro, `read-all` e `read-one` dele herdam a falha sem
+/// rodar ([CompareCell.inherited]). Progresso em [log].
 Future<List<CompareCell>> compareBooks({
   required List<CompareAdapter> adapters,
   required List<CompareBook> books,
@@ -193,33 +177,82 @@ Future<List<CompareCell>> compareBooks({
 }) async {
   final cells = <CompareCell>[];
   for (final book in books) {
+    log.writeln('medindo ${book.key}');
     for (final adapter in adapters) {
-      log.writeln('medindo ${adapter.name} em ${book.key}');
-      String? openFailure;
-      for (final metric in compareMetrics) {
-        if (metric == 'read-one' && book.readOneResource == null) continue;
-        final cell = openFailure != null
-            ? CompareCell(
-                adapter: adapter.name,
-                book: book.key,
-                metric: metric,
-                failure: openFailure,
-              )
-            : await _cell(
-                adapter,
-                book,
-                metric,
-                runs: runs,
-                timeout: timeout,
-                workDir: workDir,
-              );
-        if (metric == 'open' && !cell.ok) openFailure = cell.failure;
-        if (!cell.ok) {
-          log.writeln(
-            'Falha: ${adapter.name} $metric ${book.key}: ${cell.failure}',
+      try {
+        await _runOnce(adapter, book, 'open', workDir, timeout);
+      } on MeasurementFailure {
+        // Aquecimento: a falha aparece na medição de verdade.
+      }
+    }
+    final openFailed = <String, String>{};
+    for (final metric in compareMetrics) {
+      if (metric == 'read-one' && book.readOneResource == null) continue;
+      final active = [
+        for (final a in adapters)
+          if (metric != 'open-eager' || a.supportsEager) a,
+      ];
+      final samples = {for (final a in active) a.name: <OpenMeasurement>[]};
+      final failures = <String, String>{};
+      for (final a in active) {
+        if (metric == 'read-all' || metric == 'read-one') {
+          final inherited = openFailed[a.name];
+          if (inherited != null) failures[a.name] = inherited;
+        }
+      }
+      for (var i = 0; i < runs; i++) {
+        for (var j = 0; j < active.length; j++) {
+          final a = active[(i + j) % active.length];
+          if (failures.containsKey(a.name)) continue;
+          try {
+            samples[a.name]!.add(
+              await _runOnce(a, book, metric, workDir, timeout),
+            );
+          } on MeasurementFailure catch (e) {
+            failures[a.name] = e.message;
+          }
+        }
+      }
+      for (final a in active) {
+        final got = samples[a.name]!;
+        var failure = failures[a.name];
+        if (failure == null &&
+            got.any((s) => s.checksum != got.first.checksum)) {
+          failure = 'checksum instável entre execuções';
+        }
+        final inherited =
+            failure != null &&
+            openFailed.containsKey(a.name) &&
+            (metric == 'read-all' || metric == 'read-one');
+        if (failure != null) {
+          if (metric == 'open') openFailed[a.name] = failure;
+          if (!inherited) {
+            log.writeln('Falha: ${a.name} $metric ${book.key}: $failure');
+          }
+          cells.add(
+            CompareCell(
+              adapter: a.name,
+              book: book.key,
+              metric: metric,
+              failure: failure,
+              inherited: inherited,
+            ),
+          );
+        } else {
+          cells.add(
+            CompareCell(
+              adapter: a.name,
+              book: book.key,
+              metric: metric,
+              wallNs: median([for (final s in got) s.ns.toDouble()]),
+              peakRss: got
+                  .map((s) => s.rss)
+                  .reduce((x, y) => x > y ? x : y)
+                  .toDouble(),
+              checksum: got.first.checksum,
+            ),
           );
         }
-        cells.add(cell);
       }
     }
   }
@@ -270,11 +303,24 @@ String renderCompareReport(
     ..writeln()
     ..writeln(
       'Cada medida roda num processo próprio, com a VM de produção; tempo = '
-      'mediana de $runs execuções, RSS = maior pico (`VmHWM`). `open` mede '
-      'só a abertura; `read-all` e `read-one` medem do arquivo até os bytes '
-      '(abertura inclusa). Os concorrentes usam `EpubReader.readBook`, que lê '
-      'o livro inteiro; o Galley abre o contêiner e lê os recursos sob '
-      'demanda. Tempo total desta execução: ${elapsed.inSeconds} s.',
+      'mediana de $runs execuções (ordem dos adaptadores girando a cada '
+      'rodada, aquecimento por livro), RSS = maior pico (`VmHWM`). Todos '
+      'abrem pelo caminho preguiçoso idiomático (Galley `EpubBook.open`; '
+      'concorrentes `EpubReader.openBook`, que decodifica o diretório do zip '
+      'e faz o parse do OPF/navegação) e leem os recursos um a um '
+      '(`resource` / `readContentAsBytes`). `open` mede só a abertura; '
+      '`read-all` e `read-one` medem do arquivo até os bytes (abertura '
+      'inclusa). `open-eager` é uma coluna extra: `EpubReader.readBook`, que '
+      'lê o livro inteiro; o Galley não tem equivalente (n/a). Tempo total '
+      'desta execução: ${elapsed.inSeconds} s.',
+    )
+    ..writeln()
+    ..writeln(
+      '> O piso de RSS difere entre os executáveis (um binário único para '
+      'galley, epub_plus e epub_pro e outro para o epubx, com tamanhos de '
+      'binário e de runtime diferentes): compare o RSS entre livros do mesmo '
+      'adaptador, não o piso entre adaptadores; um RSS menor do epubx nos '
+      'livros minúsculos não significa que ele use menos memória.',
     )
     ..writeln();
   for (final n in notes) {
@@ -286,9 +332,9 @@ String renderCompareReport(
     String title,
     String metric,
     String Function(CompareCell) value, {
-    bool Function(String book)? only,
+    String missing = '—',
   }) {
-    final rows = books.where((k) => only?.call(k) ?? true).where((k) {
+    final rows = books.where((k) {
       return adapterNames.any((a) => find(k, a, metric) != null);
     }).toList();
     if (rows.isEmpty) return;
@@ -301,7 +347,7 @@ String renderCompareReport(
       final row = [
         for (final a in adapterNames)
           switch (find(k, a, metric)) {
-            null => '—',
+            null => missing,
             final c when c.ok => value(c),
             _ => 'falhou',
           },
@@ -312,6 +358,12 @@ String renderCompareReport(
   }
 
   table('Abrir (ms)', 'open', (c) => _ms(c.wallNs!));
+  table(
+    'Extra: abrir lendo o livro inteiro, `readBook` (ms)',
+    'open-eager',
+    (c) => _ms(c.wallNs!),
+    missing: 'n/a',
+  );
   table('Ler o spine inteiro (ms)', 'read-all', (c) => _ms(c.wallNs!));
   table('RSS de pico do `read-all` (MiB)', 'read-all', (c) => _mib(c.peakRss!));
   table('Ler um recurso, capítulo do meio (ms)', 'read-one', (c) {
@@ -348,10 +400,16 @@ String renderCompareReport(
     b.writeln();
   }
 
-  final failed = cells.where((c) => !c.ok).toList();
+  final failed = cells.where((c) => !c.ok && !c.inherited).toList();
   if (failed.isNotEmpty) {
     b
       ..writeln('## Falhas')
+      ..writeln()
+      ..writeln(
+        'Mensagem e operação exata em que o parser falhou (a falha no `open` '
+        'faz `read-all` e `read-one` do par aparecerem como `falhou` sem '
+        'rodar).',
+      )
       ..writeln();
     for (final c in failed) {
       b.writeln('- `${c.adapter}` `${c.metric}` `${c.book}`: ${c.failure}');
@@ -408,7 +466,12 @@ Future<int> runCompare({
     );
     final adapters = [
       for (final name in ['galley', 'epub_plus', 'epub_pro'])
-        CompareAdapter(name, runner, prefixArgs: ['--adapter', name]),
+        CompareAdapter(
+          name,
+          runner,
+          prefixArgs: ['--adapter', name],
+          supportsEager: name != 'galley',
+        ),
       CompareAdapter('epubx', epubx),
     ];
 
