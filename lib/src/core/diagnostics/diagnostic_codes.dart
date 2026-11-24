@@ -10,4 +10,8 @@ abstract final class DiagnosticCodes {
 
   /// Entrada duplicada no zip; vale a primeira (warning).
   static const String zipDuplicateEntry = 'zip.duplicateEntry';
+
+  /// CRC-32 do conteúdo diverge do diretório central; bytes devolvidos
+  /// mesmo assim (error).
+  static const String zipCrcMismatch = 'zip.crcMismatch';
 }

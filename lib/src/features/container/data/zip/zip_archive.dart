@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:galley/src/core/diagnostics/diagnostic.dart';
@@ -7,6 +8,7 @@ import 'package:galley/src/core/diagnostics/diagnostic_sink.dart';
 import 'package:galley/src/core/errors/galley_exception.dart';
 import 'package:galley/src/features/container/data/zip/byte_source.dart';
 import 'package:galley/src/features/container/data/zip/cp437.dart';
+import 'package:galley/src/features/container/data/zip/crc32.dart';
 import 'package:galley/src/features/container/data/zip/zip_entry.dart';
 import 'package:galley/src/features/container/data/zip/zip_limits.dart';
 
@@ -14,12 +16,14 @@ const int _eocdSig = 0x06054b50;
 const int _locator64Sig = 0x07064b50;
 const int _eocd64Sig = 0x06064b50;
 const int _cdSig = 0x02014b50;
+const int _localSig = 0x04034b50;
+const int _localHeaderSize = 30;
 const int _eocdMin = 22;
 const int _maxComment = 65535;
 
 /// Leitor preguiçoso de zip: lê só o diretório central na abertura.
 final class ZipArchive {
-  ZipArchive._(this._source, this.limits, List<ZipEntry> entries)
+  ZipArchive._(this._source, this.limits, this._sink, List<ZipEntry> entries)
     : entries = List.unmodifiable(entries),
       _byName = {for (final e in entries.reversed) e.name: e};
 
@@ -35,10 +39,12 @@ final class ZipArchive {
     DiagnosticSink sink = const NullDiagnosticSink(),
   }) async {
     final entries = await _readDirectory(source, limits, sink);
-    return ZipArchive._(source, limits, entries);
+    return ZipArchive._(source, limits, sink, entries);
   }
 
   final ByteSource _source;
+  final DiagnosticSink _sink;
+  bool _closed = false;
 
   /// Limites de segurança aplicados a esta leitura.
   final ZipLimits limits;
@@ -62,10 +68,146 @@ final class ZipArchive {
     return index[name.toLowerCase()];
   }
 
-  // A leitura de conteúdo (`read(ZipEntry)`) será acrescentada aqui.
+  /// Lê e descomprime o conteúdo de [entry].
+  ///
+  /// Lança [BookClosedException] após [close], [DrmProtectedException] para
+  /// entradas cifradas, [ArchiveLimitExceededException] se os limites de
+  /// tamanho ou de razão de compressão forem excedidos e
+  /// [CorruptArchiveException] para qualquer inconsistência ou falha de E/S.
+  /// CRC divergente não lança: reporta `zip.crcMismatch` e devolve os bytes.
+  Future<Uint8List> read(ZipEntry entry) async {
+    if (_closed) throw const BookClosedException();
+    if (entry.isEncrypted) {
+      throw DrmProtectedException(['zip-encryption']);
+    }
+    if (entry.method != 0 && entry.method != 8) {
+      throw _corrupt(
+        'método de compressão ${entry.method} não suportado em '
+        '"${entry.name}"',
+      );
+    }
+    _checkLimits(entry);
 
-  /// Fecha a fonte de bytes subjacente.
-  Future<void> close() => _source.close();
+    final Uint8List result;
+    try {
+      final compressed = await _readCompressed(entry);
+      result = entry.method == 0
+          ? _storedBytes(entry, compressed)
+          : _inflate(entry, compressed);
+    } on GalleyException {
+      rethrow;
+    } on Object catch (e) {
+      throw _corrupt('falha ao ler "${entry.name}" ($e)');
+    }
+
+    if (crc32(result) != entry.crc32) {
+      _sink.report(
+        Diagnostic(
+          severity: DiagnosticSeverity.error,
+          code: DiagnosticCodes.zipCrcMismatch,
+          message: 'CRC-32 da entrada diverge do diretório central.',
+          location: entry.name,
+        ),
+      );
+    }
+    return result;
+  }
+
+  void _checkLimits(ZipEntry entry) {
+    final size = entry.uncompressedSize;
+    if (size > limits.maxEntrySize) {
+      throw ArchiveLimitExceededException(
+        'A entrada "${entry.name}" tem $size bytes; o limite é '
+        '${limits.maxEntrySize}.',
+      );
+    }
+    if (size > limits.ratioCheckThreshold) {
+      final ratio =
+          size / (entry.compressedSize < 1 ? 1 : entry.compressedSize);
+      if (ratio > limits.maxCompressionRatio) {
+        throw ArchiveLimitExceededException(
+          'A entrada "${entry.name}" tem razão de compressão acima de '
+          '${limits.maxCompressionRatio}.',
+        );
+      }
+    }
+  }
+
+  Future<Uint8List> _readCompressed(ZipEntry entry) async {
+    final total = _source.length;
+    final offset = entry.localHeaderOffset;
+    if (offset < 0 || total - offset < _localHeaderSize) {
+      throw _corrupt('cabeçalho local de "${entry.name}" fora da fonte');
+    }
+    final header = await _source.read(offset, _localHeaderSize);
+    final view = ByteData.sublistView(header);
+    if (view.getUint32(0, Endian.little) != _localSig) {
+      throw _corrupt('assinatura local inválida em "${entry.name}"');
+    }
+    final nameLen = view.getUint16(26, Endian.little);
+    final extraLen = view.getUint16(28, Endian.little);
+    final dataStart = offset + _localHeaderSize + nameLen + extraLen;
+    if (dataStart > total || entry.compressedSize > total - dataStart) {
+      throw _corrupt('dados de "${entry.name}" ultrapassam a fonte');
+    }
+    return _source.read(dataStart, entry.compressedSize);
+  }
+
+  Uint8List _storedBytes(ZipEntry entry, Uint8List bytes) {
+    if (entry.compressedSize != entry.uncompressedSize) {
+      throw _corrupt('tamanhos de "${entry.name}" divergem no método stored');
+    }
+    return bytes;
+  }
+
+  Uint8List _inflate(ZipEntry entry, Uint8List compressed) {
+    final expected = entry.uncompressedSize;
+    final out = _BoundedSink(expected, entry.name);
+    final input = ZLibDecoder(raw: true).startChunkedConversion(out);
+    const chunk = 64 * 1024;
+    for (var i = 0; i < compressed.length; i += chunk) {
+      final end = i + chunk < compressed.length ? i + chunk : compressed.length;
+      input.addSlice(compressed, i, end, false);
+    }
+    input.close();
+    final bytes = out.takeBytes();
+    if (bytes.length != expected) {
+      throw _corrupt(
+        '"${entry.name}" descomprimiu para ${bytes.length} bytes; '
+        'esperado $expected',
+      );
+    }
+    return bytes;
+  }
+
+  /// Fecha a fonte de bytes subjacente. Chamadas repetidas são inofensivas.
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    await _source.close();
+  }
+}
+
+/// Coletor que recusa saída acima do tamanho declarado (zip bomb).
+final class _BoundedSink implements Sink<List<int>> {
+  _BoundedSink(this._max, this._name);
+
+  final int _max;
+  final String _name;
+  final BytesBuilder _builder = BytesBuilder(copy: false);
+
+  @override
+  void add(List<int> data) {
+    if (_builder.length + data.length > _max) {
+      throw _corrupt('"$_name" descomprime além do tamanho declarado');
+    }
+    _builder.add(data);
+  }
+
+  @override
+  void close() {}
+
+  Uint8List takeBytes() => _builder.takeBytes();
 }
 
 CorruptArchiveException _corrupt(String detail) =>
