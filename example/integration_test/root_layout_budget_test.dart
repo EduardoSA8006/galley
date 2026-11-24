@@ -34,15 +34,24 @@ void main() {
       budget: const Duration(milliseconds: 4),
     );
     expect(r.measured, 400);
-    // Um parágrafo pode estourar o orçamento, nunca dois.
-    expect(r.maxBatch, lessThan(const Duration(milliseconds: 8)));
+    // Invariante real: um lote nunca estoura o orçamento por mais de um
+    // parágrafo (o limite se calibra pela máquina, sem depender de 8 ms fixos).
+    expect(
+      r.maxBatch,
+      lessThanOrEqualTo(
+        const Duration(milliseconds: 4) +
+            r.maxParagraph +
+            const Duration(milliseconds: 1),
+      ),
+    );
     final perParagraph = r.total.inMicroseconds / r.measured;
     // ignore: avoid_print
     print(
       'LAYOUT FATIADO: ${r.measured} parágrafos em ${r.batches} lotes, '
       'total ${r.total.inMilliseconds} ms, '
       'média ${perParagraph.toStringAsFixed(1)} us/parágrafo, '
-      'maior lote ${r.maxBatch.inMicroseconds} us',
+      'maior lote ${r.maxBatch.inMicroseconds} us, '
+      'maior parágrafo ${r.maxParagraph.inMicroseconds} us',
     );
   });
 }

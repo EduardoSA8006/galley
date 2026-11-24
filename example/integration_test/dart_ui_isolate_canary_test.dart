@@ -36,6 +36,10 @@ void main() {
           'Pendência do plano B: reescrever a etapa de layout para rodar '
           'em isolate (ver design geral §7 e flutter/flutter#30604).',
     );
-    expect(error.toString(), contains('root isolate'));
+    expect(
+      error.toString(),
+      contains('root isolate'),
+      reason: 'mensagem mudou: reverificar o status de flutter/flutter#30604',
+    );
   });
 }

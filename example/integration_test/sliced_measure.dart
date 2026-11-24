@@ -7,6 +7,7 @@ final class SlicedResult {
     required this.measured,
     required this.batches,
     required this.maxBatch,
+    required this.maxParagraph,
     required this.total,
   });
 
@@ -18,6 +19,9 @@ final class SlicedResult {
 
   /// Duração do maior lote (sem contar a cessão ao event loop).
   final Duration maxBatch;
+
+  /// Duração do maior parágrafo individual.
+  final Duration maxParagraph;
 
   /// Duração total (inclui as cessões).
   final Duration total;
@@ -48,9 +52,11 @@ Future<SlicedResult> measureSliced(
   var batches = 0;
   var measured = 0;
   var maxBatch = Duration.zero;
+  var maxParagraph = Duration.zero;
   while (measured < paragraphs.length) {
     final batch = Stopwatch()..start();
     do {
+      final one = Stopwatch()..start();
       final spec = paragraphs[measured++];
       final paragraph =
           (ui.ParagraphBuilder(
@@ -58,6 +64,7 @@ Future<SlicedResult> measureSliced(
             )..addText(spec.text)).build()
             ..layout(ui.ParagraphConstraints(width: spec.width));
       paragraph.dispose();
+      if (one.elapsed > maxParagraph) maxParagraph = one.elapsed;
     } while (measured < paragraphs.length && batch.elapsed < budget);
     batch.stop();
     batches++;
@@ -68,6 +75,7 @@ Future<SlicedResult> measureSliced(
     measured: measured,
     batches: batches,
     maxBatch: maxBatch,
+    maxParagraph: maxParagraph,
     total: total.elapsed,
   );
 }

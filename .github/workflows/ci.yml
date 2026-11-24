@@ -63,23 +63,37 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build libgtk-3-dev xvfb
-      # Um arquivo por vez: no Linux, subir o app uma segunda vez na mesma
-      # sessão falha com "Unable to start the app on the device".
+      # Um arquivo por vez (no Linux subir o app uma segunda vez na mesma
+      # sessão falha) e acumulando falhas em vez de abortar na primeira.
       - name: Testes de integração (linux)
         if: matrix.platform == 'linux'
         shell: bash
         run: |
+          rc=0
           for f in integration_test/*_test.dart; do
-            xvfb-run -a flutter test "$f" -d linux
+            xvfb-run -a flutter test "$f" -d linux || rc=1
           done
+          exit $rc
 
       - name: Testes de integração (macos)
         if: matrix.platform == 'macos'
-        run: flutter test integration_test -d macos
+        shell: bash
+        run: |
+          rc=0
+          for f in integration_test/*_test.dart; do
+            flutter test "$f" -d macos || rc=1
+          done
+          exit $rc
 
       - name: Testes de integração (windows)
         if: matrix.platform == 'windows'
-        run: flutter test integration_test -d windows
+        shell: bash
+        run: |
+          rc=0
+          for f in integration_test/*_test.dart; do
+            flutter test "$f" -d windows || rc=1
+          done
+          exit $rc
 
       - name: Habilitar KVM
         if: matrix.platform == 'android'
@@ -95,12 +109,27 @@ jobs:
           arch: x86_64
           target: google_apis
           working-directory: example
-          script: flutter test integration_test
+          disable-animations: true
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash -c 'rc=0; for f in integration_test/*_test.dart; do flutter test "$f" || rc=1; done; exit $rc'
 
       - name: Testes de integração (ios)
         if: matrix.platform == 'ios'
         shell: bash
         run: |
-          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k,v in d.items() if 'iOS' in k for x in v if 'iPhone' in x['name']))")
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          devs = json.load(sys.stdin)['devices']
+          for key in sorted((k for k in devs if 'iOS' in k), key=lambda k: [int(x) for x in k.rsplit('iOS-', 1)[1].split('-')], reverse=True):
+              for d in devs[key]:
+                  if 'iPhone' in d['name']:
+                      print(d['udid']); sys.exit(0)
+          sys.exit(1)
+          ")
           xcrun simctl boot "$UDID"
-          flutter test integration_test -d "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          rc=0
+          for f in integration_test/*_test.dart; do
+            flutter test "$f" -d "$UDID" || rc=1
+          done
+          exit $rc
