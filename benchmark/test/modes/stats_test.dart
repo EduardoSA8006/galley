@@ -38,10 +38,10 @@ void main() {
       return decideAb(bootstrapMedianRatio(base, head));
     }
 
-    test('amostras idênticas: IC contém 1,0 e não reprova', () {
-      final xs = _samples(rng, n, 1000, 0.02);
-      final ci = bootstrapMedianRatio(xs, List.of(xs));
-      expect(ci.point, 1.0);
+    test('duas amostras independentes da mesma distribuição: IC contém 1', () {
+      final a = _samples(rng, n, 1000, 0.02);
+      final b = _samples(rng, n, 1000, 0.02);
+      final ci = bootstrapMedianRatio(a, b);
       expect(ci.lower, lessThanOrEqualTo(1.0));
       expect(ci.upper, greaterThanOrEqualTo(1.0));
       expect(decideAb(ci), AbVerdict.inconclusiveOrOk);

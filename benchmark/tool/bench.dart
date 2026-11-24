@@ -110,15 +110,23 @@ Future<void> main(List<String> args) async {
       );
     }
   } on FormatException catch (e) {
-    stderr.writeln(
-      'Argumentos inválidos: ${e.message}\n'
-      'Uso: dart run tool/bench.dart <instructions|ab> [opções]\n'
-      'instructions:\n${instructions.usage}\nab:\n${ab.usage}',
-    );
-    await stderr.flush();
-    exit(64);
+    await _invalidArgs(e.message, instructions, ab);
+  } on ArgumentError catch (e) {
+    // Opção obrigatória ausente ou valor fora da lista permitida.
+    await _invalidArgs('${e.message}', instructions, ab);
   }
   await stdout.flush();
   await stderr.flush();
   exit(code);
+}
+
+/// Escreve o erro de argumentos e o uso no stderr e sai com 64.
+Future<Never> _invalidArgs(String message, ArgParser a, ArgParser b) async {
+  stderr.writeln(
+    'Argumentos inválidos: $message\n'
+    'Uso: dart run tool/bench.dart <instructions|ab> [opções]\n'
+    'instructions:\n${a.usage}\nab:\n${b.usage}',
+  );
+  await stderr.flush();
+  exit(64);
 }

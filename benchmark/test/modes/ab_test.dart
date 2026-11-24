@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:galley_benchmark/src/modes/ab.dart';
+import 'package:galley_benchmark/src/modes/orchestration.dart';
 import 'package:galley_benchmark/src/modes/stats.dart';
 import 'package:test/test.dart';
 
@@ -112,5 +114,96 @@ void main() {
     expect(md, contains('`a/b`'));
     expect(md, contains('regressed'));
     expect(md, contains('+30,0%'));
+  });
+
+  test('BMF: lower_value ≤ value ≤ upper_value mesmo se o IC não envolve o ponto', () {
+    // Mediana do head acima do IC (IC todo abaixo do ponto): o limite superior
+    // é ajustado para o valor.
+    const row = AbRow(
+      benchId: 'x',
+      base: 1000,
+      head: 1100,
+      ci: (lower: 0.9, point: 1.1, upper: 1.05),
+      verdict: AbVerdict.inconclusiveOrOk,
+    );
+    final m =
+        (AbResult(
+                  rows: const [row],
+                  checksumMismatches: const [],
+                  notes: const [],
+                  threshold: 0.05,
+                ).toBmf()['x']!
+                as Map)['wall-time-ns']!
+            as Map;
+    expect(m['lower_value'], lessThanOrEqualTo(m['value'] as num));
+    expect(m['upper_value'], greaterThanOrEqualTo(m['value'] as num));
+  });
+
+  group('baseSupportsTiming', () {
+    late Directory tmp;
+    setUp(() async => tmp = await Directory.systemTemp.createTemp('ab-fake-'));
+    tearDown(() => tmp.delete(recursive: true));
+
+    File fake(String body) {
+      final f = File('${tmp.path}/runner')
+        ..writeAsStringSync('#!/bin/sh\n$body\n');
+      Process.runSync('chmod', ['+x', f.path]);
+      return f;
+    }
+
+    test('exit 0 -> aceita', () async {
+      expect(await baseSupportsTiming(fake('echo ns=1'), tmp), isTrue);
+    });
+    test('exit 64 citando --timing -> não aceita (tudo added)', () async {
+      final exe = fake(
+        'echo \'Could not find an option "--timing"\' >&2; exit 64',
+      );
+      expect(await baseSupportsTiming(exe, tmp), isFalse);
+    });
+    test('exit 64 sem citar --timing -> falha (70)', () async {
+      final exe = fake('echo outro >&2; exit 64');
+      await expectLater(
+        baseSupportsTiming(exe, tmp),
+        throwsA(isA<MeasurementFailure>()),
+      );
+    });
+    test('queda (exit 70) -> falha, não "sem suporte"', () async {
+      await expectLater(
+        baseSupportsTiming(fake('echo boom >&2; exit 70'), tmp),
+        throwsA(isA<MeasurementFailure>()),
+      );
+    });
+    test('travamento estoura o timeout e vira falha', () async {
+      await expectLater(
+        baseSupportsTiming(
+          fake('sleep 30'),
+          tmp,
+          timeout: const Duration(seconds: 1),
+        ),
+        throwsA(isA<MeasurementFailure>()),
+      );
+    });
+  });
+
+  group('CLI ab', () {
+    Future<ProcessResult> cli(List<String> args) => Process.run(
+      Platform.resolvedExecutable,
+      ['run', 'tool/bench.dart', 'ab', ...args],
+    );
+    test('--rounds 2 sai com 64', () async {
+      final r = await cli([
+        '--base',
+        'HEAD',
+        '--head',
+        'HEAD',
+        '--rounds',
+        '2',
+      ]);
+      expect(r.exitCode, 64, reason: '${r.stderr}');
+    });
+    test('sem --base sai com 64', () async {
+      final r = await cli(['--head', 'HEAD']);
+      expect(r.exitCode, 64, reason: '${r.stderr}');
+    });
   });
 }

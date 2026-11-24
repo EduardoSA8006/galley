@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import '../bmf.dart' as bmf;
 import 'orchestration.dart';
@@ -133,8 +134,10 @@ final class AbResult {
           bmf.Measure(
             slug: bmf.MeasureSlug.wallTimeNs,
             value: r.head!,
-            lower: r.ci == null ? null : r.base! * r.ci!.lower,
-            upper: r.ci == null ? null : r.base! * r.ci!.upper,
+            // O percentil do bootstrap pode não envolver o ponto; os limites
+            // são ajustados para valer lower ≤ value ≤ upper.
+            lower: r.ci == null ? null : min(r.head!, r.base! * r.ci!.lower),
+            upper: r.ci == null ? null : max(r.head!, r.base! * r.ci!.upper),
           ),
         ],
   });
@@ -295,16 +298,45 @@ Future<TimedRun> _timed(
   }
 }
 
+/// Confere que o checksum de [id] não muda entre rodadas do mesmo lado.
+int _sameChecksum(String id, String side, int? previous, int current) {
+  if (previous != null && previous != current) {
+    throw MeasurementFailure(
+      '$id: checksum instável na $side entre rodadas ($previous e $current)',
+    );
+  }
+  return current;
+}
+
 /// Se o `bench_runner` de [exe] aceita `--timing`.
-Future<bool> _supportsTiming(File exe, Directory workDir) async {
-  final r = await Process.run(exe.path, [
-    '--bench',
-    'harness/noop',
-    '--iterations',
-    '2',
-    '--timing',
-  ], workingDirectory: workDir.path);
-  return r.exitCode == 0;
+///
+/// Só o código 64 com `--timing` no stderr (opção desconhecida de um runner
+/// antigo) significa "não aceita". Qualquer outra falha (queda, corpus
+/// ausente, sinal, tempo esgotado) lança [MeasurementFailure], para não
+/// mascarar uma base quebrada como "tudo `added`". Usa [abEnvironment] e
+/// [timeout], como as medições.
+Future<bool> baseSupportsTiming(
+  File exe,
+  Directory workDir, {
+  Duration timeout = defaultAbTimeout,
+}) async {
+  final r = await runWithTimeout(
+    exe.path,
+    ['--bench', 'harness/noop', '--iterations', '2', '--timing'],
+    environment: abEnvironment(),
+    includeParentEnvironment: false,
+    workingDirectory: workDir.path,
+    timeout: timeout,
+    what: 'sonda de --timing',
+  );
+  if (r.exitCode == 0) return true;
+  if (r.exitCode == 64 && (r.stderr as String).contains('--timing')) {
+    return false;
+  }
+  throw MeasurementFailure(
+    'sonda de --timing saiu com código ${r.exitCode}:\n${r.stderr}'.trimRight(),
+    exitCode: r.exitCode,
+  );
 }
 
 /// Executa o modo `ab`: mede [baseRef] e [headRef] em [rounds] rodadas
@@ -339,7 +371,8 @@ Future<int> runAb({
     );
     final notes = [...v.notes];
     var baseExe = v.baseExe;
-    if (baseExe != null && !await _supportsTiming(baseExe, v.baseWorkDir)) {
+    if (baseExe != null &&
+        !await baseSupportsTiming(baseExe, v.baseWorkDir, timeout: timeout)) {
       notes.add(
         'O bench_runner da base ($baseRef) não aceita `--timing`: todos os '
         'benchmarks do head entram como `added`.',
@@ -363,27 +396,41 @@ Future<int> runAb({
       final onBase = baseExe != null && (v.baseIds?.contains(id) ?? false);
       final baseSamples = <double>[];
       final headSamples = <double>[];
-      var baseSum = 0;
-      var headSum = 0;
-      for (var i = 0; i < rounds; i++) {
-        if (onBase) {
-          final r = await _timed(baseExe, id, k, v.baseWorkDir, timeout);
-          baseSamples.add(r.ns / (k - 1));
-          baseSum = r.checksum;
-        }
+      int? baseSum;
+      int? headSum;
+      // Aquecimento da base (simétrico à calibração do head), descartado.
+      if (onBase) await _timed(baseExe, id, k, v.baseWorkDir, timeout);
+      Future<void> sampleBase() async {
+        final r = await _timed(baseExe!, id, k, v.baseWorkDir, timeout);
+        baseSum = _sameChecksum(id, 'base', baseSum, r.checksum);
+        baseSamples.add(r.ns / (k - 1));
+      }
+
+      Future<void> sampleHead() async {
         final r = await _timed(v.headExe, id, k, v.headWorkDir, timeout);
+        headSum = _sameChecksum(id, 'head', headSum, r.checksum);
         headSamples.add(r.ns / (k - 1));
-        headSum = r.checksum;
+      }
+
+      // ABBA: a ordem alterna a cada rodada para cancelar efeitos de posição.
+      for (var i = 0; i < rounds; i++) {
+        if (i.isEven) {
+          if (onBase) await sampleBase();
+          await sampleHead();
+        } else {
+          await sampleHead();
+          if (onBase) await sampleBase();
+        }
       }
       head[id] = AbSamples(
         iterations: k,
-        checksum: headSum,
+        checksum: headSum!,
         nsPerIteration: headSamples,
       );
       if (baseSamples.isNotEmpty) {
         base[id] = AbSamples(
           iterations: k,
-          checksum: baseSum,
+          checksum: baseSum!,
           nsPerIteration: baseSamples,
         );
       }

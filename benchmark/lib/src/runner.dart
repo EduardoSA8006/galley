@@ -48,7 +48,10 @@ Future<int> runBench(
     }
   }
   if (code == 0) {
-    if (timing) stdoutSink.writeln('ns=${clock.elapsedMicroseconds * 1000}');
+    if (timing) {
+      final ns = (clock.elapsedTicks * 1e9 / clock.frequency).round();
+      stdoutSink.writeln('ns=$ns');
+    }
     stdoutSink.writeln('checksum=$checksum');
   }
   return code;
