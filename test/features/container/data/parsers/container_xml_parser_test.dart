@@ -66,10 +66,7 @@ void main() {
         expect(root.getAttribute('unique-identifier'), 'bookid');
         expect(root.getAttribute('xmlns'), 'http://www.idpf.org/2007/opf');
         expect(
-          root.getAttribute(
-            'xmlns:dc',
-            namespace: 'http://www.w3.org/2000/xmlns/',
-          ),
+          root.getAttribute('xmlns:dc'),
           'http://purl.org/dc/elements/1.1/',
         );
         expect(
