@@ -28,7 +28,7 @@ jobs:
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed .
       - run: flutter analyze --fatal-infos
-      - run: flutter test
+      - run: flutter test --exclude-tags heavy
       - name: Analisar o app de exemplo
         working-directory: example
         run: |
@@ -48,6 +48,19 @@ jobs:
           dart pub get
           dart analyze --fatal-infos
           dart test
+
+  # Testes pesados (livro sintético de 300 MiB), isolados dos jobs comuns.
+  heavy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test --tags heavy
 
   integration:
     name: integration (${{ matrix.platform }})
