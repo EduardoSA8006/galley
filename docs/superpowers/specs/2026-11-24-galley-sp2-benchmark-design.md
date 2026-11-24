@@ -82,6 +82,15 @@ corpus/
 - **Escritos à mão** (`corpus/handmade/`): fontes legíveis + gerador Dart determinístico que produz os `.epub` (mesmos bytes a cada execução). Cobrem: tipografia variada, CSS de editora típico, tabelas, notas, imagens, CJK, RTL/bidi, fontes ofuscadas IDPF/Adobe, livros grandes **gerados em tempo de execução** (ex.: 50 MB e 300 MB, nunca versionados) e malformados.
 - Binários grandes não são versionados no git; só fontes, geradores e o manifesto.
 
+**Amplo (robustez, decisão do usuário em 2026-11-24):** uma amostra de **300 livros do Project Gutenberg**, escolhidos por semente fixa entre os EPUBs disponíveis. O objetivo não é medir desempenho; é verificar que **todos abrem** sem exceção e sem diagnósticos de severidade `error` inesperados, como um fuzz com livros reais (codificações, navegação malformada, nomes de arquivo incomuns).
+
+- **Download:** pelos canais que o Gutenberg oferece a robôs (o mirror oficial e a política de *harvest*), nunca por raspagem do site, com cache local.
+- **Lista:** fica em `corpus/pg-wide.json` (número do livro + sha256 da primeira coleta).
+- **Atualização do Gutenberg:** se o Gutenberg atualizar um arquivo, o caso é relatado e a lista pode ser atualizada por ferramenta. Não reprova.
+- **Onde roda:** no job noturno e localmente; não é gate de PR. Também não é espelhado.
+
+O corpus privado **continua** no SP2, por decisão do usuário: os livros do Gutenberg são homogêneos (mesmo conversor, CSS mínimo) e não substituem EPUBs comerciais.
+
 **Privado (máquina do mantenedor):**
 - Diretório indicado por variável de ambiente (`GALLEY_PRIVATE_CORPUS`); nunca copiado para o repositório.
 - Os resultados vão ao Bencher apenas como **agregados** (ex.: mediana/p95 de abertura sobre o corpus inteiro) ou com **identificadores anônimos** (hash do arquivo); títulos e nomes de arquivo nunca saem da máquina.

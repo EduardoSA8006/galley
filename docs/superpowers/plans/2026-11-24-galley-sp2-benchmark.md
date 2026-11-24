@@ -348,8 +348,37 @@ dart_test.yaml                               # tag heavy
 
 ---
 
+### Task 12: Corpus amplo do Project Gutenberg (robustez)
+
+> Acrescentada em 2026-11-24 por decisão do usuário (spec §7.2, "Amplo").
+
+**Files:**
+- Create: `corpus/pg-wide.json`, `benchmark/lib/src/corpus/pg_wide.dart`, `benchmark/lib/src/modes/wide.dart`
+- Modify: `benchmark/tool/bench.dart` (modo `wide` e subcomando `wide-refresh`), `.github/workflows/bench-nightly.yml` (job `wide`, com cache), `corpus/README.md` e `benchmark/README.md`
+- Test: `benchmark/test/modes/wide_test.dart`
+
+**Interfaces:**
+- Consumes: `CorpusFetcher` (Task 3), `EpubBook`.
+- Produces:
+  - `final class PgWideEntry { final int ebookNo; final Uri url; final String sha256; }`
+  - `List<PgWideEntry> loadPgWide(String path)`
+  - `Future<WideReport> runWide(List<PgWideEntry> entries, {required Directory cacheDir})`: abre cada livro e lê todos os recursos do manifest. Classifica cada um em `ok`, `diagnostics-error` (abriu, mas com diagnóstico `error`), `failed` (lançou `GalleyException`), `crashed` (lançou outra coisa, o que é bug), `drift` (sha256 mudou na origem) ou `unavailable`.
+  - `wide-refresh --count 300 --seed 2026`: escolhe os números de livro, baixa e grava `pg-wide.json`. Só manualmente, pelo mantenedor ou pelo implementador nesta task.
+  - CLI `wide`: imprime o relatório e grava o BMF com a contagem por classe (`wide/ok`, `wide/crashed` etc.). Exit 1 **só** se houver `crashed`.
+- Download: usar o mirror oficial (`gutenberg.pglaf.org` ou o mirror que o README do Task 3 já usa) ou o endpoint de *harvest* para robôs do Gutenberg. Ir em sequência, com User-Agent genérico e pausa entre requisições, e respeitar `Retry-After`.
+
+- [ ] **Step 1: Testes que falham** (servidor `HttpServer` local):
+  - um livro bom → `ok`;
+  - um EPUB truncado → `failed`;
+  - sha256 diferente → `drift`, que não reprova;
+  - um adaptador que lança `StateError` → `crashed` e exit 1;
+  - 404 → `unavailable`.
+- [ ] **Step 2:** FAIL. **Step 3:** Implementar. Rodar `wide-refresh` uma vez para gerar o `pg-wide.json` real com 300 livros. Rodar `wide` localmente e anexar o resumo ao relatório: contagem por classe e cada `crashed`/`failed` com o número do livro. Um `crashed` real é bug do galley: registrar no relatório, sem corrigir nesta task. **Step 4:** PASS.
+- [ ] **Step 5: Commit** `feat(corpus): corpus amplo do Project Gutenberg para robustez`
+
 ## Notas de execução
 
 - Branch `sp2/benchmark`. O PR do SP2 é o primeiro a exercitar `bench-pr.yml`.
 - Os passos que publicam ou exigem conta ficam com o mantenedor, com aprovação explícita: executar `corpus/tool/mirror.sh`, criar o Bencher, cadastrar o secret e configurar a proteção da `main`.
+- Ordem de execução: Tasks 1–10, depois a 12 e por fim a 11 (workflows), para que o job `wide` entre no noturno.
 - A pendência permanente de expansão (spec §9) fica no `benchmark/README.md` como checklist por subprojeto.
