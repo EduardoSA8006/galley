@@ -40,3 +40,4 @@ doc/logo/gen.py
 example/build/
 benchmark/
 corpus/
+.corpus-cache/

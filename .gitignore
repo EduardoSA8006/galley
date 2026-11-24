@@ -32,3 +32,6 @@ migrate_working_dir/
 
 # Notas locais do fluxo de trabalho
 .superpowers/
+
+# Cache local do corpus público (livros baixados; nunca versionar)
+.corpus-cache/
