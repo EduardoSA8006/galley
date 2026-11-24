@@ -12,7 +12,7 @@ Montar desde já a infraestrutura que mede o Galley contra si mesmo (regressões
 ## 2. Metas
 
 1. **Gate por PR** que reprova regressões de desempenho de forma confiável nos runners gratuitos do GitHub (VMs compartilhadas e ruidosas).
-2. **Histórico** de todas as métricas, com detecção de regressão gradual e comentário automático "antes × depois" no PR.
+2. **Histórico** de todas as métricas, com comentário automático "antes × depois" no PR.
 3. **Comparação com concorrentes** no que hoje é comparável: abertura, memória e leitura de recursos contra os parsers `epubx`, `epub_plus` e `epub_pro`.
 4. **Corpus de teste** público e reproduzível, mais um corpus privado que nunca sai da máquina do mantenedor.
 5. **Números registrados de medição precisa** (tempo absoluto, memória de pico, `perf` nativo, corpus privado) mesmo antes de haver máquina dedicada, rodando localmente entre as mudanças.
@@ -111,7 +111,7 @@ Todos os modos escrevem o **Bencher Metric Format** (JSON) e/ou um relatório le
 
 - **Instruções (PR):** reprova se algum benchmark ficar **mais de 0,5% acima** do resultado da `main`. Melhorias não reprovam.
 - **A/B de tempo (PR):** reprova só com regressão **≥ 5%** e significância estatística (intervalo de confiança de 95% por bootstrap da razão das medianas inteiramente acima de 1,05). Sem significância, não reprova.
-- **Regressão gradual:** além da comparação com a `main`, o Bencher compara com um **baseline fixo** (última release ou um marco fixado manualmente); acúmulo acima de **10%** desde o baseline reprova.
+- **Regressão gradual:** além da comparação com a `main`, o **próprio harness** compara com um **baseline fixo** (tag git `bench-baseline`, movida manualmente); acúmulo acima de **10%** desde o baseline reprova o job noturno.
 - **Contadores determinísticos:** ficam na suíte de testes normal (não no benchmark), com limites exatos. Exemplo: abrir o livro sintético de 300 MB lê no máximo **256 KB** da fonte de bytes; ler um capítulo lê só a entrada dele. Os números exatos são calibrados pelo construtor na primeira medição e então congelados.
 - **Concorrentes:** só relatório antes da 1.0 (regra do pai: trava releases a partir da 1.0).
 - **Tamanho:** teto absoluto de 2 MB (pai, §6); ultrapassar reprova o job noturno.
@@ -121,8 +121,8 @@ Todos os modos escrevem o **Bencher Metric Format** (JSON) e/ou um relatório le
 - **Referência da `main` medida no mesmo job.** Os gates de instruções e de A/B compilam e medem a `main` (merge-base) e o PR **no mesmo job, com o mesmo toolchain**. O gate não depende do histórico do Bencher; o próprio harness decide aprovar ou reprovar. Isso elimina falso positivo por mudança de versão do Dart, do Valgrind ou da imagem do runner. O custo em dobro é aceito: os benchmarks de instruções são curtos.
 - **Toolchain fixo nos jobs de benchmark.** Os jobs de benchmark usam uma versão fixa do Flutter (a mínima suportada, hoje 3.47.5), atualizada de forma deliberada num PR próprio. Os jobs de teste continuam com a matriz 3.47.5 + stable.
 - **Orçamento do workflow de PR:** no máximo ~15 min de parede. Se o conjunto de benchmarks ou as repetições do A/B passarem disso, divida em jobs paralelos ou reduza as repetições, preservando a significância estatística.
-- **Bencher só como histórico e comentário.** Os gates funcionam de forma autônoma pelo harness. O Bencher guarda o histórico, os gráficos e a regressão gradual, e comenta no PR. Os jobs de gate (`instructions` e `ab`) viram status obrigatórios da `main`. O SP2 está pronto quando os gates funcionam sem o Bencher **e** a integração com o Bencher está implementada. A validação de ponta a ponta com o Bencher real depende de o mantenedor criar o projeto e o token (passo manual documentado).
-- **Regressão gradual.** O marco inicial é o commit do merge do SP1 (`d4ef38a`). O mantenedor o atualiza manualmente a cada release, ou ao aceitar de propósito uma regressão, com o procedimento documentado no `benchmark/README.md`. O limite de 10% reprova **só o job noturno**, nunca o PR.
+- **Bencher só como histórico e comentário.** Os gates funcionam de forma autônoma pelo harness. O Bencher guarda o histórico e os gráficos, e comenta no PR. Os jobs de gate (`instructions` e `ab`) viram status obrigatórios da `main`. O SP2 está pronto quando os gates funcionam sem o Bencher **e** a integração com o Bencher está implementada. A validação de ponta a ponta com o Bencher real depende de o mantenedor criar o projeto e o token (passo manual documentado).
+- **Regressão gradual (verificada pelo harness, não pelo Bencher).** O marco é a **tag git `bench-baseline`**. Como `d4ef38a` (merge do SP1) não tem `benchmark/`, o marco inicial é o commit de merge do SP2 na `main`; o mantenedor cria a tag após o merge (`git tag -f bench-baseline <sha> && git push -f origin bench-baseline`) e a move a cada release ou ao aceitar de propósito uma regressão, conforme o `benchmark/README.md`. O job noturno roda `instructions --base bench-baseline --head HEAD --threshold 0.10` (mesmo job, mesmo toolchain, determinístico). O limite de 10% reprova **só o job noturno**, nunca o PR. Um threshold do Bencher só avalia runs do mesmo branch e faria o baseline derivar, por isso o Bencher é só histórico: o noturno envia para `--branch main` e os PRs para `--branch <pr> --start-point main`.
 - **Corpus público espelhado.** Os livros externos do manifesto, todos de domínio público ou com licença que permite redistribuição, são espelhados como asset de uma release dedicada do próprio repositório (`corpus-v1`), com as licenças e os avisos exigidos. A URL original fica como alternativa. O harness verifica o `sha256` nos dois casos. Livros cuja licença não permita espelhamento ficam só com a URL original e fora dos gates de PR.
 - **Tamanho (2 MB).** Mede-se o APK **release, split por ABI, arm64** de um app mínimo, em duas variantes idênticas, uma com e outra sem a dependência `galley` e uma chamada a `EpubBook.fromBytes`. Conta a diferença de bytes. O job é noturno.
 - **Contadores com o livro sintético de 300 MB.** Ficam marcados com a tag `heavy` e rodam num único job (stable, Linux), não na matriz inteira. O arquivo é gerado em streaming num diretório temporário e apagado ao final. Os contadores com livros pequenos rodam na suíte normal.
@@ -167,6 +167,6 @@ Atualizar §6 de `2026-11-24-galley-arquitetura-design.md` com:
 - Lista exata de livros do manifesto (respeitando licenças e a cobertura de §7.2).
 - Conjunto exato de benchmarks curtos por etapa.
 - Número de repetições do A/B.
-- Detalhes do formato JSON e configuração dos thresholds no Bencher.
+- Detalhes do formato JSON e envio ao Bencher (só histórico).
 - Calibragem dos limites dos contadores determinísticos.
 - Uso ou não de `pub workspaces`.

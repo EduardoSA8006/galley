@@ -16,7 +16,7 @@ quando fazem sentido, um relatório em Markdown com `--report`.
 
 | Modo | Onde | O que mede | Limite / uso |
 |---|---|---|---|
-| `instructions` | CI (Valgrind) e local (`--counter perf`) | instruções por benchmark curto, base × head no mesmo job | **gate do PR**: reprova com regressão > 0,5% |
+| `instructions` | CI (Valgrind) e local (`--counter perf`) | instruções por benchmark curto, base × head no mesmo job | **gate do PR**: reprova com regressão > 0,5% (`--threshold`); o noturno usa 0.10 contra a tag `bench-baseline` |
 | `ab` | CI | tempo de parede base × head, rodadas intercaladas, IC 95% bootstrap da razão das medianas | **gate do PR**: reprova se o IC fica inteiro acima de +5% |
 | `local` | máquina do mantenedor | tempo absoluto, RSS de pico, `perf` nativo, livros de 50 e 300 MiB, corpus público e privado | registro manual (`local-dev`); rode depois de mudanças de desempenho e antes de releases |
 | `compare` | CI noturno e local | Galley × `epubx` × `epub_plus` × `epub_pro` | relatório; não bloqueia antes da 1.0 |
@@ -69,8 +69,7 @@ bytes entre os dois APKs, gravada como `size-bytes` em
 
 ## Bencher
 
-O Bencher guarda o histórico, os gráficos e a regressão gradual, e comenta nos
-PRs. **Os gates de PR funcionam sem ele**: quem aprova ou reprova é o próprio
+O Bencher guarda o histórico e os gráficos, e comenta nos PRs. **Os gates de PR funcionam sem ele**: quem aprova ou reprova é o próprio
 harness (base e head medidos no mesmo job, com o mesmo toolchain).
 
 `bencherRun` (`lib/src/bencher.dart`) monta e executa:
@@ -99,40 +98,38 @@ Nada disto é feito pelo código; exige a sua conta.
 3. Criar os testbeds (o primeiro `bencher run` também os cria sozinho):
    `github-ubuntu-valgrind`, `github-ubuntu-ab`, `github-ubuntu-nightly` e
    `local-dev`.
-4. Criar o branch **`baseline`** do Bencher começando em **`d4ef38a`** (o
-   commit do merge do SP1, marco inicial da regressão gradual). Meça esse
-   commit e envie-o já com o branch:
-   ```
-   git checkout d4ef38a   # em um worktree; use o harness do checkout atual
-   dart run tool/bench.dart instructions --base d4ef38a --head d4ef38a --out baseline.json
-   BENCHER_API_TOKEN=... bencher run --project galley --testbed github-ubuntu-nightly \
-     --branch baseline --adapter json --file baseline.json
-   ```
-   (Se o commit não tiver o harness, rode o `tool/bench.dart` da `main` com
-   `--base`/`--head` apontando para ele.)
-5. Configurar os **thresholds**:
-   - **Regressão gradual de 10%, só no noturno:** no branch `baseline` e
-     **somente** no testbed `github-ubuntu-nightly`, um threshold percentual
-     com limite superior de 10% (`0.10`) por medida usada
-     (`instructions`, `wall-time-ns`, `peak-rss-bytes`, `size-bytes`), p.ex.:
-     ```
-     bencher threshold create --project galley --branch baseline \
-       --testbed github-ubuntu-nightly --measure instructions \
-       --test percentage --upper-boundary 0.10
-     ```
-     Nenhum threshold desse tipo nos testbeds de PR: o limite de 10% nunca
-     reprova PR.
-   - Os limites de PR (0,5% em instruções; 5% com significância no A/B) são
-     decididos pelo harness, não pelo Bencher.
-6. Marcar como **checks obrigatórios** da `main` (Settings > Branches ou
+4. Marcar como **checks obrigatórios** da `main` (Settings > Branches ou
    rulesets): **`bench-pr / instructions`** e **`bench-pr / ab`**.
 
-### Atualizar o baseline (a cada release ou ao aceitar uma regressão)
+O Bencher é **só histórico**: o noturno envia para `--branch main`, e os PRs
+para `--branch <pr> --start-point main`. Não há thresholds a configurar nele:
+todos os limites são verificados pelo próprio harness.
 
-O limite de 10% é contra o baseline fixo. Ao lançar uma release, ou ao aceitar
-de propósito uma regressão, mova o marco: meça o commit novo e envie-o ao
-branch `baseline` (passo 4, com o hash novo no lugar de `d4ef38a`). Registre o
-novo hash e o motivo no PR da release.
+### Regressão gradual: a tag `bench-baseline`
+
+O acúmulo de regressão desde um marco fixo (10%) é verificado pelo harness,
+**só no job noturno**, nunca no PR:
+
+```
+dart run tool/bench.dart instructions --base bench-baseline --head HEAD --threshold 0.10
+```
+
+Base e head são medidos no mesmo job, com o mesmo toolchain (determinístico),
+sem depender do histórico do Bencher. O marco é a **tag git `bench-baseline`**.
+Como `d4ef38a` (merge do SP1) ainda não tem `benchmark/`, o marco inicial é o
+**commit de merge do SP2 na `main`**; o mantenedor cria a tag logo após o
+merge:
+
+```
+git tag -f bench-baseline <sha-do-merge-do-SP2> && git push -f origin bench-baseline
+```
+
+#### Atualizar o baseline (a cada release ou ao aceitar uma regressão)
+
+Ao lançar uma release, ou ao aceitar de propósito uma regressão, mova a tag
+com o mesmo comando, usando o sha novo. Registre o sha e o motivo no PR da
+release. O job noturno precisa de `fetch-depth: 0` (ou ao menos da tag) para
+resolver `bench-baseline`.
 
 ## Expansão permanente
 

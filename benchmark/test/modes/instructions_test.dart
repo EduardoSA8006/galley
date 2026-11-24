@@ -373,4 +373,20 @@ void main() {
       expect('| added |'.allMatches(report), hasLength(2), reason: report);
     }, timeout: const Timeout(Duration(minutes: 15)));
   });
+
+  group('parseThreshold', () {
+    test('aceita valores entre 0 (exclusive) e 1', () {
+      expect(parseThreshold('0.005'), 0.005);
+      expect(parseThreshold('0.10'), 0.1);
+      expect(parseThreshold('1'), 1.0);
+    });
+    test('rejeita fora de (0, 1] e texto inválido', () {
+      for (final bad in ['0', '-0.1', '1.5', 'abc', '', 'NaN']) {
+        expect(() => parseThreshold(bad), throwsFormatException, reason: bad);
+      }
+    });
+    test('o padrão é 0,5%', () {
+      expect(defaultThreshold, 0.005);
+    });
+  });
 }

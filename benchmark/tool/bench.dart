@@ -12,8 +12,9 @@ import 'package:galley_benchmark/src/modes/size.dart';
 /// Modos:
 /// - `instructions`: gate de instruções entre `--base` e `--head` (refs git),
 ///   com `--counter valgrind|perf`, `--out` (BMF), `--report` (Markdown) e
-///   `--bench` (repetível, restringe os ids). Sai com 1 em regressão acima
-///   de 0,5% e com 2 se os checksums da base e do head divergirem.
+///   `--bench` (repetível, restringe os ids) e `--threshold` (fração; padrão
+///   0.005). Sai com 1 em regressão acima do limite (0,5% no PR; o noturno
+///   usa `--base bench-baseline --threshold 0.10`) e com 2 se os checksums da base e do head divergirem.
 /// - `ab`: comparação de tempo de parede entre `--base` e `--head`, em
 ///   `--rounds` rodadas intercaladas (padrão 15) e IC 95% bootstrap da razão
 ///   das medianas. Aceita `--out`, `--report` e `--bench`. Sai com 1 se o IC
@@ -23,7 +24,8 @@ import 'package:galley_benchmark/src/modes/size.dart';
 ///   RSS de pico e instruções nativas com `perf`) em livros sintéticos de 50 e
 ///   300 MiB, no corpus público e no privado (`GALLEY_PRIVATE_CORPUS`,
 ///   anonimizado). Aceita `--out`, `--report` e `--upload` (envia ao
-///   Bencher; sem `BENCHER_API_TOKEN` pula com aviso). Sai com 70 se algum livro falha.
+///   Bencher; sem `BENCHER_API_TOKEN` pula com aviso). Sai com 70 se algum
+///   livro falha.
 /// - `compare`: Galley contra `epubx`, `epub_plus` e `epub_pro` (abrir, ler o
 ///   spine inteiro, ler um recurso do livro de 50 MiB e RSS de pico) nos
 ///   livros escritos à mão, no sintético de 50 MiB e no corpus público.
@@ -50,6 +52,13 @@ Future<void> main(List<String> args) async {
     ..addOption('out', help: 'Arquivo BMF (JSON) de saída.')
     ..addOption('report', help: 'Relatório em Markdown.')
     ..addMultiOption('bench', help: 'Restringe aos ids dados.')
+    ..addOption(
+      'threshold',
+      defaultsTo: '$defaultThreshold',
+      help:
+          'Regressão que reprova, em fração (0,005 = 0,5%; o noturno usa '
+          '0.10 contra a tag bench-baseline).',
+    )
     ..addOption(
       'low-iterations',
       defaultsTo: '$defaultLowIterations',
@@ -162,6 +171,7 @@ Future<void> main(List<String> args) async {
         outPath: command.option('out'),
         reportPath: command.option('report'),
         only: command.multiOption('bench'),
+        threshold: parseThreshold(command.option('threshold')!),
         lowIterations: low,
         highIterations: high,
         timeout: Duration(minutes: minutes),

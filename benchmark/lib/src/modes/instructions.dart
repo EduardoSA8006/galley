@@ -51,6 +51,17 @@ const Duration defaultRunTimeout = Duration(minutes: 10);
 /// Limite do gate: regressão acima de 0,5% reprova.
 const double defaultThreshold = 0.005;
 
+/// Lê o limite de regressão de [text] (fração em (0, 1], p.ex. `0.10`).
+///
+/// Lança [FormatException] se não for número ou estiver fora do intervalo.
+double parseThreshold(String text) {
+  final v = double.tryParse(text);
+  if (v == null || !v.isFinite || v <= 0 || v > 1) {
+    throw FormatException('threshold deve ser uma fração em (0, 1]: "$text"');
+  }
+  return v;
+}
+
 /// O contador pedido não está disponível nesta máquina.
 final class CounterUnavailable implements Exception {
   /// Cria o erro com uma [message] que diz como corrigir.
@@ -617,7 +628,8 @@ const int exitInstructionsFailure = exitMeasurementFailure;
 /// em AOT; os benchmarks rodam intercalados (base, head) por benchmark. Os
 /// ids `harness/*` ficam fora. [only], se não vazio, restringe aos ids
 /// dados. Escreve o BMF em [outPath] e o relatório em [reportPath] (quando
-/// dados). Cada execução sob o contador tem o limite [timeout]. Devolve o
+/// dados). [threshold] é a regressão que reprova (padrão 0,5%). Cada
+/// execução sob o contador tem o limite [timeout]. Devolve o
 /// código de saída: 0 aprovado, 1 regressão, 2 checksums
 /// divergentes, [exitCounterUnavailable] ou [exitInstructionsFailure].
 Future<int> runInstructions({
@@ -627,6 +639,7 @@ Future<int> runInstructions({
   String? outPath,
   String? reportPath,
   List<String> only = const [],
+  double threshold = defaultThreshold,
   int lowIterations = defaultLowIterations,
   int highIterations = defaultHighIterations,
   Duration timeout = defaultRunTimeout,
@@ -674,7 +687,12 @@ Future<int> runInstructions({
         }
       }
 
-      final result = evaluateGate(base: base, head: head, notes: v.notes);
+      final result = evaluateGate(
+        base: base,
+        head: head,
+        notes: v.notes,
+        threshold: threshold,
+      );
       final report = renderReport(result, counter: counter);
       if (outPath != null) {
         await File(outPath).writeAsString(

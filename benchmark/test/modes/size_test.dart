@@ -59,7 +59,7 @@ void main() {
           testbed: 'github-ubuntu-nightly',
           bmf: File('out.json'),
           branch: 'baseline',
-          startPoint: 'd4ef38a',
+          startPoint: 'main',
         ),
         [
           'bencher',
@@ -75,7 +75,7 @@ void main() {
           '--branch',
           'baseline',
           '--start-point',
-          'd4ef38a',
+          'main',
         ],
       );
     });
