@@ -8,16 +8,22 @@ on:
 jobs:
   analyze-test:
     runs-on: ubuntu-latest
+    name: analyze-test (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
-        flutter-version: ['3.47.5', 'stable']
+        include:
+          # Versão mínima suportada (pubspec: flutter >=3.47.0).
+          - name: '3.47.5'
+            flutter-version: '3.47.5'
+          # Última estável: sem flutter-version, a action instala a mais recente do canal.
+          - name: stable
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ matrix.flutter-version == 'stable' && '' || matrix.flutter-version }}
-          channel: ${{ matrix.flutter-version == 'stable' && 'stable' || '' }}
+          flutter-version: ${{ matrix.flutter-version }}
+          channel: stable
           cache: true
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed .
