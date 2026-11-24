@@ -403,38 +403,47 @@ Fluxo de abertura: `ZipArchive.open` (bytes não-zip → `NotAnEpubException`) �
 
 ---
 
-### Task 12: Sonda de medição de texto com dart:ui em isolate + matriz no CI
+### Task 12: App de exemplo, canário do dart:ui em isolate, medição fatiada e matriz no CI
+
+> Reescrita em 2026-11-24: a sonda antecipada mostrou que `dart:ui` não funciona fora do isolate raiz; o usuário escolheu o plano B (layout fatiado no isolate raiz). Ver §7 do design geral.
 
 **Files:**
-- Create: `example/` (via `flutter create --platforms=android,ios,linux,macos,windows --project-name galley_example example`, app mínimo que abre um EPUB embutido em assets e mostra título e número de capítulos — também satisfaz o requisito de exemplo do pub.dev), `example/integration_test/text_measure_isolate_test.dart`; Modify: `.github/workflows/ci.yml`, `docs/superpowers/specs/2026-11-24-galley-arquitetura-design.md` (registrar resultado)
+- Create: `example/` (via `flutter create --platforms=android,ios,linux,macos,windows --project-name galley_example example`; app mínimo que abre um EPUB embutido em assets e mostra título e número de capítulos — também satisfaz o requisito de exemplo do pub.dev; o EPUB do asset é gerado por um script Dart em `example/tool/make_sample_epub.dart` e versionado, pois é pequeno e de autoria própria), `example/integration_test/dart_ui_isolate_canary_test.dart`, `example/integration_test/root_layout_budget_test.dart`; Modify: `.github/workflows/ci.yml`
 
 **Interfaces:**
-- Consumes: nada da lib além de `EpubBook` no app de exemplo.
+- Consumes: `EpubBook` (só no app de exemplo).
 
-- [ ] **Step 1: Escrever o teste de integração**
+- [ ] **Step 1: Teste-canário (falha quando o Flutter corrigir #30604)**
 
 ```dart
-// Mede o mesmo parágrafo na thread principal e em Isolate.run e compara.
-Map<String, Object> measure() {
-  final b = ui.ParagraphBuilder(ui.ParagraphStyle(fontSize: 16))
-    ..addText('Galley ação — 漢字かな — עברית mixed bidi ' * 20);
-  final p = b.build()..layout(const ui.ParagraphConstraints(width: 300));
-  return {'height': p.height, 'longest': p.longestLine, 'lines': p.computeLineMetrics().length};
-}
-testWidgets('dart:ui mede texto em isolate de fundo igual à thread principal', (t) async {
-  final main = measure();
-  final bg = await Isolate.run(measure);
-  expect(bg, main);
-  expect(main['lines'] as int, greaterThan(1));
+// measure(): ParagraphBuilder(ParagraphStyle(fontSize: 16)), texto 'Galley ação — 漢字かな — עברית mixed bidi ' * 20,
+// layout(width: 300); devolve {height, longestLine, lines}.
+testWidgets('dart:ui ainda NÃO funciona em isolate de fundo (canário flutter/flutter#30604)', (t) async {
+  Object? error;
+  try { await Isolate.run(measure); } catch (e) { error = e; }
+  expect(error, isNotNull, reason:
+    'O Flutter passou a permitir dart:ui em isolates de fundo. Pendência do plano B: '
+    'reescrever a etapa de layout para rodar em isolate (ver design geral §7 e flutter/flutter#30604).');
+  expect(error.toString(), contains('root isolate'));
 });
 ```
 
-- [ ] **Step 2:** Rodar localmente: `cd example && flutter test integration_test -d linux` (com `xvfb-run` se não houver display). Registrar o resultado (PASS, ou a exceção exata).
-- [ ] **Step 3:** Adicionar job `probe` em `ci.yml` com matriz: `linux` (`ubuntu-latest`, instalar `ninja-build libgtk-3-dev`, `xvfb-run flutter test integration_test -d linux`), `macos` (`macos-latest`, `-d macos`), `windows` (`windows-latest`, `-d windows`), `android` (`ubuntu-latest` + `reactivecircus/android-emulator-runner@v2`, API 34, `flutter test integration_test`), `ios` (`macos-latest`, `xcrun simctl boot` de um iPhone disponível e `-d <udid>`). `fail-fast: false`. O job não usa `continue-on-error`: falha é um sinal que precisa ser visto.
-- [ ] **Step 4:** Registrar no documento pai (§7) uma linha "Resultado da sonda (data): …" com o resultado local; resultados das outras plataformas são acrescentados quando o CI rodar no GitHub. **Se a sonda falhar localmente, parar e reportar ao usuário** — isso aciona a decisão do plano B, que não é do implementador.
-- [ ] **Step 5: Commit** `test(probe): sonda de medição de texto dart:ui em isolate e matriz de plataformas no CI`
+- [ ] **Step 2: Teste de orçamento da medição fatiada no isolate raiz**
 
----
+```dart
+// 400 parágrafos variados (latino, CJK, RTL, tamanhos 12–24, larguras 200–400) medidos em lotes:
+// cada lote mede parágrafos até gastar 4 ms (Stopwatch) e então cede (await Future<void>.delayed(Duration.zero)).
+testWidgets('layout fatiado respeita o orçamento por lote', (t) async {
+  final r = await measureSliced(paragraphs, budget: const Duration(milliseconds: 4));
+  expect(r.measured, 400);
+  expect(r.maxBatch, lessThan(const Duration(milliseconds: 8))); // 1 parágrafo pode estourar o orçamento, nunca 2×
+  // registra (print) média por parágrafo e total, para acompanhamento — sem limite rígido de tempo total
+});
+```
+
+- [ ] **Step 3:** Rodar localmente: `cd example && xvfb-run -a flutter test integration_test -d linux`. Ambos devem passar; registrar a média por parágrafo no relatório.
+- [ ] **Step 4:** Adicionar job `integration` em `ci.yml` com matriz: `linux` (`ubuntu-latest`, instalar `ninja-build libgtk-3-dev`, `xvfb-run -a flutter test integration_test -d linux`), `macos` (`macos-latest`, `-d macos`), `windows` (`windows-latest`, `-d windows`), `android` (`ubuntu-latest` + `reactivecircus/android-emulator-runner@v2`, API 34, `flutter test integration_test`), `ios` (`macos-latest`, `xcrun simctl boot` de um iPhone disponível e `-d <udid>`). `fail-fast: false`; `working-directory: example`. O job `analyze-test` passa a rodar também `flutter analyze` em `example/`.
+- [ ] **Step 5: Commit** `test(example): app de exemplo, canário de dart:ui em isolate e orçamento do layout fatiado`
 
 ## Notas de execução
 
