@@ -22,4 +22,16 @@ abstract final class DiagnosticCodes {
   /// todos são devolvidos em ordem (info).
   static const String containerMultipleRenditions =
       'container.multipleRenditions';
+
+  /// Atributo `version` do `<package>` ausente ou inválido; versão deduzida
+  /// pela presença do item `nav` (warning).
+  static const String opfVersionInvalid = 'opf.versionInvalid';
+
+  /// Nenhum `dc:identifier` corresponde a `unique-identifier`; vale o
+  /// primeiro identificador (warning).
+  static const String opfUniqueIdentifierMissing =
+      'opf.uniqueIdentifierMissing';
+
+  /// OPF sem `dc:title` (warning).
+  static const String opfTitleMissing = 'opf.titleMissing';
 }
