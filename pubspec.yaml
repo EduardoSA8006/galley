@@ -1,7 +1,7 @@
 name: galley
 description: Leitor de EPUB nativo em Dart/Flutter, sem WebView.
 version: 0.0.1
-repository:
+repository: https://github.com/EduardoSA8006/galley
 
 environment:
   sdk: ">=3.13.0 <4.0.0"
