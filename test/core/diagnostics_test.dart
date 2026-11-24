@@ -16,6 +16,19 @@ void main() {
     expect(() => (sink.diagnostics as List).add(d), throwsUnsupportedError);
   });
 
+  test('CollectingDiagnosticSink.diagnostics é uma visão em cache', () {
+    final sink = CollectingDiagnosticSink();
+    final view = sink.diagnostics;
+    expect(identical(view, sink.diagnostics), isTrue);
+    const d = Diagnostic(
+      severity: DiagnosticSeverity.info,
+      code: 'a',
+      message: 'b',
+    );
+    sink.report(d);
+    expect(view, [d]);
+  });
+
   test('Diagnostic tem igualdade por valor', () {
     const a = Diagnostic(
       severity: DiagnosticSeverity.info,

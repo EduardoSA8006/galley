@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'diagnostic.dart';
 
@@ -11,11 +12,13 @@ abstract interface class DiagnosticSink {
 /// [DiagnosticSink] que acumula os diagnósticos e os emite em um stream.
 final class CollectingDiagnosticSink implements DiagnosticSink {
   final List<Diagnostic> _diagnostics = [];
+  late final List<Diagnostic> _view = UnmodifiableListView(_diagnostics);
   final StreamController<Diagnostic> _controller =
       StreamController<Diagnostic>.broadcast(sync: true);
 
-  /// Diagnósticos acumulados até o momento (visão não modificável).
-  List<Diagnostic> get diagnostics => List.unmodifiable(_diagnostics);
+  /// Diagnósticos acumulados (visão viva e não modificável, sempre a mesma
+  /// instância; reflete os diagnósticos reportados depois da leitura).
+  List<Diagnostic> get diagnostics => _view;
 
   /// Stream broadcast dos diagnósticos reportados após a assinatura.
   Stream<Diagnostic> get stream => _controller.stream;

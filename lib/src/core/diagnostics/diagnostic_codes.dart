@@ -66,4 +66,32 @@ abstract final class DiagnosticCodes {
   /// `encryption.xml` malformado ou entrada sem `Algorithm`/`URI`; entrada
   /// ignorada (warning).
   static const String encryptionInvalid = 'encryption.invalid';
+
+  /// Arquivo `mimetype` ausente no zip (warning).
+  static const String mimetypeMissing = 'container.mimetypeMissing';
+
+  /// Conteúdo de `mimetype` (aparado) diferente de `application/epub+zip`
+  /// (warning).
+  static const String mimetypeInvalid = 'container.mimetypeInvalid';
+
+  /// `mimetype` não é a primeira entrada do zip (info).
+  static const String mimetypeNotFirst = 'container.mimetypeNotFirst';
+
+  /// `META-INF/container.xml` ausente, sem rootfile ou apontando para um
+  /// arquivo inexistente; usado o primeiro `.opf` do zip (warning).
+  static const String containerMissing = 'container.containerMissing';
+
+  /// Recurso encontrado só ignorando a caixa do caminho (warning).
+  static const String resourceCaseMismatch = 'resource.caseMismatch';
+
+  /// Fonte ofuscada que não pôde ser desofuscada; bytes crus devolvidos
+  /// (error).
+  static const String fontDeobfuscationFailed = 'font.deobfuscationFailed';
+
+  /// Documento de navegação EPUB 3 ausente ou inválido; sumário lido do NCX
+  /// (info).
+  static const String navFallbackToNcx = 'nav.fallbackToNcx';
+
+  /// Nenhuma navegação utilizável; navegação vazia (warning).
+  static const String navMissing = 'nav.missing';
 }
