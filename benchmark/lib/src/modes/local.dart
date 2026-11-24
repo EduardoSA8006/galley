@@ -62,7 +62,7 @@ final class LocalResult {
   /// Mediana do tempo de abertura + leitura do spine, em ns.
   final double? wallNs;
 
-  /// Maior `maxRss` entre as execuções, em bytes.
+  /// Maior pico de RSS (`VmHWM`) entre as execuções, em bytes.
   final double? peakRss;
 
   /// Instruções (`instructions:u`) de uma execução sob `perf`.

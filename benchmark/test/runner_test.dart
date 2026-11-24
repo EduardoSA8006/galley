@@ -8,6 +8,23 @@ Future<ProcessResult> _run(List<String> args) => Process.run(
   ['run', 'bin/bench_runner.dart', ...args],
 );
 
+/// Compila o `bench_runner` em AOT dentro de [dir] e devolve o caminho.
+Future<String> _compile(Directory dir) async {
+  final exe = '${dir.path}/runner';
+  final c = await Process.run(Platform.resolvedExecutable, [
+    'compile',
+    'exe',
+    'bin/bench_runner.dart',
+    '-o',
+    exe,
+  ]);
+  expect(c.exitCode, 0, reason: '${c.stderr}');
+  return exe;
+}
+
+int _rss(String out) =>
+    int.parse(RegExp(r'^rss=(\d+)$', multiLine: true).firstMatch(out)![1]!);
+
 void main() {
   test('harness/noop imprime checksum=0 e sai com 0', () async {
     final r = await _run(['--bench', 'harness/noop', '--iterations', '3']);
@@ -67,16 +84,49 @@ void main() {
       targetBytes: 200 * 1024,
       chapters: 3,
     );
-    final r = await _run(['--measure-open', book.path]);
+    final exe = await _compile(dir);
+    final r = await Process.run(exe, ['--measure-open', book.path]);
     expect(r.exitCode, 0, reason: '${r.stderr}');
     final out = r.stdout as String;
     expect(out, matches(RegExp(r'^ns=\d+$', multiLine: true)));
-    expect(out, matches(RegExp(r'^rss=[1-9]\d+$', multiLine: true)));
     expect(out, matches(RegExp(r'^checksum=\d+$', multiLine: true)));
-  });
+    // Pequeno: o pico do pai (o processo de teste, em JIT) não pode vazar.
+    expect(_rss(out), inExclusiveRange(0, 100 * 1024 * 1024));
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   test('--measure-open com arquivo inexistente sai com 70', () async {
     final r = await _run(['--measure-open', '/nao/existe.epub']);
     expect(r.exitCode, 70);
   });
+
+  test('rss= não herda o pico de um pai grande', () async {
+    final dir = Directory.systemTemp.createTempSync('galley-parent-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final book = await writeSyntheticBook(
+      '${dir.path}/livro.epub',
+      targetBytes: 200 * 1024,
+      chapters: 3,
+    );
+    final exe = await _compile(dir);
+    // Pai de ~400 MB de RSS: toca as páginas, depois libera e lança o runner.
+    final r = await Process.run('python3', [
+      '-c',
+      'import subprocess,sys\n'
+          'b=bytearray(400*1024*1024)\n'
+          'for i in range(0,len(b),4096): b[i]=1\n'
+          'del b\n'
+          'sys.stdout.write(subprocess.run([sys.argv[1],"--measure-open",'
+          'sys.argv[2]],capture_output=True,text=True).stdout)',
+      exe,
+      book.path,
+    ]);
+    expect(r.exitCode, 0, reason: '${r.stderr}');
+    final rss = int.parse(
+      RegExp(
+        r'^rss=(\d+)$',
+        multiLine: true,
+      ).firstMatch(r.stdout as String)![1]!,
+    );
+    expect(rss, lessThan(100 * 1024 * 1024));
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }

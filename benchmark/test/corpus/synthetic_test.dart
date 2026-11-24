@@ -59,7 +59,7 @@ void main() {
   test(
     'streaming: pico de RSS cresce menos de 64 MiB (livro de 100 MiB)',
     () async {
-      // Mede num subprocesso dedicado: o maxRss do processo de teste é
+      // Mede num subprocesso dedicado: o pico do processo de teste é
       // compartilhado com as outras suítes que rodam em paralelo.
       final out = '${tmp.path}/big.epub';
       final r = await Process.run(Platform.resolvedExecutable, [

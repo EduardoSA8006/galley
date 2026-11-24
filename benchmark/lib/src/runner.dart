@@ -1,8 +1,7 @@
-import 'dart:io';
-
 import 'package:galley/galley.dart';
 
 import 'bench.dart';
+import 'peak_rss.dart';
 
 /// Código de saída quando o benchmark lança uma exceção.
 const int exitBenchFailure = 70;
@@ -63,7 +62,7 @@ Future<int> runBench(
 
 /// Abre o EPUB em [path] com `EpubBook.open`, lê todos os recursos do spine e
 /// escreve em [stdoutSink] `ns=<nanossegundos de abertura + leitura>`,
-/// `rss=<ProcessInfo.maxRss no fim>` e `checksum=<int>`.
+/// `rss=<pico de RSS no fim, de peakRssBytes>` e `checksum=<int>`.
 ///
 /// Uma falha vira uma mensagem em [stderrSink] e [exitBenchFailure]. A
 /// mensagem pode citar o caminho do arquivo; quem chama com livros privados
@@ -96,7 +95,7 @@ Future<int> measureOpen(
   final ns = (clock.elapsedTicks * 1e9 / clock.frequency).round();
   stdoutSink
     ..writeln('ns=$ns')
-    ..writeln('rss=${ProcessInfo.maxRss}')
+    ..writeln('rss=${peakRssBytes()}')
     ..writeln('checksum=$checksum');
   return 0;
 }

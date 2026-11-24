@@ -8,7 +8,7 @@ import 'package:galley_benchmark/src/runner.dart';
 /// Executa um benchmark: `--bench <id> --iterations <n>`.
 ///
 /// Com `--measure-open <caminho>`, abre o EPUB, lê o spine e imprime `ns=`,
-/// `rss=` (`ProcessInfo.maxRss`) e `checksum=` (ver `measureOpen`).
+/// `rss=` (`VmHWM`, ver `peakRssBytes`) e `checksum=` (ver `measureOpen`).
 ///
 /// Imprime a linha `checksum=<int>`; com `--timing`, imprime antes a linha
 /// `ns=<int>` (tempo de relógio das iterações 2 a n, sem `setUp`). Com `--list`, imprime os
