@@ -38,6 +38,14 @@ void main() {
     expect(zip.entries.map((e) => e.name), ['a', 'b/c.txt', 'd']);
     expect(zip.entry('d')!.localHeaderOffset, greaterThan(0));
     expect(zip.entry('b/c.txt')!.uncompressedSize, 2);
+    final plain = await _open(_three().build());
+    for (final e in plain.entries) {
+      final z = zip.entry(e.name)!;
+      expect(z.compressedSize, e.compressedSize);
+      expect(z.uncompressedSize, e.uncompressedSize);
+      expect(z.localHeaderOffset, e.localHeaderOffset);
+      expect(z.crc32, e.crc32);
+    }
   });
 
   test('EOCD após comentário longo', () async {
@@ -117,5 +125,44 @@ void main() {
       _open(_three().build(), limits: const ZipLimits(maxEntries: 2)),
       throwsA(isA<ArchiveLimitExceededException>()),
     );
+  });
+
+  group('valores gigantes (uint64) viram CorruptArchiveException', () {
+    const huge = 0x7FFFFFFFFFFFFFF0;
+
+    // Offsets a partir do fim: EOCD (22), locator (20), EOCD64 (56).
+    ByteData patch(Uint8List b) => ByteData.sublistView(b);
+
+    test('offset do EOCD64', () {
+      final b = _three().build(zip64: true);
+      patch(b).setUint64(b.length - 22 - 20 + 8, huge, Endian.little);
+      expect(_open(b), throwsA(isA<CorruptArchiveException>()));
+    });
+
+    test('offset + tamanho do diretório central somam com overflow', () {
+      final b = _three().build(zip64: true);
+      final e64 = b.length - 22 - 20 - 56;
+      patch(b)
+        ..setUint64(e64 + 40, 1 << 62, Endian.little)
+        ..setUint64(e64 + 48, 1 << 62, Endian.little);
+      expect(_open(b), throwsA(isA<CorruptArchiveException>()));
+    });
+
+    test('tamanho negativo (>= 2^63) no extra ZIP64', () {
+      final b = _three().build(zip64: true);
+      final e64 = b.length - 22 - 20 - 56;
+      final cd = ByteData.sublistView(b).getUint64(e64 + 48, Endian.little);
+      // Extra começa após o cabeçalho (46) e o nome ('a' = 1 byte) + 4.
+      patch(b).setUint64(cd + 46 + 1 + 4, -1, Endian.little);
+      expect(_open(b), throwsA(isA<CorruptArchiveException>()));
+    });
+
+    test('offset do cabeçalho local além da fonte', () {
+      final b = _three().build(zip64: true);
+      final e64 = b.length - 22 - 20 - 56;
+      final cd = ByteData.sublistView(b).getUint64(e64 + 48, Endian.little);
+      patch(b).setUint64(cd + 46 + 1 + 4 + 16, huge, Endian.little);
+      expect(_open(b), throwsA(isA<CorruptArchiveException>()));
+    });
   });
 }

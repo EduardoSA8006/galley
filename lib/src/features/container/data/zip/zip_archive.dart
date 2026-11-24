@@ -107,7 +107,7 @@ Future<List<ZipEntry>> _readDirectory(
     final loc = ByteData.sublistView(await source.read(eocdAbs - 20, 20));
     if (loc.getUint32(0, Endian.little) == _locator64Sig) {
       final eocd64Offset = loc.getUint64(8, Endian.little);
-      if (eocd64Offset < 0 || eocd64Offset + 56 > eocdAbs) {
+      if (eocd64Offset < 0 || eocd64Offset > eocdAbs - 56) {
         throw _corrupt('EOCD64 fora dos limites');
       }
       final r = ByteData.sublistView(await source.read(eocd64Offset, 56));
@@ -125,15 +125,23 @@ Future<List<ZipEntry>> _readDirectory(
       'O zip declara $count entradas; o limite é ${limits.maxEntries}.',
     );
   }
-  if (cdSize < 0 || cdOffset < 0 || cdOffset + cdSize > eocdAbs) {
+  if (cdSize < 0 ||
+      cdOffset < 0 ||
+      cdOffset > eocdAbs ||
+      cdSize > eocdAbs - cdOffset) {
     throw _corrupt('diretório central fora dos limites');
   }
 
   final cd = await source.read(cdOffset, cdSize);
-  return _parseEntries(cd, count, sink);
+  return _parseEntries(cd, count, sink, total);
 }
 
-List<ZipEntry> _parseEntries(Uint8List cd, int count, DiagnosticSink sink) {
+List<ZipEntry> _parseEntries(
+  Uint8List cd,
+  int count,
+  DiagnosticSink sink,
+  int sourceLength,
+) {
   final view = ByteData.sublistView(cd);
   final entries = <ZipEntry>[];
   final seen = <String>{};
@@ -189,6 +197,13 @@ List<ZipEntry> _parseEntries(Uint8List cd, int count, DiagnosticSink sink) {
         e = body + size;
       }
       if (!found) throw _corrupt('extra ZIP64 ausente na entrada $n');
+    }
+
+    if (compressed < 0 || uncompressed < 0 || offset < 0) {
+      throw _corrupt('tamanho ou offset negativo na entrada $n');
+    }
+    if (offset >= sourceLength) {
+      throw _corrupt('offset do cabeçalho local fora da fonte na entrada $n');
     }
 
     final rawName = Uint8List.sublistView(cd, nameStart, extraStart);
