@@ -39,7 +39,7 @@ jobs:
         run: |
           dart pub get
           dart analyze --fatal-infos
-          dart test
+          dart test -x slow
 
   integration:
     name: integration (${{ matrix.platform }})

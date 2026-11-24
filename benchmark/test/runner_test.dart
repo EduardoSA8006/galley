@@ -19,4 +19,16 @@ void main() {
     expect(r.exitCode, 64);
     expect(r.stderr as String, contains('nao/existe'));
   });
+
+  test('--list imprime um id por linha', () async {
+    final r = await _run(['--list']);
+    expect(r.exitCode, 0, reason: '${r.stderr}');
+    final ids = (r.stdout as String).trim().split('\n');
+    expect(ids, containsAll(['harness/noop', 'container/crc32-1mib']));
+  });
+
+  test('sem --bench nem --list sai com 64', () async {
+    final r = await _run(['--iterations', '1']);
+    expect(r.exitCode, 64);
+  });
 }
