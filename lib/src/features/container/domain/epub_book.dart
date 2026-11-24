@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
+
 import '../../../core/diagnostics/diagnostic.dart';
 import '../../../core/diagnostics/diagnostic_codes.dart';
 import '../../../core/diagnostics/diagnostic_sink.dart';
@@ -82,6 +84,14 @@ final class EpubBook {
     DiagnosticSink? diagnostics,
     ZipLimits limits = const ZipLimits(),
   }) => _openSource(MemoryByteSource(bytes), diagnostics, limits);
+
+  /// Abre o EPUB sobre uma [ByteSource] arbitrária (injeção em testes).
+  @visibleForTesting
+  static Future<EpubBook> fromSource(
+    ByteSource source, {
+    DiagnosticSink? diagnostics,
+    ZipLimits limits = const ZipLimits(),
+  }) => _openSource(source, diagnostics, limits);
 
   static Future<EpubBook> _openSource(
     ByteSource source,
@@ -192,8 +202,11 @@ final class EpubBook {
       final algorithm = _obfuscated[entry.name] ?? _obfuscated[path];
       return algorithm == null ? bytes : _deobfuscate(bytes, algorithm, path);
     } on GalleyException {
+      // Fechado durante a leitura: não é corrupção.
+      if (_closed) throw const BookClosedException();
       rethrow;
     } catch (e) {
+      if (_closed) throw const BookClosedException();
       throw CorruptArchiveException('Falha ao ler "$path": $e');
     }
   }
@@ -204,10 +217,19 @@ final class EpubBook {
 
   /// Fecha o livro e o arquivo subjacente. Chamadas repetidas são
   /// inofensivas.
+  ///
+  /// O livro fica fechado mesmo se a liberação do arquivo falhar; nesse caso
+  /// lança [CorruptArchiveException].
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    await _archive.close();
+    try {
+      await _archive.close();
+    } on GalleyException {
+      rethrow;
+    } catch (e) {
+      throw CorruptArchiveException('Falha ao fechar o arquivo: $e');
+    }
   }
 
   Uint8List _deobfuscate(Uint8List bytes, String algorithm, String path) {
@@ -298,7 +320,22 @@ Future<void> _checkMimetype(ZipArchive archive, DiagnosticSink sink) async {
       ),
     );
   }
-  final content = latin1.decode(await archive.read(entry)).trim();
+  final String content;
+  try {
+    content = latin1.decode(await archive.read(entry)).trim();
+  } on DrmProtectedException {
+    rethrow;
+  } on GalleyException catch (e) {
+    sink.report(
+      Diagnostic(
+        severity: DiagnosticSeverity.warning,
+        code: DiagnosticCodes.mimetypeInvalid,
+        message: 'Não foi possível ler o mimetype: $e',
+        location: 'mimetype',
+      ),
+    );
+    return;
+  }
   if (content != _mimetype) {
     sink.report(
       Diagnostic(

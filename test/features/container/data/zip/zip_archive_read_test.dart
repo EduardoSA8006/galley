@@ -300,6 +300,36 @@ void main() {
       await expectLater(zip.read(e), throwsA(isA<BookClosedException>()));
     });
 
+    test(
+      'stored com compressedSize != uncompressedSize recusa sem ler dados',
+      () async {
+        final bytes = (ZipBuilder()..addFile('a', _text, deflate: false))
+            .build();
+        _patch32(bytes, 0, 20, _text.length + 7);
+        final spy = _SpySource(MemoryByteSource(bytes));
+        final zip = await _open(spy);
+        final reads = spy.reads;
+        await expectLater(
+          zip.read(zip.entries.first),
+          throwsA(isA<CorruptArchiveException>()),
+        );
+        expect(spy.reads, reads);
+      },
+    );
+
+    test('compressedSize acima de maxEntrySize recusa antes de ler', () async {
+      final bytes = (ZipBuilder()..addFile('a', _text)).build();
+      _patch32(bytes, 0, 20, 5000);
+      final zip = await _open(
+        MemoryByteSource(bytes),
+        limits: const ZipLimits(maxEntrySize: 4000),
+      );
+      await expectLater(
+        zip.read(zip.entries.first),
+        throwsA(isA<ArchiveLimitExceededException>()),
+      );
+    });
+
     test('close é idempotente e fecha a fonte uma única vez', () async {
       var closes = 0;
       final source = _CountingClose(

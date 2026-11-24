@@ -114,6 +114,15 @@ final class ZipArchive {
   }
 
   void _checkLimits(ZipEntry entry) {
+    if (entry.method == 0 && entry.compressedSize != entry.uncompressedSize) {
+      throw _corrupt('tamanhos de "${entry.name}" divergem no método stored');
+    }
+    if (entry.compressedSize > limits.maxEntrySize) {
+      throw ArchiveLimitExceededException(
+        'A entrada "${entry.name}" tem ${entry.compressedSize} bytes '
+        'comprimidos; o limite é ${limits.maxEntrySize}.',
+      );
+    }
     final size = entry.uncompressedSize;
     if (size > limits.maxEntrySize) {
       throw ArchiveLimitExceededException(

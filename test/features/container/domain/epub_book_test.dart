@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:galley/galley.dart';
 import 'package:galley/src/features/container/data/crypto/sha1.dart';
+import 'package:galley/src/features/container/data/zip/byte_source.dart';
 
 import '../../../support/epub_builder.dart';
 
@@ -543,4 +544,89 @@ void main() {
       },
     );
   });
+
+  group('close e leituras concorrentes', () {
+    test(
+      'close que falha com FileSystemException vira '
+      'CorruptArchiveException; livro fica fechado e close é idempotente',
+      () async {
+        final source = _FlakySource(MemoryByteSource(_fullEpub3()))
+          ..closeFails = true;
+        final book = await EpubBook.fromSource(source);
+        await expectLater(
+          book.close(),
+          throwsA(isA<CorruptArchiveException>()),
+        );
+        await book.close();
+        expect(source.closeCalls, 1);
+        await expectLater(
+          book.resource(_chapter1Name),
+          throwsA(isA<BookClosedException>()),
+        );
+      },
+    );
+
+    test('resource em andamento durante close → BookClosedException', () async {
+      final source = _FlakySource(MemoryByteSource(_fullEpub3()));
+      final book = await EpubBook.fromSource(source);
+      final results = <Future<Object?>>[
+        for (var i = 0; i < 8; i++) book.resource(_chapter1Name),
+        book.resourceText(_chapter1Name),
+      ].map((f) => f.then<Object?>((v) => v, onError: (Object e) => e));
+      final closing = book.close();
+      final outcomes = await Future.wait(results);
+      await closing;
+      expect(outcomes, isNotEmpty);
+      for (final o in outcomes) {
+        expect(
+          o is Uint8List || o is String || o is BookClosedException,
+          true,
+          reason: 'recebeu $o',
+        );
+      }
+      expect(outcomes.whereType<BookClosedException>(), isNotEmpty);
+    });
+  });
+
+  test(
+    'mimetype com cabeçalho local ilegível → diagnóstico, abre mesmo assim',
+    () async {
+      final bytes = _minimal();
+      // mimetype é a primeira entrada: zera a assinatura do cabeçalho local.
+      ByteData.sublistView(bytes).setUint32(0, 0, Endian.little);
+      final book = await EpubBook.fromBytes(bytes);
+      final d = _diag(book, DiagnosticCodes.mimetypeInvalid);
+      expect(d.severity, DiagnosticSeverity.warning);
+      expect(d.message, contains('ler'));
+      expect(book.spine.items, hasLength(1));
+      await book.close();
+    },
+  );
+}
+
+/// Fonte que lê de forma assíncrona e falha após fechada (como um arquivo).
+class _FlakySource implements ByteSource {
+  _FlakySource(this.inner);
+
+  final ByteSource inner;
+  bool closeFails = false;
+  bool closed = false;
+  int closeCalls = 0;
+
+  @override
+  int get length => inner.length;
+
+  @override
+  Future<Uint8List> read(int offset, int length) async {
+    await Future<void>.delayed(Duration.zero);
+    if (closed) throw const FileSystemException('arquivo fechado');
+    return inner.read(offset, length);
+  }
+
+  @override
+  Future<void> close() async {
+    closeCalls++;
+    closed = true;
+    if (closeFails) throw const FileSystemException('falha no close');
+  }
 }
