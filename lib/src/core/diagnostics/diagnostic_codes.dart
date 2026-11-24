@@ -62,4 +62,8 @@ abstract final class DiagnosticCodes {
   /// Navegação aninhada além do limite de profundidade; ramo truncado
   /// (warning).
   static const String navTooDeep = 'nav.tooDeep';
+
+  /// `encryption.xml` malformado ou entrada sem `Algorithm`/`URI`; entrada
+  /// ignorada (warning).
+  static const String encryptionInvalid = 'encryption.invalid';
 }
