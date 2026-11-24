@@ -14,4 +14,12 @@ abstract final class DiagnosticCodes {
   /// CRC-32 do conteúdo diverge do diretório central; bytes devolvidos
   /// mesmo assim (error).
   static const String zipCrcMismatch = 'zip.crcMismatch';
+
+  /// `META-INF/container.xml` malformado; nenhum rootfile lido (error).
+  static const String containerXmlInvalid = 'container.xmlInvalid';
+
+  /// `container.xml` declara mais de um rootfile (múltiplas renditions);
+  /// todos são devolvidos em ordem (info).
+  static const String containerMultipleRenditions =
+      'container.multipleRenditions';
 }
