@@ -51,4 +51,15 @@ abstract final class DiagnosticCodes {
 
   /// Spine sem nenhum item legível (error, não fatal).
   static const String opfSpineEmpty = 'opf.spineEmpty';
+
+  /// Documento de navegação (`nav.xhtml`) malformado; navegação ignorada
+  /// (warning).
+  static const String navInvalid = 'nav.invalid';
+
+  /// NCX malformado; navegação ignorada (warning).
+  static const String ncxInvalid = 'ncx.invalid';
+
+  /// Navegação aninhada além do limite de profundidade; ramo truncado
+  /// (warning).
+  static const String navTooDeep = 'nav.tooDeep';
 }
