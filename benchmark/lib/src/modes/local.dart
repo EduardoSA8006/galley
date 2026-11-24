@@ -17,7 +17,7 @@ import 'stats.dart';
 const int defaultLocalRuns = 9;
 
 /// Testbed do Bencher para as medições da máquina do mantenedor.
-const String localTestbed = 'local-dev';
+const String localTestbed = testbedLocal;
 
 /// Tempo máximo de cada execução do `bench_runner --measure-open`.
 const Duration defaultLocalTimeout = Duration(minutes: 10);
@@ -325,7 +325,7 @@ String renderLocalReport(
 /// o privado de `GALLEY_PRIVATE_CORPUS` em [environment], que só aparece
 /// anonimizado. Escreve o BMF em [outPath] e o relatório em [reportPath];
 /// [echoReport] também imprime o relatório. Com [upload], e sem falhas,
-/// chama [bencherRun] (stub até a Task 10). Devolve 0, ou
+/// chama [bencherRun] (sem `BENCHER_API_TOKEN` pula com aviso). Devolve 0, ou
 /// [exitMeasurementFailure] se algum livro falhou (os arquivos saem assim
 /// mesmo).
 Future<int> runLocal({
@@ -430,7 +430,13 @@ Future<int> runLocal({
 
     final failed = results.any((r) => !r.ok);
     if (upload && !failed && outPath != null) {
-      return bencherRun(bmfPath: outPath, testbed: localTestbed, log: logSink);
+      final outcome = await bencherRun(
+        testbed: localTestbed,
+        bmf: File(outPath),
+        environment: environment,
+      );
+      logSink.writeln(outcome.message);
+      return outcome.exitCode;
     }
     if (upload && outPath == null) {
       logSink.writeln('--upload exige --out');

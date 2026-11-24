@@ -60,7 +60,7 @@ O **Galley** é um pacote Flutter open source, publicado no pub.dev, que renderi
 - a suíte oficial `w3c/epub-tests` (EPUB 3.3; W3C Software and Document License), que também traz relatórios de resultado por leitor para comparação;
 - livros reais variados de domínio público ou licença livre (romances, técnicos, com tabelas, ilustrados, layout fixo, CJK vertical).
 
-*Privado (fora do repositório; só no runner privado):* livros com direitos autorais que o mantenedor possui, enviados ao runner privado para cobrir CSS de editora real e casos difíceis. Resultados agregados podem ser publicados; os arquivos nunca.
+*Privado (fora do repositório; só na máquina do mantenedor):* livros com direitos autorais que o mantenedor possui, indicados por `GALLEY_PRIVATE_CORPUS` e medidos pelo modo `local`, para cobrir CSS de editora real e casos difíceis. Só agregados ou identificadores anônimos (hash do conteúdo) saem da máquina; os arquivos e seus nomes, nunca.
 
 **Referência de compatibilidade:** Chromium headless renderizando o mesmo capítulo, paginado por CSS columns no mesmo tamanho de página (modo paginado) e em rolagem contínua (modo rolagem); a comparação é visual, capítulo a capítulo, com tolerância definida no subprojeto de benchmark. *(Chamada minha.)*
 
@@ -92,10 +92,16 @@ Cada concorrente é comparado nas plataformas que suporta. Pacotes abandonados (
 - **CSS exótico:** o que um navegador suporta e nós não é **documentado** (lista pública de suporte de CSS), não perseguido a qualquer custo.
 - **Eixo inalcançável:** se um eixo se provar inalcançável sem perder qualidade, ele é documentado como tal; não se tira qualidade do projeto para vencer benchmark.
 
-**Infraestrutura (decisão do usuário):**
-- **A cada PR**, nos runners hospedados do GitHub: `dart format`, `flutter analyze` sem avisos, testes unitários e de golden, compatibilidade visual no corpus público e **toda a bateria de benchmarks**. Como esses runners oscilam, a reprovação por regressão de desempenho usa métricas estáveis (alocações, trabalho de layout, tempo com várias repetições e margem estatística) contra o baseline da `main`. *(Forma de medir: chamada minha.)*
-- **Toda noite**, num **serviço alugado** de dispositivos/máquinas dedicadas: medições precisas (FPS/jank, memória real, tempos em dispositivo físico) e comparação completa com concorrentes. O serviço específico é escolhido no subprojeto de benchmark.
-- **Runner privado:** roda o corpus privado.
+**Infraestrutura (decisão do usuário; detalhada no SP2, `2026-11-24-galley-sp2-benchmark-design.md`):**
+- **A cada PR**, nos runners hospedados do GitHub: `dart format`, `flutter analyze` sem avisos, testes unitários e de golden, compatibilidade visual no corpus público e os gates de benchmark. Como esses runners oscilam, o gate não compara tempo cru com o histórico:
+  - **Instruções (gate principal):** a `main` (merge-base) e o PR são compilados e medidos no mesmo job, com o mesmo toolchain, contando instruções de CPU (Valgrind no CI, `perf` no local). Reprova se algum benchmark ficar mais de 0,5% acima da `main`.
+  - **A/B estatístico de tempo:** as duas versões em AOT no mesmo job, execuções intercaladas; reprova só com regressão de pelo menos 5% e IC de 95% (bootstrap da razão das medianas) inteiramente acima de 1,05.
+  - Os jobs `instructions` e `ab` são status obrigatórios da `main`. Os gates funcionam sem o Bencher.
+- **Bencher** guarda o histórico, os gráficos e a regressão gradual (reprova só o job noturno, com 10% de acúmulo sobre um baseline fixo atualizado pelo mantenedor) e comenta nos PRs. O envio é pulado sem `BENCHER_API_TOKEN`.
+- **Toda noite** (e em push na `main`), também nos runners hospedados: instruções, comparação com concorrentes, tamanho do APK e um A/B mais longo, para formar o histórico. A medição em dispositivos físicos (FPS/jank, memória real) fica para o SP6.
+- **Execução local no lugar do runner privado:** o modo `local`, na máquina do mantenedor, mede tempo absoluto, memória de pico, `perf` nativo, livros grandes e o corpus privado, e envia ao Bencher como `local-dev`.
+- **Máquina dedicada (adição futura):** uma VM com núcleos fixos ou um servidor de entrada entrará como testbed novo e assumirá o modo `local` de forma agendada, com o corpus privado. Não faz parte do SP2.
+- **Expansão permanente:** cada subprojeto acrescenta ao benchmark as métricas e comparações das etapas que criar (SP3: parsing de XHTML; SP4: cascata e seletores; SP5: paginação, repaginação e medição fatiada; SP6: FPS/jank, memória real, compatibilidade visual e leitores que renderizam; SP7: busca e CFI). O checklist vive em `benchmark/README.md`.
 
 ## 7. Arquitetura
 
@@ -161,7 +167,7 @@ Cada um passa por brainstorming → design → plano → implementação por sub
 - Abordagem B; Dart puro na 1.0; Rust apenas com evidência de benchmark.
 - Gate contra concorrentes a partir da 1.0; tamanho do app com teto próprio; CSS exótico e eixos inalcançáveis documentados, sem sacrificar qualidade.
 - Toda a bateria em cada PR nos runners do GitHub; serviço alugado para medições precisas noturnas.
-- Corpus público (livre + EPUBs escritos à mão) no repositório; corpus privado só no runner privado.
+- Corpus público (livre + EPUBs escritos à mão) no repositório; corpus privado só na máquina do mantenedor (modo `local`).
 - Escritas na 1.0: latino/cirílico/grego, CJK horizontal, RTL/bidi; vertical depois; hifenização pt/en/es/fr/de.
 
 ## 11. Chamadas minhas (para revisão)

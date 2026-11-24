@@ -4,3 +4,5 @@ analyzer:
   exclude:
     # Pacote satélite com dependências próprias (epubx); tem a sua análise.
     - competitors/**
+    # Apps Flutter do modo size (dependem do SDK do Flutter); análise própria.
+    - size/**

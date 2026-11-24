@@ -5,6 +5,7 @@ import 'package:galley_benchmark/src/modes/ab.dart';
 import 'package:galley_benchmark/src/modes/compare.dart';
 import 'package:galley_benchmark/src/modes/instructions.dart';
 import 'package:galley_benchmark/src/modes/local.dart';
+import 'package:galley_benchmark/src/modes/size.dart';
 
 /// Orquestrador dos benchmarks: `dart run tool/bench.dart <modo> [opções]`.
 ///
@@ -21,14 +22,19 @@ import 'package:galley_benchmark/src/modes/local.dart';
 /// - `local`: mede o checkout atual na máquina do mantenedor (tempo absoluto,
 ///   RSS de pico e instruções nativas com `perf`) em livros sintéticos de 50 e
 ///   300 MiB, no corpus público e no privado (`GALLEY_PRIVATE_CORPUS`,
-///   anonimizado). Aceita `--out`, `--report` e `--upload` (stub até a
-///   Task 10). Sai com 70 se algum livro falha.
+///   anonimizado). Aceita `--out`, `--report` e `--upload` (envia ao
+///   Bencher; sem `BENCHER_API_TOKEN` pula com aviso). Sai com 70 se algum livro falha.
 /// - `compare`: Galley contra `epubx`, `epub_plus` e `epub_pro` (abrir, ler o
 ///   spine inteiro, ler um recurso do livro de 50 MiB e RSS de pico) nos
 ///   livros escritos à mão, no sintético de 50 MiB e no corpus público.
 ///   Aceita `--out`, `--report` e `--runs` (padrão 5). Não reprova antes da
 ///   1.0: falha de parser vira `falhou` na tabela; sai com 70 só se a
 ///   preparação falha.
+///
+/// - `size`: compila os apps de `benchmark/size/` (release, split por ABI,
+///   arm64) com e sem o Galley e mede a diferença de bytes do APK. Aceita
+///   `--out` (BMF). Sai com 1 se passar de 2 MiB e com 70 se a compilação
+///   falha.
 ///
 /// Argumentos inválidos saem com 64.
 Future<void> main(List<String> args) async {
@@ -91,7 +97,10 @@ Future<void> main(List<String> args) async {
       defaultsTo: '$defaultCompareRuns',
       help: 'Execuções (processos) por célula para a mediana do tempo.',
     );
+  final size = ArgParser()
+    ..addOption('out', help: 'Arquivo BMF (JSON) de saída.');
   final parser = ArgParser()
+    ..addCommand('size', size)
     ..addCommand('compare', compare)
     ..addCommand('local', local)
     ..addCommand('instructions', instructions)
@@ -103,10 +112,12 @@ Future<void> main(List<String> args) async {
     final command = parsed.command;
     if (command == null) {
       throw const FormatException(
-        'informe o modo (instructions, ab, local ou compare)',
+        'informe o modo (instructions, ab, local, compare ou size)',
       );
     }
-    if (command.name == 'compare') {
+    if (command.name == 'size') {
+      code = await runSize(outPath: command.option('out'));
+    } else if (command.name == 'compare') {
       final runs = int.parse(command.option('runs')!);
       if (runs < 1) throw const FormatException('runs < 1');
       code = await runCompare(
@@ -157,10 +168,10 @@ Future<void> main(List<String> args) async {
       );
     }
   } on FormatException catch (e) {
-    await _invalidArgs(e.message, instructions, ab, local, compare);
+    await _invalidArgs(e.message, instructions, ab, local, compare, size);
   } on ArgumentError catch (e) {
     // Opção obrigatória ausente ou valor fora da lista permitida.
-    await _invalidArgs('${e.message}', instructions, ab, local, compare);
+    await _invalidArgs('${e.message}', instructions, ab, local, compare, size);
   }
   await stdout.flush();
   await stderr.flush();
@@ -174,11 +185,12 @@ Future<Never> _invalidArgs(
   ArgParser b,
   ArgParser c,
   ArgParser d,
+  ArgParser e,
 ) async {
   stderr.writeln(
     'Argumentos inválidos: $message\n'
-    'Uso: dart run tool/bench.dart <instructions|ab|local|compare> [opções]\n'
-    'instructions:\n${a.usage}\nab:\n${b.usage}\nlocal:\n${c.usage}\ncompare:\n${d.usage}',
+    'Uso: dart run tool/bench.dart <instructions|ab|local|compare|size> [opções]\n'
+    'instructions:\n${a.usage}\nab:\n${b.usage}\nlocal:\n${c.usage}\ncompare:\n${d.usage}\nsize:\n${e.usage}',
   );
   await stderr.flush();
   exit(64);

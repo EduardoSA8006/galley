@@ -202,7 +202,7 @@ void main() {
       expect(jsonDecode(r.bmf) as Map, isNot(contains('private/aggregate')));
     });
 
-    test('--upload chama o stub e sai com 0', () async {
+    test('--upload sem token pula com aviso e sai com 0', () async {
       final log = StringBuffer();
       final code = await runLocal(
         outPath: '${work.path}/up.json',
@@ -216,10 +216,7 @@ void main() {
         echoReport: false,
       );
       expect(code, 0, reason: '$log');
-      expect(
-        '$log',
-        contains('upload ao Bencher ainda não disponível (Task 10)'),
-      );
+      expect('$log', contains('BENCHER_API_TOKEN'));
     });
   });
 }

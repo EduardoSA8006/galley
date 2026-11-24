@@ -1,6 +1,9 @@
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
+  exclude:
+    # Apps do modo size do benchmark: cada um tem a sua análise (CI própria).
+    - benchmark/size/**
   language:
     strict-casts: true
     strict-inference: true
