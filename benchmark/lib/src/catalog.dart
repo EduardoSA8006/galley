@@ -1,4 +1,6 @@
 import 'bench.dart';
+import 'suites/container_macro.dart';
+import 'suites/container_micro.dart';
 
 /// Benchmark vazio, usado para descontar a partida do processo.
 final class NoopBench implements Bench {
@@ -23,7 +25,11 @@ final class Catalog {
   Catalog._();
 
   /// Todos os benchmarks registrados.
-  static List<Bench> all() => const <Bench>[NoopBench()];
+  static List<Bench> all() => <Bench>[
+    const NoopBench(),
+    ...containerMicroBenches(),
+    ...containerMacroBenches(),
+  ];
 
   /// Devolve o benchmark de [id]; lança [ArgumentError] se não existir.
   static Bench byId(String id) {

@@ -3,11 +3,13 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:galley_benchmark/src/bench.dart';
 import 'package:galley_benchmark/src/catalog.dart';
+import 'package:galley_benchmark/src/runner.dart';
 
 /// Executa um benchmark: `--bench <id> --iterations <n>`.
 ///
 /// Imprime exatamente uma linha `checksum=<int>`. Id desconhecido ou
-/// argumentos inválidos saem com código 64.
+/// argumentos inválidos saem com código 64; exceção em `setUp`/`run` sai com
+/// 70 (ver `runBench`).
 Future<void> main(List<String> args) async {
   final parser = ArgParser()
     ..addOption('bench', mandatory: true, help: 'Id do benchmark.')
@@ -30,14 +32,12 @@ Future<void> main(List<String> args) async {
     stderr.writeln('Benchmark desconhecido: $id');
     exit(64);
   }
-  await bench.setUp();
-  var checksum = 0;
-  try {
-    for (var i = 0; i < iterations; i++) {
-      checksum = bench.run();
-    }
-  } finally {
-    await bench.tearDown();
-  }
-  stdout.writeln('checksum=$checksum');
+  final code = await runBench(
+    bench,
+    iterations,
+    stdoutSink: stdout,
+    stderrSink: stderr,
+  );
+  await stdout.flush();
+  exit(code);
 }
