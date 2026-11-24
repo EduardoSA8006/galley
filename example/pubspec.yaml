@@ -1,0 +1,28 @@
+name: galley_example
+description: "Exemplo mínimo do Galley: abre um EPUB embutido e mostra título e capítulos."
+publish_to: 'none'
+version: 1.0.0+1
+
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  material_ui: ^1.11.1
+  galley:
+    path: ../
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/sample.epub
