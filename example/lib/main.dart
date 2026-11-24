@@ -29,7 +29,9 @@ class _BookInfoPageState extends State<_BookInfoPage> {
 
   Future<({String? title, int chapters})> _load() async {
     final data = await rootBundle.load('assets/sample.epub');
-    final book = await EpubBook.fromBytes(data.buffer.asUint8List());
+    final book = await EpubBook.fromBytes(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+    );
     try {
       return (title: book.metadata.title, chapters: book.spine.items.length);
     } finally {
