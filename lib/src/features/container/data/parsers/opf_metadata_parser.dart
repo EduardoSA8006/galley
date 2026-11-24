@@ -4,29 +4,7 @@ import '../../../../core/diagnostics/diagnostic.dart';
 import '../../../../core/diagnostics/diagnostic_codes.dart';
 import '../../../../core/diagnostics/diagnostic_sink.dart';
 import '../../domain/models/epub_metadata.dart';
-
-const String _dcNamespace = 'http://purl.org/dc/elements/1.1/';
-const String _opfNamespace = 'http://www.idpf.org/2007/opf';
-
-/// Elemento do OPF: namespace OPF ou, por leniência, sem namespace.
-bool _isOpf(XmlElement e, String local) {
-  if (e.name.local != local) return false;
-  final ns = e.name.namespaceUri;
-  return ns == null || ns.isEmpty || ns == _opfNamespace;
-}
-
-bool _isDc(XmlElement e, String local) =>
-    e.name.local == local && e.name.namespaceUri == _dcNamespace;
-
-/// Atributo de nome local [local], com namespace OPF ou sem prefixo.
-String? _opfAttr(XmlElement e, String local) {
-  for (final a in e.attributes) {
-    if (a.name.local != local) continue;
-    final ns = a.name.namespaceUri;
-    if (ns == null || ns.isEmpty || ns == _opfNamespace) return a.value;
-  }
-  return null;
-}
+import 'opf_xml.dart';
 
 String _normalize(String text) => text.trim().replaceAll(RegExp(r'\s+'), ' ');
 
@@ -47,7 +25,7 @@ EpubVersion parseEpubVersion(XmlElement package, DiagnosticSink sink) {
 
   final hasNav = package.descendantElements.any(
     (e) =>
-        _isOpf(e, 'item') &&
+        isOpfElement(e, 'item') &&
         (e.getAttribute('properties') ?? '')
             .split(RegExp(r'\s+'))
             .contains('nav'),
@@ -83,7 +61,7 @@ EpubMetadata parseOpfMetadata(
   final refinements = <String, Map<String, String>>{};
   final otherMeta = <String, String>{};
   String? modified;
-  for (final meta in children.where((e) => _isOpf(e, 'meta'))) {
+  for (final meta in children.where((e) => isOpfElement(e, 'meta'))) {
     final property = meta.getAttribute('property')?.trim();
     final refines = meta.getAttribute('refines')?.trim();
     final value = _textOrNull(meta);
@@ -118,12 +96,12 @@ EpubMetadata parseOpfMetadata(
     if (name == null) return null;
     return EpubContributor(
       name: name,
-      fileAs: refined(e, 'file-as') ?? _opfAttr(e, 'file-as'),
-      role: refined(e, 'role') ?? _opfAttr(e, 'role'),
+      fileAs: refined(e, 'file-as') ?? opfAttribute(e, 'file-as'),
+      role: refined(e, 'role') ?? opfAttribute(e, 'role'),
     );
   }
 
-  final titleElements = children.where((e) => _isDc(e, 'title')).toList();
+  final titleElements = children.where((e) => isDcElement(e, 'title')).toList();
   final titleEntries = <({String text, bool main, int? seq, int index})>[];
   for (var i = 0; i < titleElements.length; i++) {
     final e = titleElements[i];
@@ -159,7 +137,7 @@ EpubMetadata parseOpfMetadata(
 
   final identifiers = <EpubIdentifier>[];
   String? uniqueIdentifier;
-  for (final e in children.where((e) => _isDc(e, 'identifier'))) {
+  for (final e in children.where((e) => isDcElement(e, 'identifier'))) {
     final value = _textOrNull(e);
     if (value == null) continue;
     final id = e.getAttribute('id');
@@ -167,7 +145,7 @@ EpubMetadata parseOpfMetadata(
       EpubIdentifier(
         value: value,
         id: id,
-        scheme: _opfAttr(e, 'scheme') ?? refined(e, 'identifier-type'),
+        scheme: opfAttribute(e, 'scheme') ?? refined(e, 'identifier-type'),
       ),
     );
     if (uniqueIdentifier == null && id != null && id == uniqueIdentifierId) {
@@ -188,17 +166,18 @@ EpubMetadata parseOpfMetadata(
   }
 
   List<String> texts(String local) => [
-    for (final e in children.where((e) => _isDc(e, local))) ?_textOrNull(e),
+    for (final e in children.where((e) => isDcElement(e, local)))
+      ?_textOrNull(e),
   ];
 
   return EpubMetadata(
     titles: titles,
     creators: [
-      for (final e in children.where((e) => _isDc(e, 'creator')))
+      for (final e in children.where((e) => isDcElement(e, 'creator')))
         ?contributor(e),
     ],
     contributors: [
-      for (final e in children.where((e) => _isDc(e, 'contributor')))
+      for (final e in children.where((e) => isDcElement(e, 'contributor')))
         ?contributor(e),
     ],
     languages: texts('language'),

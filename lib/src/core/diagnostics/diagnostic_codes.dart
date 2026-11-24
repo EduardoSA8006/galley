@@ -34,4 +34,21 @@ abstract final class DiagnosticCodes {
 
   /// OPF sem `dc:title` (warning).
   static const String opfTitleMissing = 'opf.titleMissing';
+
+  /// Item do manifest sem `id`/`href`/`media-type` ou com `href` não
+  /// resolvível; ignorado (warning).
+  static const String opfManifestItemInvalid = 'opf.manifestItemInvalid';
+
+  /// `id` duplicado no manifest; vale o primeiro item (warning).
+  static const String opfDuplicateId = 'opf.duplicateId';
+
+  /// `itemref` do spine com `idref` inexistente no manifest; ignorado
+  /// (warning).
+  static const String opfSpineRefMissing = 'opf.spineRefMissing';
+
+  /// Valor desconhecido em `rendition:*`; vale o padrão (warning).
+  static const String opfRenditionValueInvalid = 'opf.renditionValueInvalid';
+
+  /// Spine sem nenhum item legível (error, não fatal).
+  static const String opfSpineEmpty = 'opf.spineEmpty';
 }
