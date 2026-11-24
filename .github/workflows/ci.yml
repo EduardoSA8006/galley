@@ -77,7 +77,8 @@ jobs:
         run: |
           rc=0
           for f in integration_test/*_test.dart; do
-            xvfb-run -a flutter test "$f" -d linux || rc=1
+            timeout -k 10 900 xvfb-run -a flutter test "$f" -d linux \
+              || { echo "::error::$f falhou ou excedeu 900s"; rc=1; }
           done
           exit $rc
 
@@ -85,9 +86,11 @@ jobs:
         if: matrix.platform == 'macos'
         shell: bash
         run: |
+          # macOS não tem `timeout` do GNU coreutils; perl com alarm faz o mesmo.
           rc=0
           for f in integration_test/*_test.dart; do
-            flutter test "$f" -d macos || rc=1
+            perl -e 'alarm shift; exec @ARGV' 900 flutter test "$f" -d macos \
+              || { echo "::error::$f falhou ou excedeu 900s"; rc=1; }
           done
           exit $rc
 
@@ -95,9 +98,11 @@ jobs:
         if: matrix.platform == 'windows'
         shell: bash
         run: |
+          # Git Bash do runner Windows traz o `timeout` do coreutils.
           rc=0
           for f in integration_test/*_test.dart; do
-            flutter test "$f" -d windows || rc=1
+            timeout -k 10 900 flutter test "$f" -d windows \
+              || { echo "::error::$f falhou ou excedeu 900s"; rc=1; }
           done
           exit $rc
 
@@ -117,7 +122,7 @@ jobs:
           working-directory: example
           disable-animations: true
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: bash -c 'rc=0; for f in integration_test/*_test.dart; do flutter test "$f" || rc=1; done; exit $rc'
+          script: bash -c 'rc=0; for f in integration_test/*_test.dart; do timeout -k 10 900 flutter test "$f" || { echo "::error::$f falhou ou excedeu 900s"; rc=1; }; done; exit $rc'
 
       - name: Testes de integração (ios)
         if: matrix.platform == 'ios'
@@ -132,10 +137,27 @@ jobs:
                       print(d['udid']); sys.exit(0)
           sys.exit(1)
           ")
-          xcrun simctl boot "$UDID"
-          xcrun simctl bootstatus "$UDID" -b
+          # O boot do simulador falha de forma intermitente (bootstatus termina
+          # com Status=4294967295). Tenta até 3 vezes, limpando o aparelho entre
+          # as tentativas; sem boot, o passo falha em vez de deixar o teste pendurado.
+          booted=0
+          for attempt in 1 2 3; do
+            echo "Boot do simulador, tentativa $attempt"
+            xcrun simctl shutdown "$UDID" 2>/dev/null || true
+            if [ "$attempt" -gt 1 ]; then xcrun simctl erase "$UDID"; fi
+            xcrun simctl boot "$UDID" || true
+            if perl -e 'alarm shift; exec @ARGV' 300 xcrun simctl bootstatus "$UDID" -b; then
+              booted=1
+              break
+            fi
+          done
+          if [ "$booted" -ne 1 ]; then
+            echo "::error::simulador não iniciou após 3 tentativas"
+            exit 1
+          fi
           rc=0
           for f in integration_test/*_test.dart; do
-            flutter test "$f" -d "$UDID" || rc=1
+            perl -e 'alarm shift; exec @ARGV' 900 flutter test "$f" -d "$UDID" \
+              || { echo "::error::$f falhou ou excedeu 900s"; rc=1; }
           done
           exit $rc
