@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -44,6 +45,9 @@ const String deterministicVmOptions =
     '--marker_tasks=1,--scavenger_tasks=1,'
     '--old_gen_growth_time_ratio=100,--random_seed=42';
 
+/// Tempo máximo de cada execução do `bench_runner` sob o contador.
+const Duration defaultRunTimeout = Duration(minutes: 10);
+
 /// Limite do gate: regressão acima de 0,5% reprova.
 const double defaultThreshold = 0.005;
 
@@ -61,6 +65,12 @@ final class CounterUnavailable implements Exception {
     : message =
           'instale perf (ex.: sudo apt-get install -y linux-tools-generic) '
           'ou use --counter valgrind';
+
+  /// O perf roda, mas a máquina (ou VM) não expõe o contador de instruções.
+  const CounterUnavailable.perfUnsupported()
+    : message =
+          'contador de instruções indisponível nesta máquina/VM; '
+          'use --counter valgrind';
 
   /// `perf` bloqueado pelo `kernel.perf_event_paranoid` de valor [paranoid].
   CounterUnavailable.perfBlocked(Object paranoid)
@@ -107,20 +117,37 @@ int parseCachegrindInstructions(String stderrText) {
 
 /// Lê a contagem de `perf stat -x, -e instructions:u`.
 ///
-/// Procura a linha CSV cujo terceiro campo é o evento `instructions`; lança
-/// [FormatException] se ela faltar ou se o perf não contou
-/// (`<not supported>`, `<not counted>`).
+/// Soma todas as linhas CSV cujo evento é de instruções: em CPUs híbridas o
+/// perf separa `cpu_core/instructions:u/` e `cpu_atom/instructions:u/`. Uma
+/// linha `<not counted>` (núcleo onde o processo não rodou) conta 0 se outra
+/// linha contou. Lança [FormatException] se nenhuma linha contou ou se
+/// alguma é `<not supported>`.
 int parsePerfInstructions(String stderrText) {
+  var total = 0;
+  var counted = false;
+  var seen = false;
   for (final line in const LineSplitter().convert(stderrText)) {
     final fields = line.split(',');
-    if (fields.length < 3 || !fields[2].startsWith('instructions')) continue;
-    final value = int.tryParse(fields[0].trim());
-    if (value == null) {
-      throw FormatException('perf não contou instruções: ${fields[0]}');
+    if (fields.length < 3 || !fields[2].contains('instructions')) continue;
+    seen = true;
+    final raw = fields[0].trim();
+    final value = int.tryParse(raw);
+    if (value != null) {
+      total += value;
+      counted = true;
+    } else if (raw != '<not counted>') {
+      throw FormatException('perf não contou instruções: $raw');
     }
-    return value;
   }
-  throw const FormatException('linha de instructions ausente na saída do perf');
+  if (!seen) {
+    throw const FormatException(
+      'linha de instructions ausente na saída do perf',
+    );
+  }
+  if (!counted) {
+    throw const FormatException('perf não contou instruções: <not counted>');
+  }
+  return total;
 }
 
 /// Uma execução do `bench_runner` sob o contador.
@@ -172,7 +199,9 @@ String _paranoid() {
 ///
 /// O processo herda o ambiente atual mais [environment] e
 /// [deterministicVmOptions], e roda em [workingDirectory] (o `benchmark/`
-/// do checkout, de onde o `bench_runner` acha o `corpus/`).
+/// do checkout, de onde o `bench_runner` acha o `corpus/`). Se passar de
+/// [timeout], o processo e os filhos são mortos e a execução falha com
+/// [MeasurementFailure].
 Future<CountedRun> runCounted(
   File exe,
   String benchId,
@@ -180,6 +209,7 @@ Future<CountedRun> runCounted(
   Counter counter, {
   Map<String, String>? environment,
   Directory? workingDirectory,
+  Duration timeout = defaultRunTimeout,
 }) async {
   final tool = counterExecutable(counter, environment: environment);
   final runner = [exe.path, '--bench', benchId, '--iterations', '$iterations'];
@@ -192,11 +222,13 @@ Future<CountedRun> runCounted(
     ],
     Counter.perf => ['stat', '-x,', '-e', 'instructions:u', '--', ...runner],
   };
-  final r = await Process.run(
+  final r = await _runWithTimeout(
     tool,
     args,
     environment: {...?environment, 'DART_VM_OPTIONS': deterministicVmOptions},
     workingDirectory: workingDirectory?.path,
+    timeout: timeout,
+    what: benchId,
   );
   final out = r.stdout as String;
   final err = r.stderr as String;
@@ -207,8 +239,9 @@ Future<CountedRun> runCounted(
         ? parseCachegrindInstructions(err)
         : parsePerfInstructions(err);
   } on FormatException {
-    if (counter == Counter.perf && _perfDenied(r.exitCode, err)) {
-      throw CounterUnavailable.perfBlocked(_paranoid());
+    if (counter == Counter.perf) {
+      final unavailable = _perfUnavailable(r.exitCode, err);
+      if (unavailable != null) throw unavailable;
     }
   }
   if (r.exitCode != 0) {
@@ -227,13 +260,73 @@ Future<CountedRun> runCounted(
   return CountedRun(instructions: count, checksum: int.parse(m[1]!));
 }
 
-/// Se a falha do perf é de permissão (e não do benchmark).
-bool _perfDenied(int exitCode, String err) =>
-    err.contains('perf_event_paranoid') ||
-    err.contains('Permission denied') ||
-    err.contains('Access to performance monitoring') ||
-    err.contains('<not supported>') ||
-    (exitCode == 0 && err.contains('<not counted>'));
+/// Classifica uma falha do perf sem contagem: contador inexistente na
+/// máquina, permissão negada, ou `null` (falha do próprio benchmark).
+CounterUnavailable? _perfUnavailable(int exitCode, String err) {
+  if (err.contains('<not supported>')) {
+    return const CounterUnavailable.perfUnsupported();
+  }
+  if (err.contains('perf_event_paranoid') ||
+      err.contains('Permission denied') ||
+      err.contains('Access to performance monitoring') ||
+      (exitCode == 0 && err.contains('<not counted>'))) {
+    return CounterUnavailable.perfBlocked(_paranoid());
+  }
+  return null;
+}
+
+/// Roda [executable] e espera até [timeout]; ao estourar, mata o processo e
+/// todos os descendentes e lança [MeasurementFailure] citando [what].
+Future<ProcessResult> _runWithTimeout(
+  String executable,
+  List<String> args, {
+  required Map<String, String> environment,
+  required String? workingDirectory,
+  required Duration timeout,
+  required String what,
+}) async {
+  final p = await Process.start(
+    executable,
+    args,
+    environment: environment,
+    workingDirectory: workingDirectory,
+  );
+  final out = p.stdout.transform(utf8.decoder).join();
+  final err = p.stderr.transform(utf8.decoder).join();
+  final int code;
+  try {
+    code = await p.exitCode.timeout(timeout);
+  } on TimeoutException {
+    await _killTree(p.pid);
+    await p.exitCode;
+    // Netos órfãos podem segurar os pipes; não esperamos pela saída.
+    unawaited(out.then((_) {}, onError: (_) {}));
+    unawaited(err.then((_) {}, onError: (_) {}));
+    throw MeasurementFailure(
+      '$what: tempo esgotado após ${timeout.inSeconds} s; processo morto',
+    );
+  }
+  return ProcessResult(p.pid, code, await out, await err);
+}
+
+/// Mata [pid] e os descendentes (via `pgrep -P`), dos netos para cima.
+Future<void> _killTree(int pid) async {
+  final children = <int>[];
+  try {
+    final r = await Process.run('pgrep', ['-P', '$pid']);
+    children.addAll(
+      const LineSplitter().convert(r.stdout as String).map(int.parse),
+    );
+  } on Object {
+    // Sem pgrep: mata só o processo direto.
+  }
+  // Para os filhos antes de descer, para não renascerem netos.
+  Process.killPid(pid, ProcessSignal.sigstop);
+  for (final child in children) {
+    await _killTree(child);
+  }
+  Process.killPid(pid, ProcessSignal.sigkill);
+}
 
 /// Contagem de instruções de um benchmark numa versão, com os dados brutos.
 final class InstructionCount {
@@ -276,7 +369,7 @@ final class InstructionCount {
 /// Lança [CounterUnavailable] se o contador faltar ou estiver bloqueado e
 /// [MeasurementFailure] se o benchmark falhar, se os checksums das duas
 /// execuções divergirem ou se a contagem não crescer com as iterações.
-/// [environment] e [workingDirectory] seguem [runCounted].
+/// [environment], [workingDirectory] e [timeout] seguem [runCounted].
 Future<InstructionCount> countInstructions(
   File exe,
   String benchId,
@@ -285,6 +378,7 @@ Future<InstructionCount> countInstructions(
   int highIterations = defaultHighIterations,
   Map<String, String>? environment,
   Directory? workingDirectory,
+  Duration timeout = defaultRunTimeout,
 }) async {
   if (lowIterations < 1 || highIterations <= lowIterations) {
     throw ArgumentError(
@@ -299,6 +393,7 @@ Future<InstructionCount> countInstructions(
     counter,
     environment: environment,
     workingDirectory: workingDirectory,
+    timeout: timeout,
   );
   final b = await runCounted(
     exe,
@@ -307,6 +402,7 @@ Future<InstructionCount> countInstructions(
     counter,
     environment: environment,
     workingDirectory: workingDirectory,
+    timeout: timeout,
   );
   if (a.checksum != b.checksum) {
     throw MeasurementFailure(
@@ -597,7 +693,8 @@ const int exitInstructionsFailure = 70;
 /// em AOT; os benchmarks rodam intercalados (base, head) por benchmark. Os
 /// ids `harness/*` ficam fora. [only], se não vazio, restringe aos ids
 /// dados. Escreve o BMF em [outPath] e o relatório em [reportPath] (quando
-/// dados) e devolve o código de saída: 0 aprovado, 1 regressão, 2 checksums
+/// dados). Cada execução sob o contador tem o limite [timeout]. Devolve o
+/// código de saída: 0 aprovado, 1 regressão, 2 checksums
 /// divergentes, [exitCounterUnavailable] ou [exitInstructionsFailure].
 Future<int> runInstructions({
   required String baseRef,
@@ -608,14 +705,16 @@ Future<int> runInstructions({
   List<String> only = const [],
   int lowIterations = defaultLowIterations,
   int highIterations = defaultHighIterations,
+  Duration timeout = defaultRunTimeout,
   StringSink? log,
 }) async {
   final logSink = log ?? stderr;
   final workDir = await Directory.systemTemp.createTemp('galley-instr-');
   final checkouts = <Directory>[];
+  Directory? repo;
   try {
     counterExecutable(counter);
-    final root = await repoRoot();
+    final root = repo = await repoRoot();
 
     Future<Directory> checkout(String ref) async {
       logSink.writeln('Preparando $ref…');
@@ -680,6 +779,7 @@ Future<int> runInstructions({
             workingDirectory: Directory('${baseDir.path}/benchmark'),
             lowIterations: lowIterations,
             highIterations: highIterations,
+            timeout: timeout,
           );
         } on MeasurementFailure catch (e) {
           if (baseIds != null || e.exitCode != 64) rethrow;
@@ -694,6 +794,7 @@ Future<int> runInstructions({
           workingDirectory: Directory('${headDir.path}/benchmark'),
           lowIterations: lowIterations,
           highIterations: highIterations,
+          timeout: timeout,
         );
       }
     }
@@ -723,9 +824,25 @@ Future<int> runInstructions({
   } on MeasurementFailure catch (e) {
     logSink.writeln('Falha na medição: ${e.message}');
     return exitInstructionsFailure;
+  } on ProcessException catch (e) {
+    logSink.writeln(
+      'Falha ao executar ${e.executable}: ${e.message} '
+      '(está instalado e no PATH?)',
+    );
+    return exitInstructionsFailure;
+  } on FileSystemException catch (e) {
+    logSink.writeln(
+      'Falha de arquivo: ${e.message}${e.path == null ? '' : ' (${e.path})'}'
+      '${e.osError == null ? '' : ': ${e.osError!.message}'}',
+    );
+    return exitInstructionsFailure;
+  } on ArgumentError catch (e) {
+    // Parâmetros inválidos (ex.: iterações) viram mensagem, sem stack trace.
+    logSink.writeln('Argumento inválido: ${e.message}');
+    return exitInstructionsFailure;
   } finally {
     for (final dir in checkouts) {
-      await removeCheckout(dir);
+      await removeCheckout(dir, repo: repo);
     }
     try {
       await workDir.delete(recursive: true);

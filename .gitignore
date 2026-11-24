@@ -35,3 +35,6 @@ migrate_working_dir/
 
 # Cache local do corpus público (livros baixados; nunca versionar)
 .corpus-cache/
+
+# Core dumps do Valgrind
+vgcore.*

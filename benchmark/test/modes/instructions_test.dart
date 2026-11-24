@@ -78,6 +78,24 @@ void main() {
     test('perf: ignora linhas do programa antes do CSV', () {
       expect(parsePerfInstructions('aviso do programa\n$_perfStderr'), 5365604);
     });
+    test('perf: CPU híbrida soma cpu_core e cpu_atom', () {
+      expect(
+        parsePerfInstructions(
+          '1000,,cpu_core/instructions:u/,5,100,00,,\n'
+          '234,,cpu_atom/instructions:u/,5,100,00,,\n',
+        ),
+        1234,
+      );
+    });
+    test('perf: CPU híbrida com <not counted> num tipo de núcleo', () {
+      expect(
+        parsePerfInstructions(
+          '1000,,cpu_core/instructions:u/,5,100,00,,\n'
+          '<not counted>,,cpu_atom/instructions:u/,0,0,,\n',
+        ),
+        1000,
+      );
+    });
     test('perf: <not supported> lança FormatException', () {
       expect(
         () => parsePerfInstructions('<not supported>,,instructions:u,0,100,,'),
@@ -139,6 +157,124 @@ void main() {
       );
     });
   });
+
+  group('perf/valgrind falsos no PATH', () {
+    late Directory bin;
+    setUp(() async => bin = await Directory.systemTemp.createTemp('fakebin-'));
+    tearDown(() async => bin.delete(recursive: true));
+
+    Map<String, String> env() => {'PATH': '${bin.path}:/usr/bin:/bin'};
+
+    void fake(String name, String body) {
+      final f = File('${bin.path}/$name')
+        ..writeAsStringSync('#!/bin/sh\n$body\n');
+      Process.runSync('chmod', ['+x', f.path]);
+    }
+
+    Future<CountedRun> run(Counter c, {Duration? timeout}) => runCounted(
+      File('/bin/true'),
+      'x/y',
+      1,
+      c,
+      environment: env(),
+      timeout: timeout ?? const Duration(seconds: 30),
+    );
+
+    test('perf híbrido: soma as linhas', () async {
+      fake(
+        'perf',
+        "echo checksum=5\n"
+            "echo '10,,cpu_core/instructions:u/,1,100,,' >&2\n"
+            "echo '7,,cpu_atom/instructions:u/,1,100,,' >&2",
+      );
+      final r = await run(Counter.perf);
+      expect(r.instructions, 17);
+      expect(r.checksum, 5);
+    });
+
+    test('perf <not supported>: mensagem própria, sem paranoid', () async {
+      fake(
+        'perf',
+        "echo checksum=5\n"
+            "echo '<not supported>,,instructions:u,0,100,,' >&2",
+      );
+      await expectLater(
+        run(Counter.perf),
+        throwsA(
+          isA<CounterUnavailable>().having(
+            (e) => e.message,
+            'message',
+            'contador de instruções indisponível nesta máquina/VM; '
+                'use --counter valgrind',
+          ),
+        ),
+      );
+    });
+
+    test('perf sem permissão: mensagem do perf_event_paranoid', () async {
+      fake(
+        'perf',
+        "echo 'Error: Access to performance monitoring and observability "
+            "operations is limited. perf_event_paranoid setting is 4' >&2\n"
+            'exit 255',
+      );
+      await expectLater(
+        run(Counter.perf),
+        throwsA(
+          isA<CounterUnavailable>().having(
+            (e) => e.message,
+            'message',
+            startsWith('perf_event_paranoid='),
+          ),
+        ),
+      );
+    });
+
+    test('timeout mata o processo e os filhos e cita o benchmark', () async {
+      final pidFile = '${bin.path}/pid';
+      fake('valgrind', 'sleep 60 &\necho \$! > $pidFile\nwait');
+      await expectLater(
+        run(Counter.valgrind, timeout: const Duration(seconds: 2)),
+        throwsA(
+          isA<MeasurementFailure>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('x/y'), contains('tempo esgotado')),
+          ),
+        ),
+      );
+      final pid = File(pidFile).readAsStringSync().trim();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(Directory('/proc/$pid').existsSync(), isFalse);
+    });
+  });
+
+  test(
+    'CLI: ProcessException (git ausente) sai com 70 sem stack trace',
+    () async {
+      final bin = await Directory.systemTemp.createTemp('fakebin-');
+      addTearDown(() => bin.delete(recursive: true));
+      final f = File('${bin.path}/valgrind')..writeAsStringSync('#!/bin/sh\n');
+      Process.runSync('chmod', ['+x', f.path]);
+      final r = await Process.run(
+        Platform.resolvedExecutable,
+        [
+          'run',
+          'tool/bench.dart',
+          'instructions',
+          '--base',
+          'HEAD',
+          '--head',
+          'HEAD',
+        ],
+        environment: {'PATH': bin.path},
+      );
+      expect(r.exitCode, 70, reason: '${r.stdout}\n${r.stderr}');
+      expect(r.stderr as String, contains('git'));
+      expect(r.stderr as String, isNot(contains('#0 ')));
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 
   group('evaluateGate', () {
     test('checksums divergentes saem com 2 e listam o benchmark', () {

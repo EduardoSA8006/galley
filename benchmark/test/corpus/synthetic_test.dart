@@ -15,7 +15,7 @@ void main() {
     expect(kSynthetic300MiB, 314572800);
   });
 
-  test('5 MiB: tamanho ±5%, abre e o spine tem 200 itens', () async {
+  test('5 MiB: tamanho exato, abre e o spine tem 200 itens', () async {
     const target = 5 * 1024 * 1024;
     final file = await writeSyntheticBook(
       '${tmp.path}/a.epub',
@@ -59,14 +59,31 @@ void main() {
   test(
     'streaming: pico de RSS cresce menos de 64 MiB (livro de 100 MiB)',
     () async {
-      final before = ProcessInfo.maxRss;
-      final file = await writeSyntheticBook(
-        '${tmp.path}/big.epub',
-        targetBytes: 100 * 1024 * 1024,
+      // Mede num subprocesso dedicado: o maxRss do processo de teste é
+      // compartilhado com as outras suítes que rodam em paralelo.
+      final out = '${tmp.path}/big.epub';
+      final r = await Process.run(Platform.resolvedExecutable, [
+        'run',
+        'test/corpus/rss_probe.dart',
+        out,
+        '${100 * 1024 * 1024}',
+      ]);
+      expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
+      final values = {
+        for (final m in RegExp(
+          r'^(before|after)=(\d+)$',
+          multiLine: true,
+        ).allMatches(r.stdout as String))
+          m[1]!: int.parse(m[2]!),
+      };
+      expect(values.keys, {'before', 'after'}, reason: '${r.stdout}');
+      final growth = values['after']! - values['before']!;
+      expect(
+        File(out).lengthSync(),
+        closeTo(100 * 1024 * 1024, 5 * 1024 * 1024),
       );
-      final growth = ProcessInfo.maxRss - before;
-      expect(file.lengthSync(), closeTo(100 * 1024 * 1024, 5 * 1024 * 1024));
       expect(growth, lessThan(64 * 1024 * 1024));
     },
+    timeout: const Timeout(Duration(minutes: 2)),
   );
 }

@@ -34,6 +34,11 @@ Future<void> main(List<String> args) async {
       'high-iterations',
       defaultsTo: '$defaultHighIterations',
       help: 'Iterações da execução longa (n2 > n1).',
+    )
+    ..addOption(
+      'timeout-minutes',
+      defaultsTo: '${defaultRunTimeout.inMinutes}',
+      help: 'Tempo máximo de cada execução do bench_runner sob o contador.',
     );
   final parser = ArgParser()..addCommand('instructions', instructions);
 
@@ -46,6 +51,8 @@ Future<void> main(List<String> args) async {
     }
     final low = int.parse(command.option('low-iterations')!);
     final high = int.parse(command.option('high-iterations')!);
+    final minutes = int.parse(command.option('timeout-minutes')!);
+    if (minutes < 1) throw const FormatException('timeout-minutes < 1');
     if (low < 1 || high <= low) {
       throw const FormatException('exige 1 ≤ low-iterations < high-iterations');
     }
@@ -58,6 +65,7 @@ Future<void> main(List<String> args) async {
       only: command.multiOption('bench'),
       lowIterations: low,
       highIterations: high,
+      timeout: Duration(minutes: minutes),
     );
   } on FormatException catch (e) {
     stderr.writeln(
