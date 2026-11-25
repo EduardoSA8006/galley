@@ -1,3 +1,5 @@
+import 'package:meta/meta.dart';
+
 /// Ids fixos dos namespaces conhecidos.
 ///
 /// Namespaces fora desta lista recebem ids a partir de [firstCustom],
@@ -62,9 +64,14 @@ abstract final class Namespaces {
 /// Cada par (namespace, nome local) recebe um id `int` denso, a partir de 0,
 /// compartilhado entre nomes de elemento e de atributo. Também atribui ids
 /// (a partir de [Namespaces.firstCustom]) às URIs de namespace desconhecidas.
+///
+/// Congelada quando a árvore é montada: a partir daí [intern] e
+/// [internNamespace] lançam `StateError`, e as consultas seguem valendo.
 final class NameTable {
   /// Cria uma tabela vazia.
   NameTable();
+
+  bool _frozen = false;
 
   final List<int> _namespaces = [];
   final List<String> _localNames = [];
@@ -76,7 +83,11 @@ final class NameTable {
   int get length => _localNames.length;
 
   /// Id de (namespace, [localName]), criando-o se ainda não existir.
+  ///
+  /// Lança `StateError` se a tabela estiver congelada.
   int intern(int namespace, String localName) {
+    assert(namespace >= 0, 'namespace inválido: $namespace');
+    _checkNotFrozen(this, _frozen);
     final byLocal = _byNamespace[namespace] ??= <String, int>{};
     final existing = byLocal[localName];
     if (existing != null) return existing;
@@ -99,7 +110,10 @@ final class NameTable {
 
   /// Id da [uri]: o fixo de [Namespaces] quando conhecida, ou um id
   /// por documento a partir de [Namespaces.firstCustom].
+  ///
+  /// Lança `StateError` se a tabela estiver congelada.
   int internNamespace(String uri) {
+    _checkNotFrozen(this, _frozen);
     final fixed = Namespaces.idForUri(uri);
     if (fixed >= 0) return fixed;
     return _customIds.putIfAbsent(uri, () {
@@ -115,12 +129,20 @@ final class NameTable {
     final i = id - Namespaces.firstCustom;
     return i < _customUris.length ? _customUris[i] : null;
   }
+
+  /// Impede novos nomes; chamado pelo montador no `build()`.
+  @internal
+  void freeze() => _frozen = true;
 }
 
 /// Tabela de tokens internados (os tokens de `class` e de `epub:type`).
+///
+/// Congelada quando a árvore é montada, como a [NameTable].
 final class TokenTable {
   /// Cria uma tabela vazia.
   TokenTable();
+
+  bool _frozen = false;
 
   final List<String> _tokens = [];
   final Map<String, int> _ids = {};
@@ -129,14 +151,29 @@ final class TokenTable {
   int get length => _tokens.length;
 
   /// Id do [token], criando-o se ainda não existir.
-  int intern(String token) => _ids.putIfAbsent(token, () {
-    _tokens.add(token);
-    return _tokens.length - 1;
-  });
+  ///
+  /// Lança `StateError` se a tabela estiver congelada.
+  int intern(String token) {
+    _checkNotFrozen(this, _frozen);
+    return _ids.putIfAbsent(token, () {
+      _tokens.add(token);
+      return _tokens.length - 1;
+    });
+  }
 
   /// Token do [id].
   String tokenOf(int id) => _tokens[id];
 
   /// Id do [token] se já internado; `null` caso contrário.
   int? lookup(String token) => _ids[token];
+
+  /// Impede novos tokens; chamado pelo montador no `build()`.
+  @internal
+  void freeze() => _frozen = true;
+}
+
+void _checkNotFrozen(Object table, bool frozen) {
+  if (frozen) {
+    throw StateError('${table.runtimeType} congelada: a árvore já foi montada');
+  }
 }

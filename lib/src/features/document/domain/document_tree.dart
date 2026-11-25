@@ -54,9 +54,11 @@ final class DocumentTree {
   });
 
   /// Bits 0–1 de `_flags`: o índice do [NodeKind].
+  @internal
   static const int kindMask = 0x3;
 
   /// Bit 2 de `_flags`: nó criado pela recuperação (fora do CFI).
+  @internal
   static const int virtualFlag = 0x4;
 
   final Uint8List _flags;
@@ -73,10 +75,12 @@ final class DocumentTree {
   final int _distinctValueCount;
   final int _distinctValueChars;
 
-  /// Nomes internados (elementos e atributos) deste documento.
+  /// Nomes internados (elementos e atributos) deste documento; congelada,
+  /// só para consulta.
   final NameTable names;
 
-  /// Tokens internados (`class`, `epub:type`) deste documento.
+  /// Tokens internados (`class`, `epub:type`) deste documento; congelada,
+  /// só para consulta.
   final TokenTable tokens;
 
   // ---------------------------------------------------------------- estrutura
@@ -136,6 +140,24 @@ final class DocumentTree {
     return _text.substring(_data0[textNode], _data1[textNode]);
   }
 
+  /// Início da faixa do [textNode] em [text].
+  int textStartOf(int textNode) {
+    _checkKind(textNode, NodeKind.text);
+    return _data0[textNode];
+  }
+
+  /// Fim (exclusivo) da faixa do [textNode] em [text].
+  int textEndOf(int textNode) {
+    _checkKind(textNode, NodeKind.text);
+    return _data1[textNode];
+  }
+
+  /// O buffer com o texto de todos os nós de texto, em ordem de documento.
+  ///
+  /// Com [textStartOf]/[textEndOf], permite percorrer o texto sem alocar
+  /// um `substring` por nó.
+  String get text => _text;
+
   // ---------------------------------------------------------------- atributos
 
   /// Quantidade de atributos do [element].
@@ -150,10 +172,18 @@ final class DocumentTree {
   String? attribute(int element, int namespace, String localName) {
     _checkKind(element, NodeKind.element);
     final name = names.lookup(namespace, localName);
-    if (name == null) return null;
+    return name == null ? null : attributeById(element, name);
+  }
+
+  /// Valor do atributo de nome internado [nameId] do [element], ou `null`.
+  ///
+  /// Versão de [attribute] para quem já resolveu o nome (com
+  /// `names.lookup`). Com atributos duplicados, vale o primeiro.
+  String? attributeById(int element, int nameId) {
+    _checkKind(element, NodeKind.element);
     final end = _attributeEnds[element];
     for (var i = _data1[element]; i < end; i++) {
-      if (_attributeNames[i] == name) return _attributeValues[i];
+      if (_attributeNames[i] == nameId) return _attributeValues[i];
     }
     return null;
   }

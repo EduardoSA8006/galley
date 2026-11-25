@@ -110,7 +110,9 @@ final class TreeBuilder {
     _lastChild.removeLast();
   }
 
-  /// Congela e devolve a árvore. O montador não pode mais ser usado.
+  /// Congela e devolve a árvore. O montador não pode mais ser usado: as
+  /// tabelas [names] e [tokens] passam a recusar novos itens, e os buffers
+  /// crescentes da montagem são soltos.
   ///
   /// Lança `StateError` se houver elemento aberto: fechá-los é
   /// responsabilidade do montador.
@@ -134,9 +136,24 @@ final class TreeBuilder {
       attributeValues: List<String>.of(_attributeValues, growable: false),
       distinctValueCount: _distinctValues.length,
       distinctValueChars: _distinctValueChars,
-      names: names,
-      tokens: tokens,
+      names: names..freeze(),
+      tokens: tokens..freeze(),
     );
+    for (final array in [
+      _parents,
+      _firstChildren,
+      _nextSiblings,
+      _previousSiblings,
+      _data0,
+      _data1,
+      _attributeEnds,
+      _attributeNames,
+      _open,
+      _lastChild,
+    ]) {
+      array.release();
+    }
+    _flags.release();
     _text.clear();
     _distinctValues.clear();
     _attributeValues.clear();
@@ -196,6 +213,12 @@ final class _Int32Array {
 
   void removeLast() => length--;
 
+  /// Solta o armazenamento.
+  void release() {
+    _data = Int32List(0);
+    length = 0;
+  }
+
   /// Cópia com exatamente [length] elementos.
   Int32List trimmed() =>
       Int32List.fromList(Int32List.sublistView(_data, 0, length));
@@ -213,6 +236,12 @@ final class _Uint8Array {
       _data = Uint8List(length * 2)..setRange(0, length, _data);
     }
     _data[length++] = value;
+  }
+
+  /// Solta o armazenamento.
+  void release() {
+    _data = Uint8List(0);
+    length = 0;
   }
 
   /// Cópia com exatamente [length] elementos.

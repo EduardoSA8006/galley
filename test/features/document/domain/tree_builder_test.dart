@@ -286,7 +286,117 @@ void main() {
       final t = b.build();
       expect(t.nodeCount, 1);
       expect(t.tokens.tokenOf(tok), 'chapter');
-      expect(identical(t.names, b.names), isTrue);
+      expect(t.tokens.lookup('chapter'), tok);
+    });
+
+    test(
+      'tabelas congeladas depois do build(): intern lança, leitura segue',
+      () {
+        final b = TreeBuilder();
+        final p = b.names.intern(Namespaces.xhtml, 'p');
+        final custom = b.names.internNamespace('urn:x-a');
+        final tok = b.tokens.intern('chapter');
+        final t = b.build();
+        expect(() => t.names.intern(Namespaces.xhtml, 'div'), throwsStateError);
+        expect(() => t.names.intern(Namespaces.xhtml, 'p'), throwsStateError);
+        expect(() => t.names.internNamespace('urn:x-b'), throwsStateError);
+        expect(() => t.tokens.intern('note'), throwsStateError);
+        expect(t.names.lookup(Namespaces.xhtml, 'p'), p);
+        expect(t.names.lookup(Namespaces.xhtml, 'div'), isNull);
+        expect(t.names.localNameOf(p), 'p');
+        expect(t.names.namespaceUriOf(custom), 'urn:x-a');
+        expect(t.tokens.lookup('chapter'), tok);
+        expect(t.tokens.lookup('note'), isNull);
+      },
+    );
+
+    test('builder não pode ser usado depois do build()', () {
+      final b = TreeBuilder();
+      final p = b.names.intern(Namespaces.xhtml, 'p');
+      b.build();
+      expect(() => b.startElement(p), throwsStateError);
+      expect(() => b.text('x'), throwsStateError);
+      expect(() => b.attribute(p, 'x'), throwsStateError);
+      expect(b.endElement, throwsStateError);
+      expect(b.build, throwsStateError);
+    });
+
+    test('attribute() sem elemento aberto lança StateError', () {
+      final b = TreeBuilder();
+      expect(
+        () => b.attribute(b.names.intern(Namespaces.none, 'id'), 'x'),
+        throwsStateError,
+      );
+    });
+
+    test("text('') é ignorado", () {
+      final b = TreeBuilder();
+      b
+        ..startElement(b.names.intern(Namespaces.xhtml, 'p'))
+        ..text('')
+        ..endElement();
+      final t = b.build();
+      expect(t.nodeCount, 2);
+      expect(t.firstChildOf(t.firstChildOf(0)), -1);
+    });
+
+    test('valores de atributo repetidos compartilham a mesma String', () {
+      final b = TreeBuilder();
+      final p = b.names.intern(Namespaces.xhtml, 'p');
+      final cls = b.names.intern(Namespaces.none, 'class');
+      // Strings iguais mas objetos distintos, como chegam do parser.
+      final v1 = String.fromCharCodes('calibre1'.codeUnits);
+      final v2 = String.fromCharCodes('calibre1'.codeUnits);
+      expect(identical(v1, v2), isFalse);
+      for (final v in [v1, v2]) {
+        b
+          ..startElement(p)
+          ..attribute(cls, v)
+          ..endElement();
+      }
+      final t = b.build();
+      final a = t.firstChildOf(0);
+      final c = t.nextSiblingOf(a);
+      final va = t.attribute(a, Namespaces.none, 'class');
+      final vc = t.attribute(c, Namespaces.none, 'class');
+      expect(va, 'calibre1');
+      expect(identical(va, vc), isTrue);
+    });
+
+    test('attributeById consulta por id de nome já resolvido', () {
+      final b = TreeBuilder();
+      final id = b.names.intern(Namespaces.none, 'id');
+      final cls = b.names.intern(Namespaces.none, 'class');
+      b
+        ..startElement(b.names.intern(Namespaces.xhtml, 'p'))
+        ..attribute(id, 'p1')
+        ..endElement();
+      final t = b.build();
+      final p = t.firstChildOf(0);
+      expect(t.attributeById(p, id), 'p1');
+      expect(t.attributeById(p, cls), isNull);
+    });
+
+    test('faixas de texto sobre o buffer base', () {
+      final b = TreeBuilder();
+      b
+        ..startElement(b.names.intern(Namespaces.xhtml, 'p'))
+        ..text('um')
+        ..startElement(b.names.intern(Namespaces.xhtml, 'br'))
+        ..endElement()
+        ..text('dois')
+        ..endElement();
+      final t = b.build();
+      final p = t.firstChildOf(0);
+      final texts = t
+          .childrenOf(p)
+          .where((n) => t.kindOf(n) == NodeKind.text)
+          .toList();
+      expect(texts, hasLength(2));
+      for (final n in texts) {
+        expect(t.text.substring(t.textStartOf(n), t.textEndOf(n)), t.textOf(n));
+      }
+      expect(t.textOf(texts[1]), 'dois');
     });
   });
 }
