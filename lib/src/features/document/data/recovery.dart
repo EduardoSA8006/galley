@@ -3,7 +3,6 @@ import 'package:xml/xml_events.dart';
 
 import '../../../core/diagnostics/diagnostic.dart';
 import '../../../core/diagnostics/diagnostic_codes.dart';
-import '../domain/names.dart';
 import 'event_adapter.dart';
 
 /// Política do modo tolerante: lê XHTML com defeitos e os "vícios de HTML"
@@ -166,13 +165,9 @@ final class TolerantRepairPolicy extends RepairPolicy {
   @override
   bool get withLocation => true;
 
+  /// No `text/html`, a falta de `xmlns` é a norma: sem diagnóstico.
   @override
-  int get defaultNamespace => Namespaces.xhtml;
-
-  /// Uma raiz `svg` sem prefixo nem `xmlns` fica no namespace SVG.
-  @override
-  int rootNamespaceFor(String rawName) =>
-      _key(rawName) == 'svg' ? Namespaces.svg : defaultNamespace;
+  bool get reportsImpliedNamespace => !html;
 
   @override
   String prepare(EventAdapter adapter, String text) =>

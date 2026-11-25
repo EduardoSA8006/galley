@@ -39,13 +39,18 @@ abstract base class RepairPolicy {
   /// levarem a linha (`caminho:linha`).
   bool get withLocation => false;
 
-  /// Namespace padrão dos elementos sem prefixo fora de qualquer
-  /// declaração `xmlns`.
-  int get defaultNamespace => Namespaces.none;
+  /// Namespace dos elementos virtuais abertos antes de qualquer raiz real
+  /// (ver [EventAdapter.openVirtual]).
+  int get defaultNamespace => Namespaces.xhtml;
 
   /// Namespace padrão de um elemento raiz [rawName] sem declaração
-  /// `xmlns`; por padrão, [defaultNamespace].
-  int rootNamespaceFor(String rawName) => defaultNamespace;
+  /// `xmlns`, herdado pelos descendentes sem prefixo como se fosse
+  /// declarado: [impliedRootNamespace], nos dois caminhos.
+  int rootNamespaceFor(String rawName) => impliedRootNamespace(rawName);
+
+  /// Se a raiz sem `xmlns` padrão gera `document.impliedNamespace`. Só o
+  /// `text/html` (em que a falta de `xmlns` é a norma) desliga.
+  bool get reportsImpliedNamespace => true;
 
   /// Prepara o texto (já com fins de linha normalizados) antes da leitura
   /// no modo não validante.
@@ -65,6 +70,17 @@ abstract base class RepairPolicy {
   /// entrada preparada ([EventAdapter.source]) e pulou esse caractere.
   void onMarkupError(EventAdapter adapter, int offset) =>
       throw XmlParserException('marcação inválida', position: offset);
+}
+
+/// Namespace implícito de uma raiz [rawName] sem `xmlns` padrão: SVG se o
+/// nome local (sem prefixo, sem diferença de caixa) é `svg`; senão XHTML.
+/// Num EPUB, todo documento lido aqui é XHTML ou SVG.
+int impliedRootNamespace(String rawName) {
+  final colon = rawName.indexOf(':');
+  final local = colon < 0 ? rawName : rawName.substring(colon + 1);
+  return local.length == 3 && local.toLowerCase() == 'svg'
+      ? Namespaces.svg
+      : Namespaces.xhtml;
 }
 
 /// Política do caminho estrito: qualquer defeito estrutural lança
@@ -107,6 +123,9 @@ final class StrictRepairPolicy extends RepairPolicy {
 ///   outros prefixos sem declaração ficam em
 ///   [Namespaces.undeclaredPrefixUri], com o nome qualificado. Cada
 ///   prefixo sem declaração gera um `document.undeclaredPrefix`.
+/// - Uma raiz sem declaração `xmlns` padrão recebe o namespace de
+///   [RepairPolicy.rootNamespaceFor] (XHTML, ou SVG numa raiz `svg`),
+///   herdado pelos descendentes sem prefixo, com `document.impliedNamespace`.
 /// - Atributos sem prefixo ficam em [Namespaces.none]; com atributo
 ///   repetido, vale o primeiro (`document.duplicateAttribute`).
 /// - Valores de atributo: TAB, LF e CR viram espaço (XML §3.3.3, sem
@@ -128,8 +147,7 @@ final class StrictRepairPolicy extends RepairPolicy {
 /// Cada instância lê um único documento.
 final class EventAdapter {
   /// Cria o adaptador de um documento em [path] (local dos diagnósticos).
-  EventAdapter({required this.path, this.policy = const StrictRepairPolicy()})
-    : _rootNamespace = policy.defaultNamespace;
+  EventAdapter({required this.path, this.policy = const StrictRepairPolicy()});
 
   /// Quantas ocorrências de cada código entram em [diagnostics]; as demais
   /// viram um único diagnóstico de resumo no fim, com o total.
@@ -155,8 +173,6 @@ final class EventAdapter {
   bool get rootSeen => _rootSeen;
   bool _rootSeen = false;
 
-  final int _rootNamespace;
-
   /// Texto efetivamente lido (normalizado e, no modo não validante,
   /// preparado pela [policy]).
   String get source => _source;
@@ -175,9 +191,14 @@ final class EventAdapter {
   final Map<String, int> _reportCounts = {};
   final Map<String, DiagnosticSeverity> _reportSeverities = {};
 
-  // Pilha de declarações de prefixo: (prefixo, namespace), em paralelo.
+  // Prefixos declarados, na ordem (cada elemento aberto desempilha os
+  // seus no fechamento), e, por prefixo, a pilha de namespaces em escopo:
+  // o topo é a declaração em vigor. Busca O(1), sem varrer as declarações.
   final List<String> _prefixes = [];
-  final List<int> _prefixNamespaces = [];
+  final Map<String, List<int>> _prefixScopes = {};
+
+  /// Cache nome qualificado → prefixo (evita um `substring` por nome).
+  final Map<String, String> _prefixOf = {};
 
   // Por elemento aberto: início das suas declarações em _prefixes, o
   // namespace padrão em vigor e o nome bruto (para conferir o fechamento).
@@ -189,8 +210,10 @@ final class EventAdapter {
   /// prefixo pode mudar de namespace conforme o escopo).
   final Map<String, int> _qualified = {};
 
-  /// Ids dos atributos do elemento em curso, para achar repetições.
-  final List<int> _attributeIds = [];
+  /// Carimbo por id de nome: igual a [_attributeStamp] se o atributo já
+  /// apareceu no elemento em curso (repetição em O(1)).
+  final List<int> _attributeStamps = [];
+  int _attributeStamp = 0;
 
   /// Prefixos sem declaração já reportados; os conhecidos (`epub`,
   /// `xlink`) ficam à parte, um bit por id de namespace.
@@ -315,9 +338,11 @@ final class EventAdapter {
     _rootSeen = true;
     final attributes = event.attributes;
     _frames.add(_prefixes.length);
-    var defaultNamespace = _defaults.isEmpty
+    final isRoot = _defaults.isEmpty;
+    var defaultNamespace = isRoot
         ? policy.rootNamespaceFor(event.name)
         : _defaults.last;
+    var declaresDefault = false;
     var declarations = 0;
     for (var i = 0; i < attributes.length; i++) {
       final attribute = attributes[i];
@@ -326,6 +351,7 @@ final class EventAdapter {
       declarations++;
       final value = attribute.value;
       if (name.length == 5) {
+        declaresDefault = true;
         defaultNamespace = value.isEmpty
             ? Namespaces.none
             : builder.names.internNamespace(value);
@@ -337,9 +363,16 @@ final class EventAdapter {
           'declaração "$name="$value"" ilegal; ignorada',
         );
       } else {
-        _prefixes.add(name.substring(6));
-        _prefixNamespaces.add(builder.names.internNamespace(value));
+        _pushPrefix(name.substring(6), builder.names.internNamespace(value));
       }
+    }
+    if (isRoot && !declaresDefault && policy.reportsImpliedNamespace) {
+      report(
+        DiagnosticCodes.impliedNamespace,
+        DiagnosticSeverity.info,
+        'raiz <${event.name}> sem xmlns; elementos sem prefixo lidos no '
+        'namespace ${Namespaces.uriOf(defaultNamespace)}',
+      );
     }
     _defaults.add(defaultNamespace);
     _openNames.add(event.name);
@@ -355,7 +388,7 @@ final class EventAdapter {
   void openVirtual(String localName) {
     _rootSeen = true;
     _frames.add(_prefixes.length);
-    _defaults.add(_defaults.isEmpty ? _rootNamespace : _defaults.last);
+    _defaults.add(_defaults.isEmpty ? policy.defaultNamespace : _defaults.last);
     _openNames.add(localName);
     builder.startElement(
       builder.names.intern(Namespaces.xhtml, localName),
@@ -381,29 +414,37 @@ final class EventAdapter {
     final attributes = event.attributes;
     final insertAt = _frames.length > 1 ? _frames[1] : _prefixes.length;
     final prefixes = <String>[];
-    final namespaces = <int>[];
     for (final attribute in attributes) {
       final name = attribute.name;
       if (!_isDeclaration(name) || name.length <= 6) continue;
       if (attribute.value.isEmpty) continue;
-      prefixes.add(name.substring(6));
-      namespaces.add(builder.names.internNamespace(attribute.value));
+      final prefix = name.substring(6);
+      final namespace = builder.names.internNamespace(attribute.value);
+      // Na pilha do prefixo, entra logo acima das declarações da própria
+      // raiz e abaixo das dos elementos internos.
+      var below = 0;
+      for (var i = 0; i < insertAt; i++) {
+        if (_prefixes[i] == prefix) below++;
+      }
+      for (final p in prefixes) {
+        if (p == prefix) below++;
+      }
+      (_prefixScopes[prefix] ??= []).insert(below, namespace);
+      prefixes.add(prefix);
     }
     if (prefixes.isNotEmpty) {
       _prefixes.insertAll(insertAt, prefixes);
-      _prefixNamespaces.insertAll(insertAt, namespaces);
       for (var k = 1; k < _frames.length; k++) {
         _frames[k] += prefixes.length;
       }
     }
     final root = builder.openNodeAt(1);
-    final ids = <int>[];
+    final stamp = _nextAttributeStamp();
     for (final attribute in attributes) {
       final name = attribute.name;
       if (_isDeclaration(name)) continue;
       final id = _resolve(name, Namespaces.none);
-      if (ids.contains(id)) continue;
-      ids.add(id);
+      if (!_markAttribute(id, stamp)) continue;
       builder.lateAttribute(
         root,
         id,
@@ -480,18 +521,17 @@ final class EventAdapter {
   }
 
   void _attributes(String element, List<XmlEventAttribute> attributes) {
-    final ids = _attributeIds..clear();
+    final stamp = _nextAttributeStamp();
     var duplicates = 0;
     for (var i = 0; i < attributes.length; i++) {
       final attribute = attributes[i];
       final name = attribute.name;
       if (_isDeclaration(name)) continue;
       final id = _resolve(name, Namespaces.none);
-      if (ids.contains(id)) {
+      if (!_markAttribute(id, stamp)) {
         duplicates++;
         continue;
       }
-      ids.add(id);
       builder.attribute(id, _sanitize(attribute.value, attribute: true));
     }
     if (duplicates > 0) {
@@ -501,6 +541,25 @@ final class EventAdapter {
         '$duplicates atributo(s) repetido(s) em <$element>; vale o primeiro',
       );
     }
+  }
+
+  int _nextAttributeStamp() => ++_attributeStamp;
+
+  /// Marca o atributo [id] com [stamp]; `false` se já estava marcado
+  /// (repetição no mesmo elemento).
+  bool _markAttribute(int id, int stamp) {
+    final stamps = _attributeStamps;
+    while (stamps.length <= id) {
+      stamps.add(0);
+    }
+    if (stamps[id] == stamp) return false;
+    stamps[id] = stamp;
+    return true;
+  }
+
+  void _pushPrefix(String prefix, int namespace) {
+    _prefixes.add(prefix);
+    (_prefixScopes[prefix] ??= []).add(namespace);
   }
 
   void _endTag(String name) {
@@ -516,8 +575,10 @@ final class EventAdapter {
     builder.endElement();
     final frame = _frames.removeLast();
     if (_prefixes.length > frame) {
+      for (var i = _prefixes.length - 1; i >= frame; i--) {
+        _prefixScopes[_prefixes[i]]!.removeLast();
+      }
       _prefixes.length = frame;
-      _prefixNamespaces.length = frame;
     }
     _defaults.removeLast();
     _openNames.removeLast();
@@ -542,14 +603,13 @@ final class EventAdapter {
 
   int _undeclaredNamespace = -1;
 
-  /// Namespace do prefixo `qualified[0, colon)`, pela pilha de
-  /// declarações (sem alocar no caso comum).
+  /// Namespace do prefixo `qualified[0, colon)`, pelo topo da pilha do
+  /// prefixo (O(1); o prefixo de cada nome qualificado é extraído uma vez).
   int _prefixNamespace(String qualified, int colon) {
-    for (var i = _prefixes.length - 1; i >= 0; i--) {
-      final prefix = _prefixes[i];
-      if (prefix.length == colon && qualified.startsWith(prefix)) {
-        return _prefixNamespaces[i];
-      }
+    if (_prefixes.isNotEmpty) {
+      final prefix = _prefixOf[qualified] ??= qualified.substring(0, colon);
+      final scope = _prefixScopes[prefix];
+      if (scope != null && scope.isNotEmpty) return scope.last;
     }
     if (colon == 3 && qualified.startsWith('xml')) return Namespaces.xml;
     final wellKnown = colon == 4 && qualified.startsWith('epub')

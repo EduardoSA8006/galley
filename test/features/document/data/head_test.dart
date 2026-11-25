@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:galley/src/core/diagnostics/diagnostic_codes.dart';
 import 'package:galley/src/features/document/data/parse_document.dart';
 import 'package:galley/src/features/document/domain/document_head.dart';
+import 'package:galley/src/features/document/domain/names.dart';
 import 'package:galley/src/features/document/domain/parsed_document.dart';
 
 const _xhtml = 'http://www.w3.org/1999/xhtml';
@@ -93,10 +94,117 @@ void main() {
     expect(head.dir, 'rtl');
   });
 
-  test('lang cai em xml:lang; lang tem preferência', () {
+  test('xml:lang vence lang; valor aparado; vazio é desconhecido', () {
     expect(_parse('', htmlAttrs: 'xml:lang="en"').head.lang, 'en');
-    expect(_parse('', htmlAttrs: 'lang="fr" xml:lang="en"').head.lang, 'fr');
+    expect(_parse('', htmlAttrs: 'lang="fr"').head.lang, 'fr');
+    expect(_parse('', htmlAttrs: 'lang="fr" xml:lang="en"').head.lang, 'en');
+    expect(_parse('', htmlAttrs: 'lang=" pt "').head.lang, 'pt');
+    expect(_parse('', htmlAttrs: 'lang="" xml:lang="en"').head.lang, 'en');
+    expect(_parse('', htmlAttrs: 'lang="fr" xml:lang=" "').head.lang, isNull);
     expect(_parse('').head.lang, isNull);
+  });
+
+  test('ordem de documento entre head e body; style no body', () {
+    final doc = _parse(
+      '<link rel="stylesheet" href="a.css"/>',
+      body:
+          '<style>b{}</style><div><link rel="stylesheet" href="c.css"/></div>',
+    );
+    final sheets = doc.head.styleSheets;
+    expect(sheets, hasLength(3));
+    expect((sheets[0] as LinkedStyleSheet).path, 'OEBPS/text/a.css');
+    expect((sheets[1] as InlineStyleSheet).css, 'b{}');
+    expect((sheets[2] as LinkedStyleSheet).path, 'OEBPS/text/c.css');
+    expect(
+      _codes(doc).where((c) => c == DiagnosticCodes.headInBody),
+      hasLength(2),
+    );
+  });
+
+  test('título: o primeiro do head; title no body não conta', () {
+    final head = _parse(
+      '<title>Um</title><title>Dois</title>',
+      body: '<title>Corpo</title>',
+    ).head;
+    expect(head.title, 'Um');
+    final onlyBody = _parse('', body: '<title>Corpo</title>').head;
+    expect(onlyBody.title, isNull);
+  });
+
+  group('sem xmlns (namespace implícito)', () {
+    const head =
+        '<title>T</title><link rel="stylesheet" href="a.css"/>'
+        '<style>p{}</style>';
+    String source({bool xmlns = false, bool broken = false}) =>
+        '<html${xmlns ? ' xmlns="$_xhtml"' : ''} lang="pt">'
+        '<head>$head</head><body><p>a${broken ? '' : '</p>'}</body></html>';
+    ParsedDocument parse(String s) =>
+        parseDocumentBytes(Uint8List.fromList(utf8.encode(s)), path: 'c.xhtml');
+
+    void expectSameHead(DocumentHead a, DocumentHead b) {
+      expect(a.title, b.title);
+      expect(a.lang, b.lang);
+      expect(a.styleSheets, hasLength(b.styleSheets.length));
+      for (var i = 0; i < a.styleSheets.length; i++) {
+        expect(a.styleSheets[i].runtimeType, b.styleSheets[i].runtimeType);
+      }
+    }
+
+    test('mesmo head que o documento com xmlns', () {
+      final implied = parse(source());
+      final declared = parse(source(xmlns: true));
+      expect(implied.recovered, isFalse);
+      expect(implied.head.title, 'T');
+      expect(implied.head.lang, 'pt');
+      expect(implied.head.styleSheets, hasLength(2));
+      expectSameHead(implied.head, declared.head);
+      expect(_codes(implied), contains(DiagnosticCodes.impliedNamespace));
+      expect(
+        _codes(declared),
+        isNot(contains(DiagnosticCodes.impliedNamespace)),
+      );
+    });
+
+    test('estrito e tolerante concordam', () {
+      final strict = parse(source());
+      final tolerant = parse(source(broken: true));
+      expect(strict.recovered, isFalse);
+      expect(tolerant.recovered, isTrue);
+      expectSameHead(strict.head, tolerant.head);
+      expect(_codes(tolerant), contains(DiagnosticCodes.impliedNamespace));
+      for (final doc in [strict, tolerant]) {
+        final root = doc.tree.firstChildOf(doc.tree.documentNode);
+        expect(doc.tree.namespaceOf(root), Namespaces.xhtml);
+      }
+    });
+
+    test('text/html não gera impliedNamespace', () {
+      final doc = parseDocumentBytes(
+        Uint8List.fromList(utf8.encode(source())),
+        path: 'c.html',
+        mediaType: 'text/html',
+      );
+      expect(doc.head.title, 'T');
+      expect(_codes(doc), isNot(contains(DiagnosticCodes.impliedNamespace)));
+    });
+  });
+
+  test('80k <div> aninhados + 80k <style/> no body: tempo linear', () {
+    // Antes da passada única, cada <style> subia até a raiz: O(n²)
+    // (742 KiB levavam 15 s). ~1,5 MiB aqui.
+    final body = '${'<div>' * 80000}${'<style/>' * 80000}${'</div>' * 80000}';
+    final watch = Stopwatch()..start();
+    final doc = _parse('', body: body);
+    watch.stop();
+    expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+    expect(doc.recovered, isFalse);
+    expect(doc.head.styleSheets, hasLength(80000));
+    // Limite por código: 20 ocorrências + 1 resumo com o total.
+    final inBody = doc.diagnostics
+        .where((d) => d.code == DiagnosticCodes.headInBody)
+        .toList();
+    expect(inBody, hasLength(21));
+    expect(inBody.last.message, contains('80000'));
   });
 
   test('viewport', () {

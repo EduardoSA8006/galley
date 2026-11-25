@@ -175,9 +175,38 @@ void main() {
       expect(_codes(doc), contains(DiagnosticCodes.undeclaredPrefix));
     });
 
-    test('documento sem xmlns: elementos sem namespace', () {
-      final tree = _parse('<html><body/></html>').tree;
-      _single(tree, Namespaces.none, 'body');
+    test('documento sem xmlns: XHTML implícito, com impliedNamespace', () {
+      final doc = _parse('<html><body><x xmlns=""><y/></x></body></html>');
+      final tree = doc.tree;
+      _single(tree, Namespaces.xhtml, 'html');
+      _single(tree, Namespaces.xhtml, 'body');
+      // `xmlns=""` explícito continua valendo.
+      _single(tree, Namespaces.none, 'x');
+      _single(tree, Namespaces.none, 'y');
+      final d = doc.diagnostics.singleWhere(
+        (d) => d.code == DiagnosticCodes.impliedNamespace,
+      );
+      expect(d.severity, DiagnosticSeverity.info);
+      expect(d.message, contains(_xhtml));
+      expect(doc.recovered, isFalse);
+    });
+
+    test('raiz svg sem xmlns: SVG implícito', () {
+      final doc = _parse('<svg><g><rect/></g></svg>');
+      _single(doc.tree, Namespaces.svg, 'svg');
+      _single(doc.tree, Namespaces.svg, 'rect');
+      expect(_codes(doc), contains(DiagnosticCodes.impliedNamespace));
+    });
+
+    test('raiz com xmlns (mesmo "") não gera impliedNamespace', () {
+      for (final source in ['<html xmlns="$_xhtml"/>', '<r xmlns=""/>']) {
+        expect(
+          _codes(_parse(source)),
+          isNot(contains(DiagnosticCodes.impliedNamespace)),
+          reason: source,
+        );
+      }
+      _single(_parse('<r xmlns=""/>').tree, Namespaces.none, 'r');
     });
   });
 
@@ -314,23 +343,23 @@ void main() {
     test('CRLF, CR isolado e mistura viram LF no texto', () {
       for (final source in ['a\r\nb', 'a\rb', 'a\nb']) {
         final tree = _parse('<r>$source</r>').tree;
-        final r = _single(tree, Namespaces.none, 'r');
+        final r = _single(tree, Namespaces.xhtml, 'r');
         expect(tree.textOf(tree.firstChildOf(r)), 'a\nb', reason: source);
       }
       final tree = _parse('<r>a\r\n\r\rb\n\r\nc</r>').tree;
-      final r = _single(tree, Namespaces.none, 'r');
+      final r = _single(tree, Namespaces.xhtml, 'r');
       expect(tree.textOf(tree.firstChildOf(r)), 'a\n\n\nb\n\nc');
     });
 
     test('&#13; (referência) continua CR no texto', () {
       final tree = _parse('<r>a&#13;b</r>').tree;
-      final r = _single(tree, Namespaces.none, 'r');
+      final r = _single(tree, Namespaces.xhtml, 'r');
       expect(tree.textOf(tree.firstChildOf(r)), 'a\rb');
     });
 
     test('valores de atributo: TAB, LF e CR viram espaço', () {
       final tree = _parse('<r t="a\tb\nc\r\nd\re"/>').tree;
-      final r = _single(tree, Namespaces.none, 'r');
+      final r = _single(tree, Namespaces.xhtml, 'r');
       expect(tree.attribute(r, Namespaces.none, 't'), 'a b c d e');
     });
 
@@ -339,7 +368,7 @@ void main() {
         '<r t="x&#0;y\u0001">a&#0;b\uD800c\u0008d\uDC00e\uFFFF'
         '\u{1F600}</r>',
       ).tree;
-      final r = _single(tree, Namespaces.none, 'r');
+      final r = _single(tree, Namespaces.xhtml, 'r');
       expect(tree.attribute(r, Namespaces.none, 't'), 'x\uFFFDy\uFFFD');
       expect(
         tree.textOf(tree.firstChildOf(r)),
@@ -371,7 +400,7 @@ void main() {
           .toList();
       expect(invalid, hasLength(2));
       expect(invalid.first.severity, DiagnosticSeverity.info);
-      final x = _single(doc.tree, Namespaces.none, 'x');
+      final x = _single(doc.tree, Namespaces.xhtml, 'x');
       expect(doc.tree.attributeCountOf(x), 0);
     });
 
@@ -391,10 +420,81 @@ void main() {
           .toList();
       expect(dup, hasLength(1));
       expect(dup.single.message, contains('3'));
-      final p = _single(doc.tree, Namespaces.none, 'p');
+      final p = _single(doc.tree, Namespaces.xhtml, 'p');
       expect(doc.tree.attributeCountOf(p), 2);
       expect(doc.tree.attribute(p, Namespaces.none, 'a'), '1');
     });
+  });
+
+  group('linearidade (revisão final)', () {
+    test('um <p> com 160k atributos distintos: tempo linear', () {
+      // Antes: List.contains por atributo, O(k²) (160k levavam 8 s).
+      final attrs = StringBuffer();
+      for (var i = 0; i < 160000; i++) {
+        attrs.write(' a$i="v"');
+      }
+      final source = _doc('<p$attrs a0="w"/>');
+      expect(source.length, greaterThan(1024 * 1024));
+      final watch = Stopwatch()..start();
+      final doc = _parse(source);
+      watch.stop();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+      final p = _single(doc.tree, Namespaces.xhtml, 'p');
+      expect(doc.tree.attributeCountOf(p), 160000);
+      expect(doc.tree.attribute(p, Namespaces.none, 'a0'), 'v');
+    });
+
+    test('80k xmlns:pN na raiz + 80k <p0:q/>: tempo linear', () {
+      // Antes: cada nome com prefixo varria a pilha inteira de prefixos
+      // (40k + 40k levavam 5,8 s; aqui, ~4× isso).
+      final declarations = StringBuffer();
+      for (var i = 0; i < 80000; i++) {
+        declarations.write(' xmlns:p$i="urn:$i"');
+      }
+      final source =
+          '<html xmlns="$_xhtml"$declarations><body>'
+          '${'<p0:q/>' * 80000}</body></html>';
+      expect(source.length, greaterThan(1024 * 1024));
+      final watch = Stopwatch()..start();
+      final doc = _parse(source);
+      watch.stop();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+      expect(doc.recovered, isFalse);
+      final ns = doc.tree.names.namespaceIdOf('urn:0');
+      expect(doc.tree.elementsNamed(ns!, 'q'), hasLength(80000));
+    });
+
+    test('120k níveis, cada um declarando um prefixo e usando p0:', () {
+      // Antes: O(profundidade²) (40k níveis levavam 1,7 s).
+      final open = StringBuffer();
+      for (var i = 0; i < 120000; i++) {
+        open.write('<p0:d xmlns:p${i + 1}="urn:${i + 1}">');
+      }
+      final source =
+          '<html xmlns="$_xhtml" xmlns:p0="urn:0"><body>$open'
+          '${'</p0:d>' * 120000}</body></html>';
+      expect(source.length, greaterThan(1024 * 1024));
+      final watch = Stopwatch()..start();
+      final doc = _parse(source);
+      watch.stop();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+      expect(doc.recovered, isFalse);
+      final ns = doc.tree.names.namespaceIdOf('urn:0');
+      expect(doc.tree.elementsNamed(ns!, 'd'), hasLength(120000));
+    });
+
+    test(
+      'prefixo redeclarado em escopo interno e restaurado no fechamento',
+      () {
+        final doc = _parse(
+          '<r xmlns:a="urn:1"><x xmlns:a="urn:2"><a:e/></x><a:e/></r>',
+        );
+        final one = doc.tree.names.namespaceIdOf('urn:1')!;
+        final two = doc.tree.names.namespaceIdOf('urn:2')!;
+        expect(doc.tree.elementsNamed(one, 'e'), hasLength(1));
+        expect(doc.tree.elementsNamed(two, 'e'), hasLength(1));
+      },
+    );
   });
 
   group('ParsedDocument', () {

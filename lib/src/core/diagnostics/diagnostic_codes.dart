@@ -103,6 +103,11 @@ abstract final class DiagnosticCodes {
   /// OPS, os demais num namespace "desconhecido" (info).
   static const String undeclaredPrefix = 'document.undeclaredPrefix';
 
+  /// Raiz sem declaração `xmlns` padrão: os elementos sem prefixo são
+  /// lidos no namespace XHTML (ou SVG, numa raiz `svg`), como se ele
+  /// estivesse declarado (info).
+  static const String impliedNamespace = 'document.impliedNamespace';
+
   /// Declaração de namespace ilegal (`xmlns:p=""` ou `xmlns:="…"`),
   /// ignorada (info).
   static const String invalidNamespaceDeclaration =

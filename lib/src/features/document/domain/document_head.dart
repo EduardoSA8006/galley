@@ -49,7 +49,8 @@ final class DocumentHead {
   /// Texto de `<title>`, aparado e com espaços colapsados.
   final String? title;
 
-  /// Idioma: `<html lang>` ou, na falta, `xml:lang`.
+  /// Idioma de `<html>`: `xml:lang` vence `lang` quando os dois existem
+  /// (regra do HTML); aparado, e `null` se ausente ou vazio (desconhecido).
   final String? lang;
 
   /// Valor de `<html dir>`.

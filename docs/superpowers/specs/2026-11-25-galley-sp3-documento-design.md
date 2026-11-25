@@ -163,6 +163,7 @@ Um documento irrecuperável vira uma árvore com um único `<body>` vazio e o di
   - Prefixo `epub:` sem declaração cai no namespace OPS, com diagnóstico info `document.undeclaredPrefix`.
   - Qualquer prefixo ligado ao XHTML (ex.: `<html:p>`) é tratado como XHTML.
   - Um prefixo desconhecido sem declaração mantém o nome com prefixo, num namespace "desconhecido".
+  - Raiz sem `xmlns` padrão (nos dois caminhos, estrito e tolerante): recebe o namespace XHTML, ou SVG se o nome local da raiz é `svg`, herdado pelos descendentes sem prefixo como se estivesse declarado, com diagnóstico info `document.impliedNamespace` (no `text/html`, sem diagnóstico). Assim o mesmo documento dá o mesmo `<head>` e os mesmos nomes com ou sem um erro de sintaxe. O diferencial contra o DOM do `package:xml` aplica a mesma regra.
 - **Documentos no escopo:** todo item do manifest com media-type `application/xhtml+xml`, `text/html` (sempre pelo modo tolerante) ou `image/svg+xml` (documento SVG no spine, com raiz no namespace SVG). Outros tipos não passam por este parser.
 - **Onde roda cada verificação:**
   - **A cada PR:** testes sintéticos, testes de recuperação, fuzz e os benchmarks do catálogo (livros `hm/*`), sem rede.
