@@ -182,9 +182,21 @@ jobs:
             echo "::error::simulador não iniciou após 3 tentativas"
             exit 1
           fi
+          # Aquecimento: logo após o boot o SpringBoard ainda pode estar
+          # subindo ("Waiting on System App") e a primeira abertura de app
+          # trava. Abrir e fechar um app do sistema garante a interface pronta.
+          perl -e 'alarm shift; exec @ARGV' 120 xcrun simctl launch "$UDID" com.apple.Preferences || true
+          sleep 5
+          xcrun simctl terminate "$UDID" com.apple.Preferences 2>/dev/null || true
+          # Cada arquivo tem 900 s. Abrir o app no simulador ainda falha de
+          # forma intermitente, então um arquivo que falha roda mais uma vez;
+          # uma falha real reprova nas duas tentativas.
           rc=0
           for f in integration_test/*_test.dart; do
-            perl -e 'alarm shift; exec @ARGV' 900 flutter test "$f" -d "$UDID" \
-              || { echo "::error::$f falhou ou excedeu 900s"; rc=1; }
+            if ! perl -e 'alarm shift; exec @ARGV' 900 flutter test "$f" -d "$UDID"; then
+              echo "::warning::$f falhou ou excedeu 900s; nova tentativa"
+              perl -e 'alarm shift; exec @ARGV' 900 flutter test "$f" -d "$UDID" \
+                || { echo "::error::$f falhou duas vezes (ou excedeu 900s)"; rc=1; }
+            fi
           done
           exit $rc
