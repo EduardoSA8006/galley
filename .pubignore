@@ -38,6 +38,6 @@ migrate_working_dir/
 docs/superpowers/
 doc/logo/gen.py
 example/build/
-benchmark/
-corpus/
-.corpus-cache/
+/benchmark/
+/corpus/
+/.corpus-cache/
