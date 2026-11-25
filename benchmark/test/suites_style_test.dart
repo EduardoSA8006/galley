@@ -109,7 +109,7 @@ void main() {
 
   // Registro permanente da meta da spec (§ desempenho): o `restyle` precisa
   // ser pelo menos 5× mais barato que o estilo completo (casamento +
-  // `restyle`) do mesmo capítulo. Conta instruções (determinístico, não
+  // um `restyle`) do mesmo capítulo, contra um `restyle`. Conta instruções (determinístico, não
   // tempo de parede); `slow` porque compila o `bench_runner` e roda o
   // contador (perf ou Valgrind) 4 vezes.
   test(

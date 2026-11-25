@@ -37,10 +37,10 @@ const String _sheetLink = '<link rel="stylesheet" href="estilo.css"/>';
 /// Ambiente de página dos benchmarks.
 const StyleEnvironment _env = StyleEnvironment(pageWidth: 500, pageHeight: 800);
 
-/// Preferências de troca de fonte, entrelinha e tema escuro.
+/// Preferências de troca de fonte, tamanho (1,2) e tema escuro.
 const ReaderPreferences _literataDark = ReaderPreferences(
   fontFamily: Preference('Literata', policy: PreferencePolicy.force),
-  lineHeight: Preference(1.2, policy: PreferencePolicy.force),
+  fontSize: Preference(1.2),
   theme: Preference(
     ReaderTheme(background: 0xFF121212, text: 0xFFE0E0E0, link: 0xFF8AB4F8),
     policy: PreferencePolicy.force,
@@ -295,12 +295,11 @@ List<Bench> styleBenches() => <Bench>[
     return () {
       final matched = matchDocument(context, document, _env);
       return _matchedChecksum(matched) +
-          _styledChecksum(restyle(matched, _literataDark)) +
-          _styledChecksum(restyle(matched, ReaderPreferences.none));
+          _styledChecksum(restyle(matched, _literataDark));
     };
   }),
   // Só a troca de preferências sobre o casamento guardado: uma passada com
-  // Literata/1,2/tema escuro e outra com `none`.
+  // Literata/tamanho 1,2/tema escuro.
   PreparedBench('style/restyle-large-1mib', () async {
     final (:document, :context) = _warmChapter(
       buildPublisherCss(),
@@ -308,9 +307,7 @@ List<Bench> styleBenches() => <Bench>[
     );
     final matched = matchDocument(context, document, _env);
     _matchedChecksum(matched);
-    return () =>
-        _styledChecksum(restyle(matched, _literataDark)) +
-        _styledChecksum(restyle(matched, ReaderPreferences.none));
+    return () => _styledChecksum(restyle(matched, _literataDark));
   }),
   PreparedBench('style/match-descendant-heavy', () async {
     final (:document, :context) = _warmChapter(

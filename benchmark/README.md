@@ -390,16 +390,16 @@ que criar. Ao concluir um subprojeto, esta lista deve ser cumprida:
       `style/full-large-1mib` (`matchDocument` + `restyle` do XHTML sintético
       de 1 MiB com a folha de editora de ~40 KiB, contexto aquecido no `setUp`,
       como num capítulo N), `style/restyle-large-1mib` (só o `restyle` sobre o
-      casamento guardado: Literata/1,2/tema escuro e `none`),
+      casamento guardado, com Literata, tamanho 1,2 e tema escuro),
       `style/match-descendant-heavy` (2.000 regras descendentes no mesmo XHTML)
       e `style/spine-hm-<livro>` (`styleDocument` em todo o spine de cada livro
-      `hm/*` bem formado). Ciclos de ~30–40 ms nativos, salvo `full-large-1mib`
-      (~85 ms) e `match-descendant-heavy` (~75 ms), cujo trabalho prescrito
+      `hm/*` bem formado). Ciclos de ~30–40 ms nativos, salvo `restyle-large-1mib` (~4 ms, um único `restyle`), `full-large-1mib`
+      (~59 ms) e `match-descendant-heavy` (~75 ms), cujo trabalho prescrito
       (1 MiB, 2.000 regras) não cabe em 50 ms. **Meta da spec como registro
       permanente:** o `restyle` custa no máximo 1/5 do estilo completo do mesmo
       capítulo; `test/suites_style_test.dart` (tag `slow`, `-t slow`) conta as
-      instruções das duas suítes (cada uma faz duas passadas de preferências,
-      para a conta ser simétrica) e exige razão ≥ 5. Comparação informativa,
+      instruções das duas suítes (casamento + um `restyle` contra um `restyle`)
+      e exige razão ≥ 5. Comparação informativa,
       sem gate, no `compare`: `buildStyleSheet` × `parse` do `package:csslib`
       (versão fixada em `pubspec.yaml`, só aqui, nunca no pacote `galley`) em
       `hm/publisher-css`, nos livros do corpus público e em
