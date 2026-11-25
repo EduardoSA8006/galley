@@ -52,6 +52,45 @@ void main() {
       expect(_has(em, ElementFlags.inTextRun), isTrue);
     });
 
+    test('<p><span>x</span></p> e <p><em><b>x</b></em></p>', () {
+      expect(_isRoot('<p><span>x</span></p>', 'p'), isTrue);
+      expect(_isRoot('<p><em><b>x</b></em></p>', 'p'), isTrue);
+      final em = _flagsOf(_match('<p><em><b>x</b></em></p>'), 'em');
+      expect(_has(em, ElementFlags.textRunRoot), isFalse);
+      expect(_has(em, ElementFlags.inTextRun), isTrue);
+    });
+
+    test('<div><p>x</p></div> não marca o div', () {
+      final m = _match('<div><p>x</p></div>');
+      expect(_has(_flagsOf(m, 'div'), ElementFlags.textRunRoot), isFalse);
+      expect(_has(_flagsOf(m, 'p'), ElementFlags.textRunRoot), isTrue);
+    });
+
+    test('<p><img/></p> sem texto não marca', () {
+      expect(_isRoot('<p><img src="a.png"/></p>', 'p'), isFalse);
+    });
+
+    test('texto em inline-block não sobe para o bloco', () {
+      expect(
+        _isRoot(
+          '<p><span>x</span></p>',
+          'p',
+          css: 'span{display:inline-block}',
+        ),
+        isFalse,
+      );
+    });
+
+    test('texto de SVG embutido não sobe para o p', () {
+      expect(
+        _isRoot(
+          '<p><svg xmlns="http://www.w3.org/2000/svg"><text>x</text></svg></p>',
+          'p',
+        ),
+        isFalse,
+      );
+    });
+
     test('U+00A0 conta como texto', () {
       expect(_isRoot('<p> </p>', 'p'), isTrue);
     });

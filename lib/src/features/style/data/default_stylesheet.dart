@@ -94,7 +94,11 @@ thead, tbody, tfoot, tr { border-color: inherit; }
 
 /* Ruby */
 ruby { display: ruby; }
+rb { display: ruby-base; }
 rt { display: ruby-text; }
+rtc { display: ruby-text-container; }
+rtc, rt { white-space: nowrap; font-size: 50%; }
+rtc > rt { font-size: unset; }
 
 /* Texto */
 cite, dfn, em, i, var { font-style: italic; }

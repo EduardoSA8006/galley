@@ -73,6 +73,19 @@ void main() {
       expect(_kw(_style('ruby'), PropertyId.display), CssKeywords.ruby);
       expect(_kw(_style('rt'), PropertyId.display), CssKeywords.rubyText);
     });
+
+    test('rt com 50% (8 px); rb e rtc pelo CSS Ruby; rtc > rt sem reduzir', () {
+      expect(_px(_style('rt'), PropertyId.fontSize), 8);
+      const body = '<p><ruby><rb>漢</rb><rtc><rt>kan</rt></rtc></ruby></p>';
+      final m = matchCss(body, defaultSheet: true);
+      final s = restyle(m, ReaderPreferences.none);
+      ComputedStyle of(String name) =>
+          styleOfElement(s, elementsNamed(m.tree, name).single);
+      expect(_kw(of('rb'), PropertyId.display), CssKeywords.rubyBase);
+      expect(_kw(of('rtc'), PropertyId.display), CssKeywords.rubyTextContainer);
+      expect(_px(of('rtc'), PropertyId.fontSize), 8);
+      expect(_px(of('rt'), PropertyId.fontSize), 8);
+    });
   });
 
   group('caixa e títulos', () {

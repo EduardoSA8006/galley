@@ -13,7 +13,7 @@ import 'value_computer.dart';
 /// para a passada de preferências (spec §8.7).
 abstract final class ElementFlags {
   /// Raiz de texto corrido: bloco com texto direto, fora de títulos,
-  /// tabelas e `pre`, com tamanho a até ±15% do corpo.
+  /// tabelas e `pre`, com tamanho a até ±15% do corpo. Só elementos XHTML.
   static const int textRunRoot = 1;
 
   /// A raiz de texto corrido e todos os seus descendentes.
@@ -122,6 +122,24 @@ TextRunMarks classifyTextRuns({
   final familyMono = <bool>[];
   final hrefName = tree.names.lookup(Namespaces.none, 'href');
 
+  // Texto "direto" de cada elemento: o dos filhos de texto mais o dos
+  // descendentes em linha (sem atravessar outro bloco, `inline-block`,
+  // tabela etc.), para `<p><span>x</span></p>` contar. Passada reversa:
+  // em pré-ordem os filhos vêm depois do pai, então cada elemento já tem o
+  // valor final quando é visitado e o repassa ao pai.
+  final hasText = Uint8List(nodeCount);
+  for (var n = nodeCount - 1; n >= 0; n--) {
+    if (tree.kindOf(n) != NodeKind.element) continue;
+    if (hasText[n] == 0 && _hasDirectText(tree, n)) hasText[n] = 1;
+    // SVG/MathML embutidos são conteúdo substituído: o texto deles não
+    // sobe para o bloco XHTML.
+    if (hasText[n] == 0 || tree.namespaceOf(n) != Namespaces.xhtml) continue;
+    final parent = tree.parentOf(n);
+    if (parent < 0 || tree.kindOf(parent) != NodeKind.element) continue;
+    final display = (styles[styleOf[n]][PropertyId.display] as CssKeyword).id;
+    if (_inlineLevel.contains(display)) hasText[parent] = 1;
+  }
+
   for (var n = 0; n < nodeCount; n++) {
     if (tree.kindOf(n) != NodeKind.element) continue;
     final style = styles[styleOf[n]];
@@ -162,14 +180,15 @@ TextRunMarks classifyTextRuns({
     publisherFamilies[n] = fi;
     if (familyMono[fi]) f |= ElementFlags.monospace;
 
-    if (!inBlocked &&
+    if (xhtml &&
+        !inBlocked &&
         (display == CssKeywords.block ||
             display == CssKeywords.listItem ||
             display == CssKeywords.flowRoot) &&
-        !(xhtml && _excluded.contains(name)) &&
+        !_excluded.contains(name) &&
         (_fontSize(style) - bodyFontSize).abs() <=
             _sizeTolerance * bodyFontSize + 1e-9 &&
-        _hasDirectText(tree, n)) {
+        hasText[n] != 0) {
       f |= ElementFlags.textRunRoot | ElementFlags.inTextRun;
     }
 
@@ -184,6 +203,18 @@ TextRunMarks classifyTextRuns({
     familyTable: List.unmodifiable(familyTable),
   );
 }
+
+/// `display` que deixa o texto do elemento contar como texto direto do
+/// bloco que o contém.
+const Set<int> _inlineLevel = {
+  CssKeywords.inline,
+  CssKeywords.contents,
+  CssKeywords.ruby,
+  CssKeywords.rubyBase,
+  CssKeywords.rubyText,
+  CssKeywords.rubyBaseContainer,
+  CssKeywords.rubyTextContainer,
+};
 
 /// Desvio máximo do tamanho do texto corrido sobre o do corpo (±15%).
 const double _sizeTolerance = 0.15;
