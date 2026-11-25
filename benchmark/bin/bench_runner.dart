@@ -15,8 +15,8 @@ import 'package:galley_benchmark/src/runner.dart';
 /// `rss=` (`VmHWM`, ver `peakRssBytes`) e `checksum=` (ver `measureOpen`).
 ///
 /// Com `--adapter` (`galley`, `epub_plus` ou `epub_pro`), `--measure`
-/// (`open`, `read-all` ou `read-one`), `--resource` (só no `read-one`) e o
-/// caminho do livro, mede o parser escolhido (ver
+/// (`open`, `open-eager`, `read-all` ou `read-one`), `--resource` (só no
+/// `read-one`) e o caminho do livro, mede o parser escolhido (ver
 /// `runAdapterMeasure`) e imprime `ns=`, `rss=` e `checksum=`. O `epubx` tem
 /// executável próprio (`benchmark/competitors/epubx_runner`).
 ///
