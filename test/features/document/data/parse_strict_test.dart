@@ -325,6 +325,30 @@ void main() {
       }
     });
 
+    test('encoding="ISO-8859-1" em bytes latin1 dá o mesmo texto', () {
+      const text = 'Olá, ação é çÇ ñ ÿ';
+      final source =
+          '<?xml version="1.0" encoding="ISO-8859-1"?>'
+          '<html xmlns="$_xhtml"><body><p title="$text">$text</p></body>'
+          '</html>';
+      final bytes = Uint8List.fromList(latin1.encode(source));
+      final doc = parseDocumentBytes(bytes, path: 'OEBPS/ch1.xhtml');
+      expect(doc.recovered, isFalse);
+      final p = _single(doc.tree, Namespaces.xhtml, 'p');
+      expect(doc.tree.textOf(doc.tree.firstChildOf(p)), text);
+      expect(doc.tree.attribute(p, Namespaces.none, 'title'), text);
+    });
+
+    test('documento só com <!DOCTYPE html>: irrecuperável', () {
+      for (final source in ['<!DOCTYPE html>', '<!DOCTYPE html>\n  ']) {
+        final doc = _parse(source);
+        expect(doc.recovered, isTrue, reason: source);
+        expect(_codes(doc), [DiagnosticCodes.unparseable], reason: source);
+        final body = _single(doc.tree, Namespaces.xhtml, 'body');
+        expect(doc.tree.firstChildOf(body), -1);
+      }
+    });
+
     test('documento sintético de 2 MB monta sem erro', () {
       final source = syntheticDocument(2 * 1024 * 1024);
       expect(source.length, greaterThanOrEqualTo(2 * 1024 * 1024));

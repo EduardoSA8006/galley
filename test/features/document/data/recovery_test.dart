@@ -562,14 +562,17 @@ void main() {
       );
     });
 
-    test('marcador de CDATA dentro de comentário não protege o resto', () {
-      final body = '&' * 100000;
-      final watch = Stopwatch()..start();
-      final doc = _parse(_doc('<!-- <![CDATA[ --><p>$body</p>'));
-      watch.stop();
-      expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
-      expect(textOfP(doc), body);
-    });
+    test(
+      'comentário com marcador de CDATA + 100 KB de &: linear e literal',
+      () {
+        final body = '&' * 100000;
+        final watch = Stopwatch()..start();
+        final doc = _parse(_doc('<!-- <![CDATA[ --><p>$body</p>'));
+        watch.stop();
+        expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+        expect(textOfP(doc), body);
+      },
+    );
   });
 
   group('correções da revisão (rodada 2)', () {

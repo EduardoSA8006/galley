@@ -5,8 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:galley/src/core/diagnostics/diagnostic_codes.dart';
 import 'package:galley/src/core/diagnostics/diagnostic_sink.dart';
-import 'package:galley/src/features/container/domain/epub_book.dart';
 import 'package:galley/src/core/errors/galley_exception.dart';
+import 'package:galley/src/features/container/domain/epub_book.dart';
 import 'package:galley/src/features/document/data/parse_document.dart';
 import 'package:galley/src/features/document/domain/names.dart';
 

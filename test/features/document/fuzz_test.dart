@@ -8,6 +8,9 @@ import 'package:galley/src/features/document/domain/names.dart';
 
 const _xhtml = 'http://www.w3.org/1999/xhtml';
 
+/// Piso de documentos XHTML/SVG (de 1333) que chegam ao modo tolerante.
+const _minRecovered = 1000;
+
 const _seed =
     '<?xml version="1.0" encoding="UTF-8"?>\n'
     '<!DOCTYPE html>\n'
@@ -72,6 +75,8 @@ void main() {
   test('2.000 variações: nunca lança, < 2 s, raiz html ou svg', () {
     final random = Random(42);
     final failures = <String>[];
+    // XHTML/SVG que caíram no modo tolerante (text/html vai sempre).
+    var recovered = 0;
     for (var i = 0; i < 2000; i++) {
       final source = _mutate(random);
       final mediaType = const [
@@ -87,6 +92,7 @@ void main() {
           mediaType: mediaType,
         );
         watch.stop();
+        if (doc.recovered && mediaType != 'text/html') recovered++;
         final t = doc.tree;
         final root = t.firstChildOf(t.documentNode);
         final name = t.localNameOf(root);
@@ -113,5 +119,13 @@ void main() {
       );
     }
     expect(failures, isEmpty);
+    // Piso: sem ele, uma mudança no seed ou no mutador poderia deixar o
+    // fuzz sem exercitar o modo tolerante, sem ninguém perceber.
+    // Medido com o seed 42: 1294 de 1333.
+    expect(
+      recovered,
+      greaterThanOrEqualTo(_minRecovered),
+      reason: 'XHTML/SVG pelo modo tolerante: $recovered de 1333',
+    );
   });
 }

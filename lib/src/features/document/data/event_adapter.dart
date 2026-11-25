@@ -119,8 +119,8 @@ final class StrictRepairPolicy extends RepairPolicy {
 ///   alimentam a pilha e não viram atributos. Os prefixos são resolvidos
 ///   depois de lidas todas as declarações do elemento.
 /// - O texto passa por [normalizeLineEnds] (XML §2.11) antes da leitura.
-/// - `epub:` e `xlink:` sem declaração caem em OPS e XLink; `xml:` é sempre o namespace XML;
-///   outros prefixos sem declaração ficam em
+/// - `epub:` e `xlink:` sem declaração caem em OPS e XLink; `xml:` é
+///   sempre o namespace XML; outros prefixos sem declaração ficam em
 ///   [Namespaces.undeclaredPrefixUri], com o nome qualificado. Cada
 ///   prefixo sem declaração gera um `document.undeclaredPrefix`.
 /// - Uma raiz sem declaração `xmlns` padrão recebe o namespace de
@@ -675,18 +675,26 @@ final class EventAdapter {
   /// [value] sem caracteres proibidos no XML 1.0 (trocados por U+FFFD) e,
   /// se [attribute], com TAB, LF e CR trocados por espaço. Devolve o próprio
   /// [value] quando não há o que trocar (o caso comum, num laço curto).
+  ///
+  /// O laço rápido só desvia num controle, num surrogate isolado ou em
+  /// U+FFFE/U+FFFF: a faixa U+E000–U+FFFD (pontuação de largura total do
+  /// japonês, por exemplo) e os pares de surrogates válidos (emoji) passam
+  /// sem alocar.
   static String _sanitize(String value, {required bool attribute}) {
     final length = value.length;
-    if (attribute) {
-      for (var i = 0; i < length; i++) {
-        final c = value.codeUnitAt(i);
-        if (c < 0x20 || c >= 0xD800) return _sanitizeFrom(value, i, true);
-      }
-    } else {
-      for (var i = 0; i < length; i++) {
-        final c = value.codeUnitAt(i);
-        if (c >= 0x20 ? c >= 0xD800 : c != 0x0A && c != 0x09 && c != 0x0D) {
-          return _sanitizeFrom(value, i, false);
+    for (var i = 0; i < length; i++) {
+      final c = value.codeUnitAt(i);
+      if (c < 0x20) {
+        if (attribute || (c != 0x0A && c != 0x09 && c != 0x0D)) {
+          return _sanitizeFrom(value, i, attribute);
+        }
+      } else if (c >= 0xD800) {
+        if (c <= 0xDBFF &&
+            i + 1 < length &&
+            (value.codeUnitAt(i + 1) & 0xFC00) == 0xDC00) {
+          i++; // par válido
+        } else if (c <= 0xDFFF || c >= 0xFFFE) {
+          return _sanitizeFrom(value, i, attribute);
         }
       }
     }
@@ -753,7 +761,8 @@ String normalizeLineEnds(String text) {
 /// busca também no próximo `&` e trata o `&` corrente como literal. A saída
 /// é a mesma: um trecho com `&` nunca decodifica (não é nome de entidade, e
 /// `int.tryParse` falha), então o original também o deixaria literal.
-/// Cada caractere é visto no máximo duas vezes.
+/// Cada caractere é visto um número constante de vezes (no máximo três:
+/// a busca do terminador, a do próximo `&` e a cópia).
 ///
 /// O `package:xml` só chama [decode] no texto e nos valores de atributo
 /// (CDATA não passa por ele), então nenhuma adivinhação léxica é
