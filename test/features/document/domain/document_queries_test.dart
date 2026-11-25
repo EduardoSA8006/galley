@@ -212,6 +212,24 @@ void main() {
         expect(tree.elementsNamed(Namespaces.xhtml, 'div'), [1, 2, 3, 4, 5]);
       });
 
+      test('tokens internados direto no builder antes do build', () {
+        final b = TreeBuilder();
+        b.tokens
+          ..intern('x')
+          ..intern('y')
+          ..intern('chapter');
+        final p = b.names.intern(Namespaces.xhtml, 'p');
+        final cls = b.names.intern(Namespaces.none, 'class');
+        b
+          ..startElement(p)
+          ..attribute(cls, 'novo chapter novo')
+          ..endElement();
+        final tree = b.build();
+        expect(tree.classesOf(1).map(tree.tokens.tokenOf), ['novo', 'chapter']);
+        expect(tree.elementsWithClass('chapter'), [1]);
+        expect(tree.elementsWithClass('x'), isEmpty);
+      });
+
       test('class com 100 mil tokens distintos monta em tempo linear', () {
         const count = 100000;
         final value = List.generate(count, (i) => 't$i t$i').join(' ');

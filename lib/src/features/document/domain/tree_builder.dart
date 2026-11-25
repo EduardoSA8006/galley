@@ -46,6 +46,11 @@ final class TreeBuilder {
 
   bool _built = false;
 
+  /// Carimbo por id de token: o número do atributo em que o token foi
+  /// visto por último. Dá a deduplicação em O(1) por token.
+  final List<int> _stamps = [];
+  int _stamp = 0;
+
   /// Quantidade de elementos abertos.
   int get depth => _open.length - 1;
 
@@ -264,11 +269,6 @@ final class TreeBuilder {
     return starts;
   }
 
-  /// Carimbo por id de token: o número do atributo em que o token foi
-  /// visto por último. Dá a deduplicação em O(1) por token.
-  final List<int> _stamps = [];
-  int _stamp = 0;
-
   /// Separa [value] em tokens por espaço em branco ASCII, interna cada um e
   /// acrescenta a [out] os que ainda não apareceram neste atributo.
   void _tokenize(String value, _Int32Array out) {
@@ -285,7 +285,9 @@ final class TreeBuilder {
       }
       if (i == start) break;
       final token = tokens.intern(value.substring(start, i));
-      if (token == _stamps.length) _stamps.add(0);
+      while (_stamps.length <= token) {
+        _stamps.add(0);
+      }
       if (_stamps[token] == stamp) continue;
       _stamps[token] = stamp;
       out.add(token);
