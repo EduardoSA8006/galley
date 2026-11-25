@@ -22,7 +22,7 @@ O Galley abre e renderiza livros EPUB 2 e 3 com um motor próprio de estilo e la
 |---|---|
 | 1. Fundação + Container (zip próprio, OPF, spine, navegação, fontes ofuscadas, DRM) | ✅ concluído |
 | 2. Benchmark e corpus | ✅ concluído |
-| 3. Documento (XHTML → árvore própria) | planejado |
+| 3. Documento (XHTML → árvore própria) | ✅ concluído |
 | 4. Estilo (motor CSS + preferências do leitor) | planejado |
 | 5. Layout e paginação | planejado |
 | 6. Render e API pública (widget, controller) | planejado |

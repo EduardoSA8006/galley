@@ -1,7 +1,7 @@
 # Galley — Subprojeto 3: Documento (XHTML → árvore própria)
 
 - **Data:** 2026-11-25
-- **Status:** rascunho para aprovação
+- **Status:** aprovado; implementado na branch `sp3/documento`
 - **Documento pai:** `2026-11-24-galley-arquitetura-design.md` (§7 etapa 2, §8 item 3)
 - **Depende de:** SP1 (Container) e SP2 (Benchmark), mergeados.
 
