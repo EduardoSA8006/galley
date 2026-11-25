@@ -1,0 +1,297 @@
+{
+  "version": 1,
+  "mirrorRelease": "corpus-v1",
+  "books": [
+    {
+      "id": "se-pride-and-prejudice",
+      "url": "https://standardebooks.org/ebooks/jane-austen/pride-and-prejudice/downloads/jane-austen_pride-and-prejudice.epub?source=download",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/se-pride-and-prejudice.epub",
+      "sha256": "bc41e616c102d33c4c37b91baaa0c87af9c73838f32d4c75c600939b1c7ea587",
+      "size": 831931,
+      "license": "CC0-1.0 (produção) + domínio público (texto)",
+      "source": "Standard Ebooks",
+      "tags": [
+        "epub3"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "se-alice-tenniel",
+      "url": "https://standardebooks.org/ebooks/lewis-carroll/alices-adventures-in-wonderland/john-tenniel/downloads/lewis-carroll_alices-adventures-in-wonderland_john-tenniel.epub?source=download",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/se-alice-tenniel.epub",
+      "sha256": "f49c2908215e6f25280f3b00f8617d5cc16a181f12fb0079ebf5837ff6998891",
+      "size": 18598964,
+      "license": "CC0-1.0 (produção) + domínio público (texto e ilustrações)",
+      "source": "Standard Ebooks",
+      "tags": [
+        "epub3",
+        "illustrated",
+        "large"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "se-les-miserables",
+      "url": "https://standardebooks.org/ebooks/victor-hugo/les-miserables/isabel-f-hapgood/downloads/victor-hugo_les-miserables_isabel-f-hapgood.epub?source=download",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/se-les-miserables.epub",
+      "sha256": "821166864b9011c975ac544f4dc1d14bba7e40456aa4e0e89df377ad43aefe51",
+      "size": 3022078,
+      "license": "CC0-1.0 (produção) + domínio público (texto e tradução)",
+      "source": "Standard Ebooks",
+      "tags": [
+        "epub3",
+        "large"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "pg-frankenstein",
+      "url": "https://gutenberg.pglaf.org/cache/epub/84/pg84.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/pg-frankenstein.epub",
+      "sha256": "4af39abf2fce568360b493c01d3d1a1be8cdf01ab2d819cac58c32b9320af4d6",
+      "size": 294205,
+      "license": "Domínio público (texto); licença Project Gutenberg (marca)",
+      "source": "Project Gutenberg",
+      "tags": [
+        "epub2"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "pg-war-and-peace",
+      "url": "https://gutenberg.pglaf.org/cache/epub/2600/pg2600-images.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/pg-war-and-peace.epub",
+      "sha256": "7b032ea0ead55ad5ce2d00ef05761dc63497d9b27d0f278f8d05f696961782fa",
+      "size": 1855181,
+      "license": "Domínio público (texto e tradução); licença Project Gutenberg (marca)",
+      "source": "Project Gutenberg",
+      "tags": [
+        "epub2",
+        "large"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "pg-rashomon",
+      "url": "https://gutenberg.pglaf.org/cache/epub/1982/pg1982-images-3.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/pg-rashomon.epub",
+      "sha256": "090f520a4178b3a5575952728e5da718cc5e631de5255130d5ccd6608d11ed94",
+      "size": 86139,
+      "license": "Domínio público (texto); licença Project Gutenberg (marca)",
+      "source": "Project Gutenberg",
+      "tags": [
+        "epub3",
+        "cjk"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "pg-erter-tashlich",
+      "url": "https://gutenberg.pglaf.org/cache/epub/45252/pg45252-images.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/pg-erter-tashlich.epub",
+      "sha256": "ce715a18541149047a84dbe22007f6afc9c84090f226d309d139474b8429554f",
+      "size": 139231,
+      "license": "Domínio público (texto); licença Project Gutenberg (marca)",
+      "source": "Project Gutenberg",
+      "tags": [
+        "epub2",
+        "rtl"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "es-kusamakura-japanese-vertical-writing",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/kusamakura-japanese-vertical-writing.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/es-kusamakura-japanese-vertical-writing.epub",
+      "sha256": "6d4d4ed5eda3f612e3263c54fa0f74ccfa87260f43e81bb58ea658636e52eeb7",
+      "size": 17940673,
+      "license": "CC-BY-SA-3.0 (pacote) + domínio público (texto, via Aozora Bunko)",
+      "source": "IDPF/W3C EPUB 3 Samples",
+      "tags": [
+        "epub3",
+        "cjk",
+        "large"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "es-haruko-html-jpeg",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/haruko-html-jpeg.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/es-haruko-html-jpeg.epub",
+      "sha256": "87b5eaff288e238864d817ea54b4600dc8c6f96789d0efb946b8545d7ad2f0c0",
+      "size": 2247393,
+      "license": "CC-BY-SA-3.0",
+      "source": "IDPF/W3C EPUB 3 Samples",
+      "tags": [
+        "epub3",
+        "fixed-layout",
+        "cjk",
+        "illustrated"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "es-jlreq-in-japanese",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/jlreq-in-japanese.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/es-jlreq-in-japanese.epub",
+      "sha256": "22ab584f27026c653057d0b88e3168dc57a4badbc86585dd68d789cf6de630a3",
+      "size": 8352424,
+      "license": "W3C Document License",
+      "source": "IDPF/W3C EPUB 3 Samples",
+      "tags": [
+        "epub3",
+        "cjk",
+        "technical",
+        "tables",
+        "illustrated"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "es-regime-anticancer-arabic",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/regime-anticancer-arabic.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/es-regime-anticancer-arabic.epub",
+      "sha256": "5d10bf6a73f461b7b23294b6e34b72f2a1184c9543a424b4a0f737ed33967e96",
+      "size": 110694,
+      "license": "CC-BY-SA-3.0",
+      "source": "IDPF/W3C EPUB 3 Samples",
+      "tags": [
+        "epub3",
+        "rtl"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "es-israelsailing",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/israelsailing.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/es-israelsailing.epub",
+      "sha256": "10c397036d2eb54db172d05c9e3cda4382d04e8e9ce3ddd8741ba7058c3dcd4a",
+      "size": 1358190,
+      "license": "CC-BY-SA-2.5",
+      "source": "IDPF/W3C EPUB 3 Samples",
+      "tags": [
+        "epub3",
+        "rtl"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "es-linear-algebra",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/linear-algebra.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/es-linear-algebra.epub",
+      "sha256": "87e523d8e16c2d1f4b211b47c0495841687a3573c828d3ef36b1f77f91b2abd4",
+      "size": 1075489,
+      "license": "GFDL-1.2",
+      "source": "IDPF/W3C EPUB 3 Samples",
+      "tags": [
+        "epub3",
+        "technical",
+        "tables"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "es-page-blanche",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/page-blanche.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/es-page-blanche.epub",
+      "sha256": "d2efb562f17d43cef50578d4d67dd7fd991f8f254b6f5a7c28bde7461ea783eb",
+      "size": 3136922,
+      "license": "CC-BY-SA-3.0",
+      "source": "IDPF/W3C EPUB 3 Samples",
+      "tags": [
+        "epub3",
+        "fixed-layout",
+        "illustrated"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "es-cole-voyage-of-life",
+      "url": "https://github.com/IDPF/epub3-samples/releases/download/20230704/cole-voyage-of-life.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/es-cole-voyage-of-life.epub",
+      "sha256": "e38ed606ff604e638f737efaf66e0fd0b2997c3eab7432bcba9a00a81a925cf3",
+      "size": 970980,
+      "license": "CC-BY-SA-3.0 (pacote) + domínio público (pinturas)",
+      "source": "IDPF/W3C EPUB 3 Samples",
+      "tags": [
+        "epub3",
+        "fixed-layout",
+        "illustrated"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "w3c-lay-fxl-layout-pre-paginated",
+      "url": "https://w3c.github.io/epub-tests/tests/lay-fxl-layout-pre-paginated.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/w3c-lay-fxl-layout-pre-paginated.epub",
+      "sha256": "14d881e07b73b352ed877b12e6815a5a03ca841999affc786eba8488bb505e98",
+      "size": 227457,
+      "license": "W3C Software and Document License",
+      "source": "W3C epub-tests @ 12237fcbf91ea6cfe8908b8ebcaa840776ccbc1c",
+      "tags": [
+        "epub3",
+        "w3c-tests",
+        "fixed-layout"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "w3c-css-epub-writing-mode",
+      "url": "https://w3c.github.io/epub-tests/tests/css-epub-writing-mode.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/w3c-css-epub-writing-mode.epub",
+      "sha256": "25abfa1417d214a1dc6167c0bd89b2312c18fc08a99fc912b7624db3364a77de",
+      "size": 2975,
+      "license": "W3C Software and Document License",
+      "source": "W3C epub-tests @ 12237fcbf91ea6cfe8908b8ebcaa840776ccbc1c",
+      "tags": [
+        "epub3",
+        "w3c-tests",
+        "cjk"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "w3c-pkg-spine-progression_rtl",
+      "url": "https://w3c.github.io/epub-tests/tests/pkg-spine-progression_rtl.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/w3c-pkg-spine-progression_rtl.epub",
+      "sha256": "fd23faaf3decc9916d51a7d1b9355facc0c6720f2b62d531196bb12d5d8fd369",
+      "size": 3162,
+      "license": "W3C Software and Document License",
+      "source": "W3C epub-tests @ 12237fcbf91ea6cfe8908b8ebcaa840776ccbc1c",
+      "tags": [
+        "epub3",
+        "w3c-tests",
+        "rtl"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "w3c-ocf-font_obfuscation",
+      "url": "https://w3c.github.io/epub-tests/tests/ocf-font_obfuscation.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/w3c-ocf-font_obfuscation.epub",
+      "sha256": "320dba116553e42ae41264250aa343a8234bdce437f7d918662a7b63bc2a69a1",
+      "size": 55727,
+      "license": "W3C Software and Document License",
+      "source": "W3C epub-tests @ 12237fcbf91ea6cfe8908b8ebcaa840776ccbc1c",
+      "tags": [
+        "epub3",
+        "w3c-tests"
+      ],
+      "mirrorable": true
+    },
+    {
+      "id": "w3c-nav-spine_in-spine",
+      "url": "https://w3c.github.io/epub-tests/tests/nav-spine_in-spine.epub",
+      "mirrorUrl": "https://github.com/EduardoSA8006/galley/releases/download/corpus-v1/w3c-nav-spine_in-spine.epub",
+      "sha256": "a46e4b5f2124d3149bb040faf82c49d7ccfacba461f25ff930dfcf07869b56eb",
+      "size": 2267,
+      "license": "W3C Software and Document License",
+      "source": "W3C epub-tests @ 12237fcbf91ea6cfe8908b8ebcaa840776ccbc1c",
+      "tags": [
+        "epub3",
+        "w3c-tests"
+      ],
+      "mirrorable": true
+    }
+  ]
+}

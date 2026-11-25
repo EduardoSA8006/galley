@@ -21,7 +21,7 @@ O Galley abre e renderiza livros EPUB 2 e 3 com um motor próprio de estilo e la
 | Subprojeto | Estado |
 |---|---|
 | 1. Fundação + Container (zip próprio, OPF, spine, navegação, fontes ofuscadas, DRM) | ✅ concluído |
-| 2. Benchmark e corpus | próximo |
+| 2. Benchmark e corpus | em andamento |
 | 3. Documento (XHTML → árvore própria) | planejado |
 | 4. Estilo (motor CSS + preferências do leitor) | planejado |
 | 5. Layout e paginação | planejado |
@@ -49,6 +49,12 @@ await book.close();
 ```
 
 Livros malformados abrem sempre que possível; problemas recuperáveis aparecem em `diagnostics`. Só falhas que impedem a abertura lançam uma `GalleyException` (por exemplo `NotAnEpubException`, `DrmProtectedException`).
+
+## Benchmarks
+
+Gates de desempenho no CI (instruções e tempo, contra a `main`), comparação com
+outros parsers de EPUB, teto de 2 MiB de tamanho no APK Android e registro
+local: veja [`benchmark/README.md`](benchmark/README.md).
 
 ## Licença
 

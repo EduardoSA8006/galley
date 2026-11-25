@@ -1,0 +1,5 @@
+body { font-family: serif; line-height: 1.4; margin: 5%; }
+h1 { text-align: center; font-size: 1.8em; }
+blockquote { margin: 1em 2em; font-style: italic; }
+.verso { margin-left: 2em; }
+pre { font-family: monospace; }

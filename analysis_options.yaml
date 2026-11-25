@@ -1,6 +1,12 @@
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
+  exclude:
+    # Pacote de benchmark (e os satélites dele: apps do size, runner do
+    # epubx): cada um tem a sua análise, com o próprio `pub get`, em passos
+    # próprios do CI. Sem o `pub get` deles, a análise da raiz não resolve
+    # os imports.
+    - benchmark/**
   language:
     strict-casts: true
     strict-inference: true

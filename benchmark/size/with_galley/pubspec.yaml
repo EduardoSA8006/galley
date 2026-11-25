@@ -1,0 +1,20 @@
+name: size_app
+description: App Android mínimo, com o Galley, para medir o tamanho que ele acrescenta (modo size do benchmark).
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  galley:
+    path: ../../..
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+
+flutter:
+  assets:
+    - assets/empty.epub

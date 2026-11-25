@@ -1,0 +1,5 @@
+table { border-collapse: collapse; margin: 1em auto; }
+th, td { border: 1px solid #333; padding: 0.3em 0.6em; }
+caption { font-weight: bold; margin-bottom: 0.4em; }
+th { background-color: #ddd; }
+td.num { text-align: right; }

@@ -1,0 +1,428 @@
+# Benchmarks noturnos da `main` (e a cada push nela): histórico no Bencher,
+# regressão gradual contra a tag `bench-baseline`, comparação com
+# concorrentes, tamanho do APK e robustez no corpus amplo.
+#
+# Os jobs de medição não têm secrets. Só os jobs `upload*` recebem
+# BENCHER_API_KEY, e eles não fazem checkout nem executam código do
+# repositório: baixam os BMFs e chamam a CLI do Bencher.
+#
+# Testbeds no Bencher (branch main): instruções em `github-ubuntu-valgrind`
+# e A/B em `github-ubuntu-ab`, os mesmos do PR, para que o
+# `--start-point main` do PR traga este histórico; compare, size e wide (só
+# do noturno) em `github-ubuntu-nightly`.
+#
+# O `wide` (corpus amplo, downloads longos) roda só no agendamento e no
+# disparo manual, nunca a cada push.
+name: bench-nightly
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Os jobs de benchmark usam Flutter/Dart fixos (Dart 3.13.4).
+  FLUTTER_VERSION: '3.47.5'
+
+jobs:
+  # Instruções do head (histórico da main) e, se a tag existir, a regressão
+  # gradual: reprova com mais de 10% desde `bench-baseline`.
+  instructions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Histórico e tags completos para resolver `bench-baseline`.
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Instalar o Valgrind
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends valgrind
+      - name: Dependências do benchmark
+        working-directory: benchmark
+        run: dart pub get
+      - name: Instruções e regressão gradual
+        working-directory: benchmark
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          if git rev-parse --verify --quiet 'refs/tags/bench-baseline^{commit}' >/dev/null; then
+            base=bench-baseline
+            echo "Regressão gradual: base bench-baseline ($(git rev-parse --short 'bench-baseline^{commit}')), limite 10%."
+          else
+            # Sem a tag, mede só o head (o primeiro commit não tem
+            # benchmark/: tudo entra como `added`) e não verifica a gradual.
+            base=$(git rev-list --max-parents=0 HEAD | tail -n 1)
+            echo "::notice::Tag bench-baseline ausente: checagem de regressão gradual pulada (crie a tag após o merge do SP2; ver benchmark/README.md)."
+          fi
+          dart run tool/bench.dart instructions \
+            --base "$base" --head HEAD --counter valgrind \
+            --threshold 0.10 \
+            --out "$RUNNER_TEMP/out/bmf.json" \
+            --report "$RUNNER_TEMP/out/report.md"
+      - name: Resumo
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/out/report.md" ]; then
+            cat "$RUNNER_TEMP/out/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: nightly-instructions
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # A/B mais longo, só do head (histórico de tempo de parede da main).
+  ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Dependências do benchmark
+        working-directory: benchmark
+        run: dart pub get
+      - name: A/B longo
+        working-directory: benchmark
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          # Base sem benchmark/ (primeiro commit): mede só o head.
+          base=$(git rev-list --max-parents=0 HEAD | tail -n 1)
+          dart run tool/bench.dart ab \
+            --base "$base" --head HEAD --rounds 31 \
+            --out "$RUNNER_TEMP/out/bmf.json" \
+            --report "$RUNNER_TEMP/out/report.md"
+      - name: Resumo
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/out/report.md" ]; then
+            cat "$RUNNER_TEMP/out/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: nightly-ab
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # Só relatório: o resultado dos concorrentes nunca reprova o noturno.
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      # restore + save explícitos: o cache é salvo mesmo se a comparação
+      # falhar (o save implícito do actions/cache só roda em sucesso). A
+      # chave leva o run_id e restaura pelo prefixo; só salva se chegaram
+      # livros novos, então uma carga parcial é completada nas seguintes.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: corpus-cache
+        with:
+          path: .corpus-cache/*.epub
+          key: corpus-${{ hashFiles('corpus/manifest.json') }}-${{ github.run_id }}
+          restore-keys: corpus-${{ hashFiles('corpus/manifest.json') }}-
+      - name: Livros no cache (antes)
+        id: corpus-cache-before
+        run: echo "n=$(find .corpus-cache -maxdepth 1 -name '*.epub' 2>/dev/null | wc -l || true)" >> "$GITHUB_OUTPUT"
+      - name: Dependências do benchmark
+        working-directory: benchmark
+        run: dart pub get
+      - name: Comparação com concorrentes
+        working-directory: benchmark
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          dart run tool/bench.dart compare \
+            --out "$RUNNER_TEMP/out/bmf.json" \
+            --report "$RUNNER_TEMP/out/report.md"
+      - name: Livros no cache (depois)
+        id: corpus-cache-after
+        if: always()
+        env:
+          BEFORE: ${{ steps.corpus-cache-before.outputs.n }}
+        run: |
+          n=$(find .corpus-cache -maxdepth 1 -name '*.epub' 2>/dev/null | wc -l || true)
+          echo "Livros no cache: ${BEFORE:-0} -> $n"
+          if [ "$n" -gt "${BEFORE:-0}" ]; then
+            echo "grew=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.corpus-cache-after.outputs.grew == 'true'
+        with:
+          path: .corpus-cache/*.epub
+          key: corpus-${{ hashFiles('corpus/manifest.json') }}-${{ github.run_id }}
+      - name: Resumo
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/out/report.md" ]; then
+            cat "$RUNNER_TEMP/out/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: nightly-compare
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # Bytes que o Galley acrescenta ao APK release arm64 (teto de 2 MiB).
+  size:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Licenças do Android SDK
+        run: yes | flutter doctor --android-licenses > /dev/null || true
+      - name: Dependências do benchmark
+        working-directory: benchmark
+        run: dart pub get
+      - name: Tamanho do APK
+        working-directory: benchmark
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          dart run tool/bench.dart size --out "$RUNNER_TEMP/out/bmf.json"
+      - name: Resumo
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/out/bmf.json" ]; then
+            {
+              echo '# Tamanho do APK (arm64, release)'
+              echo
+              echo '```json'
+              cat "$RUNNER_TEMP/out/bmf.json"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: nightly-size
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # Robustez no corpus amplo (300 livros do Project Gutenberg). A primeira
+  # execução sem cache baixa tudo do espelho (pode levar ~1,5 h); depois o
+  # cache cobre. Só `crashed` reprova. Job independente: não atrasa os demais
+  # nem o envio deles.
+  wide:
+    # Só no agendamento e no disparo manual: a cada push na `main`, a
+    # primeira carga a frio sobrecarregaria o espelho.
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      # restore + save explícitos: um `crashed` (exit 1) ou o estouro de
+      # prazo não podem impedir o save, senão toda execução baixa tudo de
+      # novo. A chave leva o run_id e restaura pelo prefixo; só salva se
+      # chegaram livros novos, então uma carga parcial é completada nas
+      # execuções seguintes sem salvar cópias iguais.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: wide-cache
+        with:
+          path: .corpus-cache/pg-wide
+          key: pg-wide-${{ hashFiles('corpus/pg-wide.json') }}-${{ github.run_id }}
+          restore-keys: pg-wide-${{ hashFiles('corpus/pg-wide.json') }}-
+      - name: Livros no cache (antes)
+        id: wide-cache-before
+        run: echo "n=$(find .corpus-cache/pg-wide -name '*.epub' 2>/dev/null | wc -l || true)" >> "$GITHUB_OUTPUT"
+      - name: Dependências do benchmark
+        working-directory: benchmark
+        run: dart pub get
+      - name: Corpus amplo
+        working-directory: benchmark
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          dart run tool/bench.dart wide \
+            --out "$RUNNER_TEMP/out/bmf.json" \
+            --report "$RUNNER_TEMP/out/report.md"
+      - name: Livros no cache (depois)
+        id: wide-cache-after
+        if: always()
+        env:
+          BEFORE: ${{ steps.wide-cache-before.outputs.n }}
+        run: |
+          n=$(find .corpus-cache/pg-wide -name '*.epub' 2>/dev/null | wc -l || true)
+          echo "Livros no cache: ${BEFORE:-0} -> $n"
+          if [ "$n" -gt "${BEFORE:-0}" ]; then
+            echo "grew=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.wide-cache-after.outputs.grew == 'true'
+        with:
+          path: .corpus-cache/pg-wide
+          key: pg-wide-${{ hashFiles('corpus/pg-wide.json') }}-${{ github.run_id }}
+      - name: Resumo
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/out/report.md" ]; then
+            cat "$RUNNER_TEMP/out/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: nightly-wide
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # Envio ao Bencher (branch main), sem checkout nem execução de código do
+  # repositório. Instruções e A/B nos mesmos testbeds do PR.
+  upload:
+    name: upload (${{ matrix.kind }})
+    needs: [instructions, ab, compare, size]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: instructions
+            testbed: github-ubuntu-valgrind
+          - kind: ab
+            testbed: github-ubuntu-ab
+          - kind: compare
+            testbed: github-ubuntu-nightly
+          - kind: size
+            testbed: github-ubuntu-nightly
+    env:
+      BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
+    steps:
+      - name: Verificar a chave do Bencher
+        id: key
+        run: |
+          if [ -z "$BENCHER_API_KEY" ]; then
+            echo "::notice::Envio ao Bencher pulado: o secret BENCHER_API_KEY não está definido."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        with:
+          name: nightly-${{ matrix.kind }}
+          path: artifact
+      - name: Verificar o BMF
+        id: bmf
+        if: steps.key.outputs.present == 'true'
+        env:
+          KIND: ${{ matrix.kind }}
+        run: |
+          if [ -s artifact/bmf.json ]; then
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Sem bmf.json de $KIND: nada a enviar."
+          fi
+      - uses: bencherdev/bencher@b2484bc6734c8e6da4fad141bd13527a11da3988 # v0.6.17
+        if: steps.bmf.outputs.upload == 'true'
+      - name: Enviar ao Bencher
+        if: steps.bmf.outputs.upload == 'true'
+        env:
+          SHA: ${{ github.sha }}
+          TESTBED: ${{ matrix.testbed }}
+        run: |
+          bencher run \
+            --project galley \
+            --testbed "$TESTBED" \
+            --branch main \
+            --hash "$SHA" \
+            --adapter json \
+            --file artifact/bmf.json
+
+  upload-wide:
+    needs: wide
+    # Sem `wide` (push na main), nada a enviar.
+    if: always() && needs.wide.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
+    steps:
+      - name: Verificar a chave do Bencher
+        id: key
+        run: |
+          if [ -z "$BENCHER_API_KEY" ]; then
+            echo "::notice::Envio ao Bencher pulado: o secret BENCHER_API_KEY não está definido."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        with:
+          name: nightly-wide
+          path: artifact
+      - name: Verificar o BMF
+        id: bmf
+        if: steps.key.outputs.present == 'true'
+        run: |
+          if [ -s artifact/bmf.json ]; then
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Sem bmf.json do wide: nada a enviar."
+          fi
+      - uses: bencherdev/bencher@b2484bc6734c8e6da4fad141bd13527a11da3988 # v0.6.17
+        if: steps.bmf.outputs.upload == 'true'
+      - name: Enviar ao Bencher
+        if: steps.bmf.outputs.upload == 'true'
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          bencher run \
+            --project galley \
+            --testbed github-ubuntu-nightly \
+            --branch main \
+            --hash "$SHA" \
+            --adapter json \
+            --file artifact/bmf.json

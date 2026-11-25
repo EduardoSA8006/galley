@@ -1,0 +1,5 @@
+tags:
+  # Testes de integração lentos (compilam refs git e rodam o Valgrind).
+  # Ficam fora do `dart test` normal do CI (`-x slow`); rode com `-t slow`.
+  slow:
+    timeout: 15m

@@ -1,0 +1,16 @@
+@namespace epub "http://www.idpf.org/2007/ops";
+html { font-size: 100%; }
+body { font-family: Georgia, "Times New Roman", serif; margin: 0 8%; text-align: justify; hyphens: auto; }
+h1, h2 { font-variant: small-caps; letter-spacing: 0.05em; page-break-before: always; }
+p { margin: 0; text-indent: 1.2em; orphans: 2; widows: 2; }
+p.first, h1 + p, h2 + p { text-indent: 0; }
+p.first::first-letter { font-size: 3em; float: left; line-height: 0.8; padding-right: 0.1em; }
+.center { text-align: center; text-indent: 0; }
+.right { text-align: right; text-indent: 0; }
+.box { border: 1px solid #444; padding: 0.5em 1em; margin: 1em 0; background-color: #eee; }
+.small { font-size: 0.8em; }
+.big { font-size: 1.5em; }
+.em1 { margin-left: 2em; margin-right: 1em; }
+.pct { width: 50%; margin: 1em auto; }
+@media (max-width: 400px) { body { margin: 0 2%; } }
+div > span.hl, a:link { color: #036; }

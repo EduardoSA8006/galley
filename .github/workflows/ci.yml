@@ -28,12 +28,39 @@ jobs:
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed .
       - run: flutter analyze --fatal-infos
-      - run: flutter test
+      - run: flutter test --exclude-tags heavy
       - name: Analisar o app de exemplo
         working-directory: example
         run: |
           flutter pub get
           flutter analyze --fatal-infos
+      - name: Analisar e testar o pacote de benchmark
+        working-directory: benchmark
+        run: |
+          dart pub get
+          dart analyze --fatal-infos
+          dart test -x slow
+      # O epubx (image ^3) não resolve junto com o epub_plus/epub_pro (image
+      # ^4): tem pacote e executável próprios para o modo compare.
+      - name: Analisar e testar o runner do epubx
+        working-directory: benchmark/competitors/epubx_runner
+        run: |
+          dart pub get
+          dart analyze --fatal-infos
+          dart test
+
+  # Testes pesados (livro sintético de 300 MiB), isolados dos jobs comuns.
+  heavy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test --tags heavy
 
   integration:
     name: integration (${{ matrix.platform }})
