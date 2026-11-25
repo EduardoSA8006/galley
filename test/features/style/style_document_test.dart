@@ -184,9 +184,11 @@ void main() {
       test('restyle(matchDocument) == styleDocument: $name', () async {
         final f = await _fixture();
         for (final doc in f.documents) {
-          final matched = matchDocument(f.context(), doc, _env);
-          final viaRestyle = restyle(matched, prefs);
-          final direct = styleDocument(f.context(), doc, _env, prefs);
+          final matched = checkedMatch(matchDocument(f.context(), doc, _env));
+          final viaRestyle = restyleChecked(matched, prefs);
+          final direct = checkedStyle(
+            styleDocument(f.context(), doc, _env, prefs),
+          );
           _expectSameStyles(doc.tree, viaRestyle, direct);
           expect(direct.pageBackground, viaRestyle.pageBackground);
         }
@@ -198,7 +200,9 @@ void main() {
       final resources = f.resources;
       final prefs = _all(PreferencePolicy.adjust);
       for (final doc in f.documents) {
-        final local = styleDocument(f.context(), doc, _env, prefs);
+        final local = checkedStyle(
+          styleDocument(f.context(), doc, _env, prefs),
+        );
         final remote = await Isolate.run(() {
           final context = BookStyleContext(
             resolve: (p) => resources[p],
@@ -236,7 +240,12 @@ void main() {
       expect(matched.fontFaces, isEmpty);
 
       // Os estilos são os da folha padrão sozinha.
-      final styled = restyle(matched, ReaderPreferences.none);
+      // Opt-out explícito: o erro interno é provocado de propósito.
+      final styled = restyleChecked(
+        matched,
+        ReaderPreferences.none,
+        allowInternalError: true,
+      );
       expect(styled.internalError, 'StateError');
       final tree = doc.tree;
       final p = elementsNamed(tree, 'p').first;
@@ -253,6 +262,21 @@ void main() {
         styleOfElement(styled, title)[PropertyId.display],
         const CssKeyword(CssKeywords.none),
       );
+    });
+
+    test('o fixture falha em erro interno sem opt-out', () async {
+      final f = await _fixture();
+      final matched = guardMatch(
+        f.documents.first,
+        () => throw StateError('bug'),
+        environment: _env,
+      );
+      expect(() => checkedMatch(matched), throwsStateError);
+      expect(
+        () => restyleChecked(matched, ReaderPreferences.none),
+        throwsStateError,
+      );
+      expect(checkedMatch(matched, allowInternalError: true), same(matched));
     });
 
     test('GalleyException escapa', () async {
@@ -276,11 +300,10 @@ void main() {
           bookKey: 'livro',
         );
         final sink = CollectingDiagnosticSink();
-        final matched = matchDocument(
-          context,
-          f.documents.first,
-          _env,
-          sink: sink,
+        // Opt-out explícito: o erro interno é provocado de propósito.
+        final matched = checkedMatch(
+          matchDocument(context, f.documents.first, _env, sink: sink),
+          allowInternalError: true,
         );
         expect(matched.internalError, 'StateError');
         expect(
@@ -292,7 +315,9 @@ void main() {
 
     test('sem exceção: devolve o resultado do corpo', () async {
       final f = await _fixture();
-      final inner = matchDocument(f.context(), f.documents.first, _env);
+      final inner = checkedMatch(
+        matchDocument(f.context(), f.documents.first, _env),
+      );
       expect(inner.internalError, isNull);
       expect(
         guardMatch(f.documents.first, () => inner, environment: _env),
@@ -307,7 +332,7 @@ void main() {
       () async {
         final f = await _fixture();
         final doc = f.documents.first;
-        final matched = matchDocument(f.context(), doc, _env);
+        final matched = checkedMatch(matchDocument(f.context(), doc, _env));
         final sink = CollectingDiagnosticSink();
         final styled = guardRestyle(
           matched,
@@ -336,7 +361,9 @@ void main() {
 
     test('GalleyException escapa', () async {
       final f = await _fixture();
-      final matched = matchDocument(f.context(), f.documents.first, _env);
+      final matched = checkedMatch(
+        matchDocument(f.context(), f.documents.first, _env),
+      );
       expect(
         () => guardRestyle(matched, () => throw const BookClosedException()),
         throwsA(isA<BookClosedException>()),
@@ -345,8 +372,10 @@ void main() {
 
     test('sem exceção: devolve o resultado do corpo', () async {
       final f = await _fixture();
-      final matched = matchDocument(f.context(), f.documents.first, _env);
-      final inner = restyle(matched, ReaderPreferences.none);
+      final matched = checkedMatch(
+        matchDocument(f.context(), f.documents.first, _env),
+      );
+      final inner = restyleChecked(matched, ReaderPreferences.none);
       expect(guardRestyle(matched, () => inner), same(inner));
     });
   });

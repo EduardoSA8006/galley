@@ -7,7 +7,6 @@ import 'package:galley/src/features/style/domain/css_value.dart';
 import 'package:galley/src/features/style/domain/matched_document.dart';
 import 'package:galley/src/features/style/domain/properties.dart';
 import 'package:galley/src/features/style/domain/reader_preferences.dart';
-import 'package:galley/src/features/style/domain/restyle.dart';
 import 'package:galley/src/features/style/domain/styled_document.dart';
 
 import '../../../support/style_fixture.dart';
@@ -24,7 +23,7 @@ const _body =
 
 // Globais finais são preguiçosas: lidas no primeiro uso.
 final MatchedDocument _matched = matchCss(_body, defaultSheet: true);
-final StyledDocument _styled = restyle(_matched, ReaderPreferences.none);
+final StyledDocument _styled = restyleChecked(_matched, ReaderPreferences.none);
 
 ComputedStyle _style(String name, {int index = 0}) {
   final matched = matchCss(_body, defaultSheet: true);
@@ -78,7 +77,7 @@ void main() {
       expect(_px(_style('rt'), PropertyId.fontSize), 8);
       const body = '<p><ruby><rb>漢</rb><rtc><rt>kan</rt></rtc></ruby></p>';
       final m = matchCss(body, defaultSheet: true);
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       ComputedStyle of(String name) =>
           styleOfElement(s, elementsNamed(m.tree, name).single);
       expect(_kw(of('rb'), PropertyId.display), CssKeywords.rubyBase);

@@ -17,6 +17,8 @@ import 'package:galley/src/features/style/domain/selector.dart';
 import 'package:galley/src/features/style/domain/style_environment.dart';
 import 'package:galley/src/features/style/domain/stylesheet.dart';
 
+import '../../../support/style_fixture.dart' show checkedMatch;
+
 const env = StyleEnvironment(pageWidth: 500, pageHeight: 800);
 
 const red = CssColor(0xFFFF0000);
@@ -57,12 +59,14 @@ MatchedDocument run(
     path: 'OEBPS/ch.xhtml',
   );
   final context = BookStyleContext(resolve: (p) => all[p], bookKey: 'livro');
-  return matchDocument(
-    context,
-    document,
-    environment,
-    sink: sink,
-    userAgentSheet: ua == null ? null : sheet(ua),
+  return checkedMatch(
+    matchDocument(
+      context,
+      document,
+      environment,
+      sink: sink,
+      userAgentSheet: ua == null ? null : sheet(ua),
+    ),
   );
 }
 

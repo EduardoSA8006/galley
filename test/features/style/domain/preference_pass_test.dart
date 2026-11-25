@@ -6,7 +6,6 @@ import 'package:galley/src/features/style/domain/css_value.dart';
 import 'package:galley/src/features/style/domain/matched_document.dart';
 import 'package:galley/src/features/style/domain/properties.dart';
 import 'package:galley/src/features/style/domain/reader_preferences.dart';
-import 'package:galley/src/features/style/domain/restyle.dart';
 import 'package:galley/src/features/style/domain/styled_document.dart';
 import 'package:galley/src/features/style/domain/text_run.dart';
 
@@ -50,7 +49,7 @@ int _el(DocumentTree tree, String name, {String? cls}) {
 
 final class _Doc {
   _Doc(this.matched, ReaderPreferences prefs)
-    : styled = restyle(matched, prefs);
+    : styled = restyleChecked(matched, prefs);
 
   final MatchedDocument matched;
   final StyledDocument styled;
@@ -109,8 +108,8 @@ void main() {
   group('sem preferências', () {
     test('none e todas com "editora" dão o mesmo resultado', () {
       final m = _match();
-      final none = restyle(m, ReaderPreferences.none);
-      _expectSame(restyle(m, _all(_publisher)), none);
+      final none = restyleChecked(m, ReaderPreferences.none);
+      _expectSame(restyleChecked(m, _all(_publisher)), none);
       expect(none.pageBackground, isNull);
       final p = styleOfElement(none, _el(m.tree, 'p', cls: 'a'));
       expect((p[PropertyId.lineHeight] as CssNumber).value, 1.5);
@@ -639,7 +638,7 @@ void main() {
           mediaType: 'image/svg+xml',
           defaultSheet: true,
         );
-        final s = restyle(m, _all(policy));
+        final s = restyleChecked(m, _all(policy));
         expect(s.pageBackground, 0xFF000000);
         final svg = styleOfElement(s, elementsNamed(m.tree, 'svg').single);
         // Referência = a raiz (20 px): forçar 1,5 px → fator 0,075.
@@ -652,7 +651,7 @@ void main() {
           body: '<p>x <em>y</em></p>',
           css: 'body{display:none}',
         );
-        expect(() => restyle(m, _all(policy)), returnsNormally);
+        expect(() => restyleChecked(m, _all(policy)), returnsNormally);
       });
     }
   });

@@ -6,10 +6,10 @@ import 'package:galley/src/features/document/data/parse_document.dart';
 import 'package:galley/src/features/style/data/book_style_context.dart';
 import 'package:galley/src/features/style/data/style_document.dart';
 import 'package:galley/src/features/style/domain/reader_preferences.dart';
-import 'package:galley/src/features/style/domain/restyle.dart';
 import 'package:galley/src/features/style/domain/style_environment.dart';
 
 import '../../support/publisher_css.dart';
+import '../../support/style_fixture.dart';
 import '../../support/synthetic_xhtml.dart';
 
 // Tetos calibrados na primeira medição (XHTML sintético de 1 MiB de
@@ -43,16 +43,11 @@ void main() {
       bookKey: 'memoria',
     );
     const env = StyleEnvironment(pageWidth: 500, pageHeight: 800);
-    final matched = matchDocument(context, document, env);
-    final styled = restyle(matched, ReaderPreferences.none);
+    final matched = checkedMatch(matchDocument(context, document, env));
+    final styled = restyleChecked(matched, ReaderPreferences.none);
     expect(styled.internalError, isNull);
     final styledRatio = styled.retainedBytes / bytes.length;
     final matchedRatio = matched.retainedBytes / bytes.length;
-    // ignore: avoid_print
-    print(
-      'MEDIDO distinct=${styled.distinctStyleCount} '
-      'styled=$styledRatio matched=$matchedRatio',
-    );
     expect(styled.distinctStyleCount, lessThanOrEqualTo(kMaxDistinctStyles));
     expect(styledRatio, lessThanOrEqualTo(kMaxStyledRatio));
     expect(matchedRatio, lessThanOrEqualTo(kMaxMatchedRatio));

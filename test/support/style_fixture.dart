@@ -48,20 +48,66 @@ MatchedDocument matchSource(
     mediaType: mediaType,
   );
   final context = BookStyleContext(resolve: (_) => null, bookKey: 'livro');
-  return matchDocument(
-    context,
-    document,
-    environment,
-    userAgentSheet: defaultSheet ? null : StyleSheet.empty,
+  return checkedMatch(
+    matchDocument(
+      context,
+      document,
+      environment,
+      userAgentSheet: defaultSheet ? null : StyleSheet.empty,
+    ),
   );
 }
+
+/// Falha o teste se o casamento [m] caiu no catch-all (erro interno):
+/// sem isso, um bug viraria "só a folha padrão" em silêncio e os testes que
+/// afirmam que algo não muda passariam sem testar nada. Opt-out explícito
+/// com [allowInternalError] (só para os testes que provocam o erro).
+MatchedDocument checkedMatch(
+  MatchedDocument m, {
+  bool allowInternalError = false,
+}) {
+  final error = m.internalError;
+  if (error != null && !allowInternalError) {
+    throw StateError(
+      'erro interno no casamento de ${m.path}: $error '
+      '(o catch-all de matchDocument escondeu a exceção)',
+    );
+  }
+  return m;
+}
+
+/// Falha o teste se o estilo [s] tem erro interno (do casamento ou do
+/// `restyle`); ver [checkedMatch].
+StyledDocument checkedStyle(
+  StyledDocument s, {
+  bool allowInternalError = false,
+}) {
+  final error = s.internalError;
+  if (error != null && !allowInternalError) {
+    throw StateError(
+      'erro interno no estilo: $error '
+      '(o catch-all de matchDocument/restyle escondeu a exceção)',
+    );
+  }
+  return s;
+}
+
+/// `restyle` que falha o teste em erro interno ([checkedStyle]).
+StyledDocument restyleChecked(
+  MatchedDocument matched,
+  ReaderPreferences preferences, {
+  bool allowInternalError = false,
+}) => checkedStyle(
+  restyle(matched, preferences),
+  allowInternalError: allowInternalError,
+);
 
 /// [matchCss] seguido de `restyle` sem preferências.
 StyledDocument styleCss(
   String body, {
   String css = '',
   bool defaultSheet = false,
-}) => restyle(
+}) => restyleChecked(
   matchCss(body, css: css, defaultSheet: defaultSheet),
   ReaderPreferences.none,
 );

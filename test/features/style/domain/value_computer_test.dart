@@ -3,7 +3,6 @@ import 'package:galley/src/features/style/domain/computed_style.dart';
 import 'package:galley/src/features/style/domain/css_value.dart';
 import 'package:galley/src/features/style/domain/properties.dart';
 import 'package:galley/src/features/style/domain/reader_preferences.dart';
-import 'package:galley/src/features/style/domain/restyle.dart';
 import 'package:galley/src/features/style/domain/style_environment.dart';
 import 'package:galley/src/features/style/domain/stylesheet.dart';
 import 'package:galley/src/features/style/domain/value_computer.dart';
@@ -18,7 +17,7 @@ ComputedStyle styled(
   int index = 0,
 }) {
   final m = matchCss(body, css: css);
-  final s = restyle(m, ReaderPreferences.none);
+  final s = restyleChecked(m, ReaderPreferences.none);
   return styleOfElement(s, elementsNamed(m.tree, name)[index]);
 }
 
@@ -36,7 +35,7 @@ void main() {
 
     test('relativas ao pai, palavras-chave e absolutas', () {
       final m = matchCss(body, css: css);
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final ps = elementsNamed(m.tree, 'p');
       double size(int i) => fontSizeOf(styleOfElement(s, ps[i]));
       expect(size(0), 40);
@@ -67,7 +66,7 @@ void main() {
       );
       expect(m.pageWidth, 600);
       expect(m.pageHeight, 800);
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final ps = elementsNamed(m.tree, 'p');
       expect(fontSizeOf(styleOfElement(s, ps[0])), 30);
       expect(fontSizeOf(styleOfElement(s, ps[1])), 80);
@@ -111,7 +110,7 @@ void main() {
         '<div><p/><span/></div>',
         css: 'div{font-size:30px} span{font-size:initial}',
       );
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       expect(fontSizeOf(styleOfElement(s, elementsNamed(m.tree, 'p')[0])), 30);
       expect(
         fontSizeOf(styleOfElement(s, elementsNamed(m.tree, 'span')[0])),
@@ -168,7 +167,7 @@ void main() {
         '<div><span>x</span></div>',
         css: 'div{font-size:10px; line-height:1.5} span{font-size:20px}',
       );
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final div = styleOfElement(s, elementsNamed(m.tree, 'div')[0]);
       final span = styleOfElement(s, elementsNamed(m.tree, 'span')[0]);
       expect(div[PropertyId.lineHeight], const CssNumber(1.5));
@@ -180,7 +179,7 @@ void main() {
         '<div><span>x</span></div>',
         css: 'div{font-size:10px; line-height:2em} span{font-size:20px}',
       );
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final div = styleOfElement(s, elementsNamed(m.tree, 'div')[0]);
       final span = styleOfElement(s, elementsNamed(m.tree, 'span')[0]);
       expect(div[PropertyId.lineHeight], const CssLength(px: 20));
@@ -336,7 +335,7 @@ void main() {
     test('40 div{font-size:1000%} aninhados → 10000, finito', () {
       final body = '${'<div>' * 40}x${'</div>' * 40}';
       final m = matchCss(body, css: 'div{font-size:1000%; margin-left:3em}');
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final divs = elementsNamed(m.tree, 'div');
       final last = styleOfElement(s, divs.last);
       expect(fontSizeOf(last), 10000);

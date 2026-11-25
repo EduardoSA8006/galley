@@ -6,7 +6,6 @@ import 'package:galley/src/features/style/domain/computed_style.dart';
 import 'package:galley/src/features/style/domain/css_value.dart';
 import 'package:galley/src/features/style/domain/properties.dart';
 import 'package:galley/src/features/style/domain/reader_preferences.dart';
-import 'package:galley/src/features/style/domain/restyle.dart';
 import 'package:galley/src/features/style/domain/selector.dart';
 import 'package:galley/src/features/style/domain/value_computer.dart';
 
@@ -21,7 +20,7 @@ String _body(int n) => [
     '<p>texto <em>a</em> <span class="x">b</span></p>',
 ].join();
 
-List<int> _hashes(int n) => restyle(
+List<int> _hashes(int n) => restyleChecked(
   matchCss(_body(n), css: _css),
   ReaderPreferences.none,
 ).styles.map((s) => s.stableHash).toList();
@@ -34,7 +33,7 @@ const _extremeCss =
 String _extremeBody() =>
     '<p>a</p>${'<div>' * 40}<span>x</span>${'</div>' * 40}';
 
-List<int> _extremeHashes() => restyle(
+List<int> _extremeHashes() => restyleChecked(
   matchCss(_extremeBody(), css: _extremeCss),
   ReaderPreferences.none,
 ).styles.map((s) => s.stableHash).toList();
@@ -43,7 +42,7 @@ void main() {
   group('internamento', () {
     test('1.000 p iguais → o mesmo estilo, poucos distintos', () {
       final m = matchCss('<p>a</p>' * 1000, css: 'p{margin-top:1em}');
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final ps = elementsNamed(m.tree, 'p');
       expect(ps, hasLength(1000));
       final first = s.elementStyles[ps.first];
@@ -55,7 +54,7 @@ void main() {
 
     test('nós que não são elemento ficam com −1', () {
       final m = matchCss('<p>texto</p>');
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       for (var n = 0; n < m.tree.nodeCount; n++) {
         final element = m.tree.kindOf(n) == NodeKind.element;
         expect(s.elementStyles[n] >= 0, element, reason: 'nó $n');
@@ -93,8 +92,8 @@ void main() {
   group('hash estável', () {
     test('duas chamadas: estilos iguais por valor e mesmo hash', () {
       final m = matchCss(_body(20), css: _css);
-      final a = restyle(m, ReaderPreferences.none);
-      final b = restyle(m, ReaderPreferences.none);
+      final a = restyleChecked(m, ReaderPreferences.none);
+      final b = restyleChecked(m, ReaderPreferences.none);
       expect(a.styles, b.styles);
       expect(
         a.styles.map((s) => s.stableHash).toList(),
@@ -105,12 +104,12 @@ void main() {
 
     test('igual dentro e fora de um Isolate.run', () async {
       final m = matchCss(_body(20), css: _css);
-      final local = restyle(
+      final local = restyleChecked(
         m,
         ReaderPreferences.none,
       ).styles.map((s) => s.stableHash).toList();
       final remote = await Isolate.run(
-        () => restyle(
+        () => restyleChecked(
           m,
           ReaderPreferences.none,
         ).styles.map((s) => s.stableHash).toList(),
@@ -123,7 +122,7 @@ void main() {
       final local = _extremeHashes();
       expect(await Isolate.run(_extremeHashes), local);
       final m = matchCss(_extremeBody(), css: _extremeCss);
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final p = styleOfElement(s, elementsNamed(m.tree, 'p').single);
       expect(p[PropertyId.fontSize], const CssLength(px: 10000));
       expect(p[PropertyId.lineHeight], const CssLength(px: 20000));
@@ -147,7 +146,7 @@ void main() {
         '<p id="x">a</p><p>b</p>',
         css: 'p::before{content:"[" attr(id) "]"}',
       );
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final ps = elementsNamed(m.tree, 'p');
       expect(s.generatedTextOf(ps[0], PseudoElement.before), '[x]');
       expect(s.generatedTextOf(ps[1], PseudoElement.before), '[]');
@@ -160,7 +159,7 @@ void main() {
         '<q>a<q>b</q></q>',
         css: 'q::before{content:open-quote} q::after{content:close-quote}',
       );
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final qs = elementsNamed(m.tree, 'q');
       expect(s.generatedTextOf(qs[0], PseudoElement.before), '“');
       expect(s.generatedTextOf(qs[1], PseudoElement.before), '‘');
@@ -170,7 +169,7 @@ void main() {
 
     test('contadores ficam vazios', () {
       final m = matchCss('<p>a</p>', css: 'p::before{content:counter(c) ". "}');
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final p = elementsNamed(m.tree, 'p').single;
       expect(s.generatedTextOf(p, PseudoElement.before), '. ');
     });
@@ -180,7 +179,7 @@ void main() {
         '<p>a</p>',
         css: 'p::before{content:none; color:red} p::after{color:red}',
       );
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final p = elementsNamed(m.tree, 'p').single;
       expect(s.pseudoStyleOf(p, PseudoElement.before), isNull);
       expect(s.pseudoStyleOf(p, PseudoElement.after), isNull);
@@ -193,7 +192,7 @@ void main() {
             'p{color:red; font-size:10px} '
             'p::before{content:"x"; margin-left:2em}',
       );
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final p = elementsNamed(m.tree, 'p').single;
       final before = s.styles[s.pseudoStyleOf(p, PseudoElement.before)!];
       expect(before[PropertyId.color], const CssColor(0xFFFF0000));
@@ -202,7 +201,7 @@ void main() {
 
     test('::first-letter com 2em sobre 16 → 32', () {
       final m = matchCss('<p>abc</p>', css: 'p::first-letter{font-size:2em}');
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       final p = elementsNamed(m.tree, 'p').single;
       final index = s.pseudoStyleOf(p, PseudoElement.firstLetter);
       expect(index, isNotNull);
@@ -232,7 +231,7 @@ void main() {
       final body = '${'<div>' * depth}x${'</div>' * depth}';
       final m = matchCss(body, css: 'div{margin-left:1em}');
       final sw = Stopwatch()..start();
-      final s = restyle(m, ReaderPreferences.none);
+      final s = restyleChecked(m, ReaderPreferences.none);
       sw.stop();
       final divs = elementsNamed(m.tree, 'div');
       expect(divs, hasLength(depth));

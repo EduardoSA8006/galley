@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:galley/src/features/style/domain/css_value.dart';
 import 'package:galley/src/features/style/domain/matched_document.dart';
 import 'package:galley/src/features/style/domain/reader_preferences.dart';
-import 'package:galley/src/features/style/domain/restyle.dart';
 import 'package:galley/src/features/style/domain/text_run.dart';
 
 import '../../../support/style_fixture.dart';
@@ -246,7 +245,7 @@ void main() {
       );
       expect(m.bodyFontSize, 16);
       expect(_anyRoot(m), isFalse);
-      restyle(m, ReaderPreferences.none);
+      restyleChecked(m, ReaderPreferences.none);
     });
 
     test('SVG com font-size na raiz usa o tamanho da raiz', () {
@@ -270,7 +269,7 @@ void main() {
     test('body{display:none} não lança', () {
       final m = _match('<p>x</p>', css: 'body{display:none}');
       expect(m.bodyFontSize, 16);
-      restyle(m, ReaderPreferences.none);
+      restyleChecked(m, ReaderPreferences.none);
     });
   });
 
@@ -278,7 +277,7 @@ void main() {
     test('profundo: 10.000 div aninhados sem estouro', () {
       final m = _match('${'<div>' * 10000}x${'</div>' * 10000}');
       expect(m.flags.length, m.tree.nodeCount);
-      restyle(m, ReaderPreferences.none);
+      restyleChecked(m, ReaderPreferences.none);
     });
   });
 }
