@@ -23,6 +23,7 @@ final class StyledDocument {
     required this.fontFaces,
     required this.pageMargins,
     this.pageBackground,
+    this.internalError,
   }) : assert(
          pseudoElements.length == pseudoKinds.length &&
              pseudoElements.length == pseudoStyles.length &&
@@ -60,6 +61,12 @@ final class StyledDocument {
   /// Cor ARGB do fundo da página, quando um tema a impõe; `null` = sem
   /// imposição (vale o fundo da editora nos elementos).
   final int? pageBackground;
+
+  /// Tipo da exceção inesperada no casamento (copiado de
+  /// `MatchedDocument.internalError`) ou no próprio `restyle`, que fez o
+  /// documento cair para os estilos da folha padrão: sinal de bug do
+  /// Galley. `null` no caso normal.
+  final String? internalError;
 
   /// Índice em [styles] do pseudo-elemento [kind] de [element], ou `null`
   /// se ele não existe (sem regra, ou `::before`/`::after` sem `content`).

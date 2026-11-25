@@ -1,7 +1,14 @@
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
+
+import '../../../core/diagnostics/diagnostic.dart';
+import '../../../core/diagnostics/diagnostic_codes.dart';
+import '../../../core/diagnostics/diagnostic_sink.dart';
+import '../../../core/errors/galley_exception.dart';
 import '../../document/domain/document_tree.dart';
 import '../../document/domain/names.dart';
+import 'cascade.dart';
 import 'computed_style.dart';
 import 'css_value.dart';
 import 'matched_document.dart';
@@ -9,6 +16,7 @@ import 'preference_pass.dart';
 import 'properties.dart';
 import 'reader_preferences.dart';
 import 'selector.dart';
+import 'style_environment.dart';
 import 'styled_document.dart';
 import 'text_run.dart';
 import 'value_computer.dart';
@@ -32,7 +40,94 @@ import 'value_computer.dart';
 /// mantida, essa família. Com ajustes de texto corrido, guarda em paralelo
 /// o herdado da editora ([PublisherSnapshot]) dos elementos de texto
 /// corrido, e o instantâneo do pai também entra na chave. Sem preferências, o resultado é o do livro.
-StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
+///
+/// Só [GalleyException] escapa: um defeito interno (exceção inesperada)
+/// vira os estilos da folha padrão, sem preferências, com
+/// [StyledDocument.internalError] e `css.internalError` (error) em [sink]
+/// (ver [guardRestyle]). O [StyledDocument.internalError] do casamento é
+/// copiado para o resultado.
+StyledDocument restyle(
+  MatchedDocument matched,
+  ReaderPreferences preferences, {
+  DiagnosticSink? sink,
+}) => guardRestyle(matched, () => _restyle(matched, preferences), sink: sink);
+
+/// O catch-all de [restyle]: roda [body] e transforma qualquer exceção que
+/// não seja [GalleyException] nos estilos de reserva do documento de
+/// [matched]: a folha padrão sozinha (`userAgentMatch`), sem preferências,
+/// com [StyledDocument.internalError] = tipo da exceção e
+/// `css.internalError` em [sink]. Se até a reserva lançar, todo elemento
+/// recebe os valores iniciais. Separado só para os testes exercitarem esse
+/// caminho, que o cálculo real não alcança sem um bug.
+@visibleForTesting
+StyledDocument guardRestyle(
+  MatchedDocument matched,
+  StyledDocument Function() body, {
+  DiagnosticSink? sink,
+}) {
+  try {
+    return body();
+  } on GalleyException {
+    rethrow;
+  } on Object catch (e) {
+    final type = '${e.runtimeType}';
+    (sink ?? const NullDiagnosticSink()).report(
+      Diagnostic(
+        severity: DiagnosticSeverity.error,
+        code: DiagnosticCodes.cssInternalError,
+        message:
+            'erro inesperado no estilo ($type); '
+            'usados só os estilos da folha padrão',
+        location: matched.path,
+      ),
+    );
+    return _fallback(matched, type);
+  }
+}
+
+/// Estilos da folha padrão sozinha para a árvore de [matched], marcados
+/// com [internalError]; valores iniciais em tudo se até isso lançar.
+StyledDocument _fallback(MatchedDocument matched, String internalError) {
+  try {
+    final reserve = userAgentMatch(
+      path: matched.path,
+      documentLang: matched.documentLang,
+      userAgentSheet: matched.userAgentSheet,
+      tree: matched.tree,
+      environment: StyleEnvironment(
+        pageWidth: matched.pageWidth,
+        pageHeight: matched.pageHeight,
+      ),
+      internalError: internalError,
+    );
+    return _restyle(reserve, ReaderPreferences.none);
+  } on GalleyException {
+    rethrow;
+  } on Object {
+    final tree = matched.tree;
+    final nodeCount = tree.nodeCount;
+    final elementStyles = Int32List(nodeCount);
+    for (var n = 0; n < nodeCount; n++) {
+      if (tree.kindOf(n) != NodeKind.element) elementStyles[n] = -1;
+    }
+    return StyledDocument(
+      styles: List.unmodifiable([ComputedStyle(ValueComputer.initialValues)]),
+      elementStyles: elementStyles,
+      pseudoElements: Int32List(0),
+      pseudoKinds: Uint8List(0),
+      pseudoStyles: Int32List(0),
+      generatedTexts: const [],
+      fontFaces: const [],
+      pageMargins: null,
+      internalError: internalError,
+    );
+  }
+}
+
+StyledDocument _restyle(
+  MatchedDocument matched,
+  ReaderPreferences preferences,
+) {
   final tree = matched.tree;
   final nodeCount = tree.nodeCount;
   final computer = ValueComputer(
@@ -243,6 +338,7 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
     fontFaces: matched.fontFaces,
     pageMargins: matched.pageMargins,
     pageBackground: pass.theme?.background,
+    internalError: matched.internalError,
   );
 }
 

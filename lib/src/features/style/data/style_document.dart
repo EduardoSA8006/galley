@@ -4,14 +4,18 @@ import '../../../core/diagnostics/diagnostic.dart';
 import '../../../core/diagnostics/diagnostic_codes.dart';
 import '../../../core/diagnostics/diagnostic_sink.dart';
 import '../../../core/diagnostics/limited_diagnostic_sink.dart';
+import '../../../core/errors/galley_exception.dart';
 import '../../document/domain/names.dart';
 import '../../document/domain/parsed_document.dart';
 import '../domain/cascade.dart';
 import '../domain/css_value.dart';
 import '../domain/matched_document.dart';
+import '../domain/reader_preferences.dart';
+import '../domain/restyle.dart';
 import '../domain/rule_index.dart';
 import '../domain/selector_matcher.dart';
 import '../domain/style_environment.dart';
+import '../domain/styled_document.dart';
 import '../domain/stylesheet.dart';
 import 'book_style_context.dart';
 import 'css_syntax.dart';
@@ -42,12 +46,94 @@ int lastFullMatchAttempts = 0;
 /// documento ([LimitedDiagnosticSink]), com o resumo no fim; os das folhas
 /// (inclusive `<style>`) já saem limitados por livro pelo [context]. A
 /// folha padrão é [defaultStyleSheet], ou [userAgentSheet] nos testes.
+///
+/// Só [GalleyException] escapa: um defeito interno (exceção inesperada)
+/// vira o casamento só com a folha padrão, com
+/// [MatchedDocument.internalError] e `css.internalError` (ver
+/// [guardMatch]).
 MatchedDocument matchDocument(
   BookStyleContext context,
   ParsedDocument document,
   StyleEnvironment environment, {
   DiagnosticSink? sink,
   @visibleForTesting StyleSheet? userAgentSheet,
+}) => guardMatch(
+  document,
+  () => _matchDocument(
+    context,
+    document,
+    environment,
+    sink: sink,
+    userAgentSheet: userAgentSheet,
+  ),
+  environment: environment,
+  sink: sink,
+  userAgentSheet: userAgentSheet,
+);
+
+/// Estilo completo do [document]: [matchDocument] seguido de `restyle` com
+/// [preferences] (spec §8.10). Os diagnósticos de ambos vão para [sink].
+/// Para trocar só as preferências, guarde o [MatchedDocument] e chame
+/// `restyle` direto.
+StyledDocument styleDocument(
+  BookStyleContext context,
+  ParsedDocument document,
+  StyleEnvironment environment,
+  ReaderPreferences preferences, {
+  DiagnosticSink? sink,
+}) => restyle(
+  matchDocument(context, document, environment, sink: sink),
+  preferences,
+  sink: sink,
+);
+
+/// O catch-all de [matchDocument]: roda [body] e transforma qualquer
+/// exceção que não seja [GalleyException] no casamento de [document] só
+/// com a folha padrão ([userAgentSheet] ou [defaultStyleSheet]) em
+/// [environment], com [MatchedDocument.internalError] = tipo da exceção e
+/// `css.internalError` (error) em [sink]. Separado só para os testes
+/// exercitarem esse caminho, que o casamento real não alcança sem um bug.
+@visibleForTesting
+MatchedDocument guardMatch(
+  ParsedDocument document,
+  MatchedDocument Function() body, {
+  required StyleEnvironment environment,
+  DiagnosticSink? sink,
+  StyleSheet? userAgentSheet,
+}) {
+  try {
+    return body();
+  } on GalleyException {
+    rethrow;
+  } on Object catch (e) {
+    final type = '${e.runtimeType}';
+    (sink ?? const NullDiagnosticSink()).report(
+      Diagnostic(
+        severity: DiagnosticSeverity.error,
+        code: DiagnosticCodes.cssInternalError,
+        message:
+            'erro inesperado no casamento de estilos ($type); '
+            'usada só a folha padrão',
+        location: document.path,
+      ),
+    );
+    return userAgentMatch(
+      path: document.path,
+      documentLang: document.head.lang,
+      userAgentSheet: userAgentSheet ?? defaultStyleSheet,
+      tree: document.tree,
+      environment: environment,
+      internalError: type,
+    );
+  }
+}
+
+MatchedDocument _matchDocument(
+  BookStyleContext context,
+  ParsedDocument document,
+  StyleEnvironment environment, {
+  required DiagnosticSink? sink,
+  required StyleSheet? userAgentSheet,
 }) {
   final target = sink ?? const NullDiagnosticSink();
   final path = document.path;
@@ -86,7 +172,8 @@ MatchedDocument matchDocument(
     if (fontSheets.add(sheet)) fontFaces.addAll(sheet.fontFaces);
   }
 
-  addSheet(userAgentSheet ?? defaultStyleSheet, userAgent: true);
+  final agentSheet = userAgentSheet ?? defaultStyleSheet;
+  addSheet(agentSheet, userAgent: true);
   for (final entry in entries) {
     if (media.all(entry.conditions)) addSheet(entry.sheet, userAgent: false);
   }
@@ -105,6 +192,9 @@ MatchedDocument matchDocument(
   }
 
   final result = cascadeDocument(
+    path: path,
+    documentLang: document.head.lang,
+    userAgentSheet: agentSheet,
     tree: tree,
     index: ruleIndex.bind(tree),
     rules: ruleIndex.rules,

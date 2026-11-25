@@ -173,4 +173,9 @@ abstract final class DiagnosticCodes {
 
   /// Folha de estilo (ligada ou importada) ausente do livro (warning).
   static const String cssMissingStyleSheet = 'css.missingStyleSheet';
+
+  /// Defeito interno (exceção inesperada) no casamento ou no `restyle`; o
+  /// documento cai para os estilos da folha padrão (error). Sinal de bug do
+  /// Galley.
+  static const String cssInternalError = 'css.internalError';
 }

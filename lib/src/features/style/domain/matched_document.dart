@@ -62,6 +62,9 @@ final class CascadedValues {
 final class MatchedDocument {
   /// Cria o resultado; use `matchDocument`.
   MatchedDocument({
+    required this.path,
+    required this.documentLang,
+    required this.userAgentSheet,
     required this.tree,
     required this.sets,
     required this.elementSets,
@@ -76,9 +79,32 @@ final class MatchedDocument {
     required this.bodyFontSize,
     required this.publisherFamilies,
     required this.familyTable,
+    required this.viewportFontSize,
     required this._mediaQueries,
     required this._mediaResults,
+    this.internalError,
   });
+
+  /// Caminho do documento no zip (local dos diagnósticos do `restyle`).
+  final String path;
+
+  /// Idioma do documento (do `<head>`), usado por `:lang()` quando nenhum
+  /// ancestral declara `xml:lang`/`lang`.
+  final String? documentLang;
+
+  /// A folha padrão usada no casamento; é dela que sai o estilo de reserva
+  /// quando o `restyle` encontra um erro interno.
+  final StyleSheet userAgentSheet;
+
+  /// Tipo da exceção inesperada que fez o casamento cair para a folha
+  /// padrão sozinha (sinal de bug do Galley, como
+  /// `ParsedDocument.internalError`); `null` no caso normal.
+  final String? internalError;
+
+  /// Se algum valor em cascata de `font-size` usa `vw`/`vh`: aí o tamanho
+  /// calculado (e tudo o que depende de `em`) muda com a página, e
+  /// [isValidFor] exige a mesma [pageWidth] × [pageHeight].
+  final bool viewportFontSize;
 
   /// A árvore do documento.
   final DocumentTree tree;
@@ -140,8 +166,14 @@ final class MatchedDocument {
 
   /// `true` se todas as media queries avaliadas no casamento dão o mesmo
   /// resultado em [env]: o casamento continua valendo e só a passada de
-  /// preferências precisa ser refeita.
+  /// preferências precisa ser refeita. Com `vw`/`vh` em `font-size`
+  /// ([viewportFontSize]), a página também precisa ter o mesmo tamanho: o
+  /// `restyle` usa [pageWidth] e [pageHeight] do casamento.
   bool isValidFor(StyleEnvironment env) {
+    if (viewportFontSize &&
+        (env.pageWidth != pageWidth || env.pageHeight != pageHeight)) {
+      return false;
+    }
     for (var i = 0; i < _mediaQueries.length; i++) {
       if (_mediaQueries[i].evaluate(env) != _mediaResults[i]) return false;
     }

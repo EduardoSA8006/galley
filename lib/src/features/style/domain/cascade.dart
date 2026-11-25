@@ -1,13 +1,17 @@
 import 'dart:typed_data';
 
+import '../../../core/errors/galley_exception.dart';
 import '../../document/domain/document_tree.dart';
+import 'css_value.dart';
 import 'matched_document.dart';
 import 'properties.dart';
 import 'rule_index.dart';
 import 'selector.dart';
 import 'selector_matcher.dart';
+import 'style_environment.dart';
 import 'stylesheet.dart';
 import 'text_run.dart';
+import 'value_computer.dart';
 
 /// Declarações de `style=` do [element]; `null` se não houver.
 typedef InlineStyleOf = List<Declaration>? Function(int element);
@@ -25,6 +29,9 @@ typedef InlineStyleOf = List<Declaration>? Function(int element);
 /// [media] já traz as condições avaliadas por quem montou o [index]; os
 /// conjuntos são internados pela identidade das declarações vencedoras.
 MatchedDocument cascadeDocument({
+  required String path,
+  required String? documentLang,
+  required StyleSheet userAgentSheet,
   required DocumentTree tree,
   required DocumentRuleIndex index,
   required List<IndexedRule> rules,
@@ -33,6 +40,7 @@ MatchedDocument cascadeDocument({
   required List<FontFaceRule> fontFaces,
   required PageMargins? pageMargins,
   required MediaChecks media,
+  String? internalError,
 }) {
   final cascade = _Cascade(rules);
   final nodeCount = tree.nodeCount;
@@ -90,7 +98,20 @@ MatchedDocument cascadeDocument({
     pageWidth: environment.pageWidth,
     pageHeight: environment.pageHeight,
   );
+  var viewportFontSize = false;
+  for (final set in sets) {
+    final size = set.valueOf(PropertyId.fontSize);
+    if (size is CssLengthSpec && (size.vw != 0 || size.vh != 0)) {
+      viewportFontSize = true;
+      break;
+    }
+  }
   return MatchedDocument(
+    path: path,
+    documentLang: documentLang,
+    userAgentSheet: userAgentSheet,
+    internalError: internalError,
+    viewportFontSize: viewportFontSize,
     tree: tree,
     sets: sets,
     elementSets: elementSets,
@@ -107,6 +128,98 @@ MatchedDocument cascadeDocument({
     familyTable: marks.familyTable,
     mediaQueries: List.unmodifiable(media.queries),
     mediaResults: List.unmodifiable(media.results),
+  );
+}
+
+/// Casamento de reserva só com a folha padrão [userAgentSheet] (sem folhas
+/// do livro, `style=`, `@font-face` nem `@page`), marcado com
+/// [internalError]: o que sobra quando o casamento ou o `restyle` têm um
+/// defeito interno.
+///
+/// Se até essa cascata lançar, devolve um casamento em que todo elemento
+/// tem o conjunto vazio (valores iniciais e herança). Só [GalleyException]
+/// escapa.
+MatchedDocument userAgentMatch({
+  required String path,
+  required String? documentLang,
+  required StyleSheet userAgentSheet,
+  required DocumentTree tree,
+  required StyleEnvironment environment,
+  required String internalError,
+}) {
+  try {
+    final media = MediaChecks(environment);
+    final rules = [
+      for (final rule in userAgentSheet.rules)
+        if (media.all(rule.conditions)) IndexedRule(rule, userAgent: true),
+    ];
+    final index = RuleIndex(rules);
+    return cascadeDocument(
+      path: path,
+      documentLang: documentLang,
+      userAgentSheet: userAgentSheet,
+      tree: tree,
+      index: index.bind(tree),
+      rules: index.rules,
+      matcher: SelectorMatcher(tree, documentLang: documentLang),
+      inlineStyle: (_) => null,
+      fontFaces: const [],
+      pageMargins: null,
+      media: media,
+      internalError: internalError,
+    );
+  } on GalleyException {
+    rethrow;
+  } on Object {
+    return _emptyMatch(
+      path: path,
+      documentLang: documentLang,
+      userAgentSheet: userAgentSheet,
+      tree: tree,
+      environment: environment,
+      internalError: internalError,
+    );
+  }
+}
+
+/// Casamento em que todo elemento tem [CascadedValues.empty]; não depende
+/// de folha, seletor nem classificação de texto corrido.
+MatchedDocument _emptyMatch({
+  required String path,
+  required String? documentLang,
+  required StyleSheet userAgentSheet,
+  required DocumentTree tree,
+  required StyleEnvironment environment,
+  required String internalError,
+}) {
+  final nodeCount = tree.nodeCount;
+  final elementSets = Int32List(nodeCount);
+  final families = Int32List(nodeCount)..fillRange(0, nodeCount, -1);
+  for (var n = 0; n < nodeCount; n++) {
+    if (tree.kindOf(n) != NodeKind.element) elementSets[n] = -1;
+  }
+  return MatchedDocument(
+    path: path,
+    documentLang: documentLang,
+    userAgentSheet: userAgentSheet,
+    internalError: internalError,
+    viewportFontSize: false,
+    tree: tree,
+    sets: List.unmodifiable([CascadedValues.empty]),
+    elementSets: elementSets,
+    pseudoElements: Int32List(0),
+    pseudoKinds: Uint8List(0),
+    pseudoSets: Int32List(0),
+    fontFaces: const [],
+    pageMargins: null,
+    pageWidth: environment.pageWidth,
+    pageHeight: environment.pageHeight,
+    flags: Uint8List(nodeCount),
+    bodyFontSize: kInitialFontSize,
+    publisherFamilies: families,
+    familyTable: const [],
+    mediaQueries: const [],
+    mediaResults: const [],
   );
 }
 
