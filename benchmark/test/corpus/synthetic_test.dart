@@ -57,33 +57,47 @@ void main() {
   });
 
   test(
-    'streaming: pico de RSS cresce menos de 64 MiB (livro de 100 MiB)',
+    'streaming: pico de RSS não cresce com o tamanho do livro (20 × 100 MiB)',
     () async {
-      // Mede num subprocesso dedicado: o pico do processo de teste é
-      // compartilhado com as outras suítes que rodam em paralelo.
-      final out = '${tmp.path}/big.epub';
-      final r = await Process.run(Platform.resolvedExecutable, [
-        'run',
+      // A sonda roda compilada AOT, num processo próprio: em JIT o pico
+      // incluiria a compilação do gerador e o crescimento do heap, que
+      // variam entre versões do Dart. O que define streaming é a memória não
+      // acompanhar o tamanho do livro: sem streaming, 100 MiB custaria ~80
+      // MiB a mais que 20 MiB.
+      final exe = '${tmp.path}/rss_probe';
+      final compiled = await Process.run(Platform.resolvedExecutable, [
+        'compile',
+        'exe',
         'test/corpus/rss_probe.dart',
-        out,
-        '${100 * 1024 * 1024}',
+        '-o',
+        exe,
       ]);
-      expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
-      final values = {
-        for (final m in RegExp(
-          r'^(before|after)=(\d+)$',
-          multiLine: true,
-        ).allMatches(r.stdout as String))
-          m[1]!: int.parse(m[2]!),
-      };
-      expect(values.keys, {'before', 'after'}, reason: '${r.stdout}');
-      final growth = values['after']! - values['before']!;
-      expect(
-        File(out).lengthSync(),
-        closeTo(100 * 1024 * 1024, 5 * 1024 * 1024),
-      );
-      expect(growth, lessThan(64 * 1024 * 1024));
+      expect(compiled.exitCode, 0, reason: '${compiled.stderr}');
+
+      Future<({int before, int after, int size})> probe(int mib) async {
+        final out = '${tmp.path}/book-$mib.epub';
+        final r = await Process.run(exe, [out, '${mib * 1024 * 1024}']);
+        expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
+        final values = {
+          for (final m in RegExp(
+            r'^(before|after)=(\d+)$',
+            multiLine: true,
+          ).allMatches(r.stdout as String))
+            m[1]!: int.parse(m[2]!),
+        };
+        expect(values.keys, {'before', 'after'}, reason: '${r.stdout}');
+        final size = File(out).lengthSync();
+        File(out).deleteSync();
+        return (before: values['before']!, after: values['after']!, size: size);
+      }
+
+      final small = await probe(20);
+      final big = await probe(100);
+      expect(big.size, 100 * 1024 * 1024);
+      // Folga de 16 MiB para variação do coletor de lixo.
+      expect(big.after - small.after, lessThan(16 * 1024 * 1024));
+      expect(big.after - big.before, lessThan(64 * 1024 * 1024));
     },
-    timeout: const Timeout(Duration(minutes: 2)),
+    timeout: const Timeout(Duration(minutes: 3)),
   );
 }
