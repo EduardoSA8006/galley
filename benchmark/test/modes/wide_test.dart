@@ -236,6 +236,33 @@ void main() {
     expect(report.summary(), contains('documentos do spine'));
   });
 
+  test(
+    'itemref repetido no spine: documento lido e estilizado uma vez',
+    () async {
+      routes[15] = buildMiniEpub(
+        [
+          '<html xmlns="$_xhtmlNs"><body><p>a</p></body></html>',
+          '<html xmlns="$_xhtmlNs"><body><p>b</p></body></html>',
+        ],
+        spine: [0, 1, 0, 1, 0],
+      );
+      final styledPaths = <String>[];
+      final report = await run(
+        [entry(15)],
+        documentStyler: (context, document) {
+          styledPaths.add(document.path);
+          return defaultDocumentStyler(context, document);
+        },
+      );
+
+      final r = report.results.single;
+      expect(r.cls, WideClass.ok);
+      expect(styledPaths, ['c0.xhtml', 'c1.xhtml']);
+      expect(r.documents, 2);
+      expect(r.styledDocuments, 2);
+    },
+  );
+
   test('documento no modo tolerante: contado, não reprova', () async {
     routes[10] = buildMiniEpub([
       '<html xmlns="$_xhtmlNs"><body><p>ok</p></body></html>',

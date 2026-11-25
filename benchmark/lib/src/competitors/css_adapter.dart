@@ -71,8 +71,9 @@ final class CsslibParser implements CssParser {
 }
 
 /// Carrega as folhas de [path]: num `.epub`, todos os recursos `text/css`
-/// do manifest (em ordem de id, decodificados por `decodeCss`); em qualquer
-/// outro arquivo, o próprio arquivo (também por `decodeCss`).
+/// do manifest (na ordem do manifest, cada caminho uma vez, decodificados
+/// por `decodeCss`); em qualquer outro arquivo, o próprio arquivo (também
+/// por `decodeCss`).
 Future<List<String>> loadStyleSheets(String path) async {
   if (!path.endsWith('.epub')) {
     return [decodeCss(File(path).readAsBytesSync())];

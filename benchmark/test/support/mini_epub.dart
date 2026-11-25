@@ -8,9 +8,13 @@ import 'package:galley_benchmark/src/corpus/epub_writer.dart';
 ///
 /// [styleSheets] (caminho no zip → texto CSS) entra no manifest como
 /// `text/css`; os capítulos o ligam por `<link>`, se quiserem.
+///
+/// [spine] (índices de [chapters]) troca o spine padrão (cada capítulo uma
+/// vez, em ordem), por exemplo para repetir um `itemref`.
 Uint8List buildMiniEpub(
   List<String> chapters, {
   Map<String, String> styleSheets = const {},
+  List<int>? spine,
 }) {
   final out = BytesBuilder(copy: false);
   final zip = ZipWriter(out.add)
@@ -38,7 +42,11 @@ Uint8List buildMiniEpub(
           identifier: 'urn:x:mini',
           language: 'pt-BR',
           items: items,
-          spineIds: [for (var i = 0; i < chapters.length; i++) 'c$i'],
+          spineIds: [
+            for (final i
+                in spine ?? [for (var i = 0; i < chapters.length; i++) i])
+              'c$i',
+          ],
         ),
       ),
     )

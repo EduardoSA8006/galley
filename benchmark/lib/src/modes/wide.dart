@@ -141,9 +141,14 @@ Future<WideRead> readWholeBook(
 }) async {
   final book = await EpubBook.open(file.path);
   try {
+    // `itemref` repetido no spine é o mesmo documento: lido e estilizado
+    // uma vez só (deduplicado por caminho, na ordem do spine).
+    final seen = <String>{};
     final spineDocuments = <ManifestItem>[
       for (final s in book.spine.items)
-        if (documentMediaTypes.contains(s.item.mediaType)) s.item,
+        if (documentMediaTypes.contains(s.item.mediaType) &&
+            seen.add(s.item.path))
+          s.item,
     ];
     final resources = <String, Uint8List>{};
     for (final item in book.manifest.values) {
