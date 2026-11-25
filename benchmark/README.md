@@ -21,7 +21,7 @@ quando fazem sentido, um relatório em Markdown com `--report`.
 | `local` | máquina do mantenedor | tempo absoluto, RSS de pico, `perf` nativo, livros de 50 e 300 MiB, corpus público e privado | registro manual (`local-dev`); rode depois de mudanças de desempenho e antes de releases |
 | `compare` | CI noturno e local | Galley × `epubx` × `epub_plus` × `epub_pro`; o parse de documento do Galley × DOM do `package:xml` (par à parte, `--doc-adapter`); e a leitura de CSS do Galley × `package:csslib` (par à parte, `--css-adapter`) | relatório; não bloqueia antes da 1.0 |
 | `size` | CI noturno e local | bytes que o Galley acrescenta ao APK release arm64 | teto de **2 MiB** (2.097.152 bytes); acima disso sai com 1 |
-| `wide` | CI noturno e local | robustez: abre e lê todos os recursos de 300 livros do Project Gutenberg (`corpus/pg-wide.json`), parseia todos os documentos do spine e conta por classe | sai com 1 **só** se houver `crashed` (exceção que não é `GalleyException`: bug do Galley) |
+| `wide` | CI noturno e local | robustez: abre e lê todos os recursos de 300 livros do Project Gutenberg (`corpus/pg-wide.json`), parseia e estiliza todos os documentos do spine e conta por classe | sai com 1 **só** se houver `crashed` (exceção que não é `GalleyException`: bug do Galley) |
 | `docdiff` | CI noturno e local | diferencial: em cada documento do spine do corpus público, a árvore do Galley × o DOM do `package:xml` | sai com 1 se houver **divergência** ou **erro interno** (bug do Galley); 70 se nenhum documento foi comparado |
 
 Exemplos:
@@ -111,17 +111,20 @@ prefira corrigir o laço (tipo exato, sem chamada por elemento). O limite de
 
 Baixa (uma vez; cache em `.corpus-cache/pg-wide/`, pausa de 2 s entre
 requisições ao espelho oficial) e abre os 300 livros de `corpus/pg-wide.json`,
-lendo cada recurso do manifest uma vez e parseando com `parseDocumentBytes`
-os bytes já lidos de cada documento do spine. Cada livro cai em uma classe:
+lendo cada recurso do manifest uma vez (os bytes ficam num mapa que serve de
+resolvedor de recursos do estilo) e, depois, parseando com
+`parseDocumentBytes` e estilizando com `styleDocument` (página 600 × 800, sem
+preferências) os bytes já lidos de cada documento do spine, com um
+`BookStyleContext` por livro. Cada livro cai em uma classe:
 `ok`, `diagnostics-error`, `failed` (`GalleyException`), `crashed` (qualquer
 outra exceção, ou um documento com `internalError`, a exceção inesperada que
-o leitor de documentos capturou: bug), `drift` (o PG regerou o arquivo;
+o leitor de documentos ou o de estilo capturou: bug), `drift` (o PG regerou o arquivo;
 `sha256` mudou) ou `unavailable` (404, rede, prazo). O BMF traz
 `wide/<classe>` com `count`, e o resumo lista os números dos ebooks de cada
 classe que importa (para `crashed`, com o início da stack e, num
 `internalError`, o tipo da exceção e o caminho do documento). Os documentos
 que caíram no modo tolerante não reprovam: são contados (`wide/documents` e
-`wide/documents-tolerant` no BMF; no resumo, os livros que os têm). Só
+`wide/documents-tolerant` e `wide/documents-styled` no BMF; no resumo, os livros que os têm). Só
 `crashed` reprova. Como e por que os 300 livros foram escolhidos:
 `corpus/README.md`. Um `Retry-After` longo (acima de 2 min) faz o `wide`
 parar de pedir ao espelho: os livros que ainda não estão no cache viram
@@ -405,6 +408,11 @@ que criar. Ao concluir um subprojeto, esta lista deve ser cumprida:
       `hm/publisher-css`, nos livros do corpus público e em
       `synthetic/css-256kib`, com `wall-time-ns` e `peak-rss-bytes` em
       `compare/galley-css/parse/<livro>` e `compare/csslib/parse/<livro>`.
+      Teto de memória no pacote `galley`:
+      `test/features/style/memory_counter_test.dart`. Razão `full`/`restyle`
+      medida (registro permanente, acima). O `wide` estiliza todos os
+      documentos do spine (`wide/documents-styled`); erro interno de estilo
+      reprova (`crashed`).
 - [ ] **SP5, layout:** paginação, repaginação ao mudar a fonte, medição
       fatiada.
 - [ ] **SP6, render e API:** FPS/jank, memória real em dispositivo,

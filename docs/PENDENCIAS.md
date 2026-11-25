@@ -6,20 +6,16 @@ retomar. Ao resolver um item, apague-o deste arquivo no mesmo commit.
 
 ## Dependem de upstream
 
-- **Remover `LinearHtml5EntityMapping`** (`lib/src/features/document/data/event_adapter.dart`)
-  quando uma versão oficial do `package:xml` trouxer a decodificação linear de
-  entidades (issue renggli/dart-xml#221, PR #222, mergeado em 2026-11-25 e ainda
-  não lançado). Manter os testes de equivalência e de tempo. Exige migrar `xml`
-  6.6.1 → 7.x.
-- **Remover a normalização de CRLF** do mesmo arquivo quando a correção do
-  upstream (dart-xml#220, mergeada e ainda não lançada) sair numa versão. Mesma
-  migração.
-- **Normalização de espaço em atributos (§3.3.3):** hoje `&#10;`/`&#9;` em
-  atributos viram espaço (limitação do `package:xml`, documentada no adaptador e
-  no `docdiff`). O PR renggli/dart-xml#225 faz a normalização correta no parser;
-  se entrar, remover a nossa e ajustar o `docdiff` na mesma migração.
-- **PR renggli/dart-xml#224** (parser de nomes, +10–30 % nos eventos): ganho
-  automático ao migrar, se for aceito.
+- **Migrar `xml` 6.6.1 → 7.x** quando o upstream lançar uma versão com os PRs
+  já mergeados (2026-11-25): renggli/dart-xml#222 (decodificação linear de
+  entidades, issue #221), #224 (parser de nomes, +10–30 % nos eventos) e #225
+  (normalização de espaço em atributos, §3.3.3). Falta só a release. Ao migrar:
+  remover `LinearHtml5EntityMapping`
+  (`lib/src/features/document/data/event_adapter.dart`, manter os testes de
+  equivalência e de tempo), a normalização de CRLF do mesmo arquivo
+  (dart-xml#220) e a nossa normalização de espaço em atributos (`&#10;`/`&#9;`
+  viram espaço hoje; ajustar o `docdiff` na mesma migração), e ganhar o parser
+  de nomes.
 - **Velocidade do `package:xml`:** o perfil (2026-11-25) mostra ~25 % do tempo
   em `substring`. Patches upstream (parser de nome com tabela ASCII, cache de
   nomes, bitmap no petitparser) dão +10–39 %, com teto ~1,5×. Um tokenizador
@@ -46,6 +42,40 @@ retomar. Ao resolver um item, apague-o deste arquivo no mesmo commit.
   (RSS) entra no SP6.
 - **Linhas > 80 colunas** em `benchmark/bin/bench_runner.dart:30` e
   `benchmark/tool/bench.dart:307` (string que o formatador não quebra).
+
+## SP4 — Estilo
+
+- **`var()` e propriedades customizadas:** zero livros no levantamento de
+  2026-11-25 (372 livros); hoje `--*` é descartado com
+  `css.unsupportedProperty`. Retomar quando aparecer num livro real.
+- **Memória do leitor de CSS:** ≈ 3,6× a do `csslib` (8 folhas de 256 KiB: 80,8
+  × 22,5 MiB), e o tempo por byte cresce ~1,4× de 256 KiB para 1 MiB. Provável
+  causa: `tokenizeCss` materializa todos os tokens. Anti-meta do projeto: gate
+  contra concorrentes a partir da 1.0.
+- **`@font-face` dentro de `@media`** é aplicado sem avaliar a condição.
+- **`format()` do `@font-face`** não é filtrado; quem registra as fontes
+  (SP5/SP6) filtra.
+- **Fundo e `list-style-image`** ficam intactos no tema; rever no SP6 com
+  livros reais.
+- **`@import` externo ou fora da raiz** sem diagnóstico.
+- **Função CSS sem `)` no fim** é rejeitada (os navegadores aceitam).
+- **`font-variant`** é tratado como longhand.
+- **`overflow` com dois valores** é rejeitado.
+- **`vertical-align` com `%`** é relativo à largura (deveria ser ao
+  `line-height`).
+- **`display: contents`** deixa os filhos sem a marca de texto corrido.
+- Contadores (`counter()`, `counter-*`) só guardados; a geração fica no SP8.
+- Aspas iguais para todos os idiomas.
+- `@page :first/:left/:right` ignorados.
+- Aninhamento CSS sem suporte (0 % dos livros).
+- `ex`/`ch` aproximados por 0,5 em, sem métricas da fonte.
+
+## SP6 — Render e API
+
+- Chamar `BookStyleContext.flush` no fim do livro (totais de diagnósticos
+  omitidos).
+- Decidir a retenção do `MatchedDocument` (guardar para trocar só as
+  preferências × recalcular).
 
 ## SP3 — Documento
 

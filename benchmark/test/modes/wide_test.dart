@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:galley/src/features/document/data/parse_document.dart';
 import 'package:galley/src/features/document/domain/parsed_document.dart';
+import 'package:galley/src/features/style/domain/styled_document.dart';
 import 'package:galley_benchmark/src/corpus/fetcher.dart';
 import 'package:galley_benchmark/src/corpus/handmade.dart';
 import 'package:galley_benchmark/src/corpus/manifest.dart';
@@ -42,6 +43,7 @@ void main() {
     List<PgWideEntry> entries, {
     WideReader? reader,
     DocumentBytesParser? documentParser,
+    DocumentStyler? documentStyler,
   }) async {
     final fetcher = CorpusFetcher(cacheDir: cacheDir);
     addTearDown(fetcher.close);
@@ -51,6 +53,7 @@ void main() {
       fetcher: fetcher,
       reader: reader,
       documentParser: documentParser,
+      documentStyler: documentStyler,
       log: StringBuffer(),
     );
   }
@@ -163,6 +166,63 @@ void main() {
     expect(r.detail, contains('RangeError'));
     expect(r.detail, contains('.xhtml'));
     expect(report.exitCode, 1);
+  });
+
+  test('estilizador que lança StateError: crashed, exit 1', () async {
+    routes[12] = good;
+    final report = await run(
+      [entry(12)],
+      documentStyler: (context, document) => throw StateError('bug no estilo'),
+    );
+
+    final r = report.results.single;
+    expect(r.cls, WideClass.crashed);
+    expect(r.detail, contains('StateError'));
+    expect(r.detail, contains('bug no estilo'));
+    expect(report.exitCode, 1);
+  });
+
+  test('estilo com internalError: crashed com o tipo e o caminho', () async {
+    routes[13] = good;
+    final report = await run(
+      [entry(13)],
+      documentStyler: (context, document) {
+        final real = defaultDocumentStyler(context, document);
+        return StyledDocument(
+          styles: real.styles,
+          elementStyles: real.elementStyles,
+          pseudoElements: Int32List(0),
+          pseudoKinds: Uint8List(0),
+          pseudoStyles: Int32List(0),
+          generatedTexts: const [],
+          fontFaces: real.fontFaces,
+          pageMargins: real.pageMargins,
+          internalError: 'RangeError',
+        );
+      },
+    );
+
+    final r = report.results.single;
+    expect(r.cls, WideClass.crashed);
+    expect(r.detail, contains('RangeError'));
+    expect(r.detail, contains('.xhtml'));
+    expect(report.exitCode, 1);
+  });
+
+  test('hm/publisher-css: todos os documentos estilizados', () async {
+    final books = await buildHandmadeCorpus();
+    routes[14] = books['hm/publisher-css']!;
+    final report = await run([entry(14)]);
+
+    final r = report.results.single;
+    expect(r.cls, WideClass.ok);
+    expect(r.documents, greaterThan(0));
+    expect(r.styledDocuments, r.documents);
+    expect(report.styledDocuments, r.documents);
+    expect(report.summary(), contains('estilizados'));
+    expect((report.toBmf()['wide/documents-styled']! as Map)['count'], {
+      'value': r.styledDocuments.toDouble(),
+    });
   });
 
   test('livro bom: parseia todos os documentos do spine', () async {
