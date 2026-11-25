@@ -38,17 +38,6 @@ retomar. Ao resolver um item, apague-o deste arquivo no mesmo commit.
   informativas, sem gate.
 - **Teto de memória do documento** só mede `retainedBytes`; a memória real
   (RSS) entra no SP6.
-- **Gate de instruções sensível ao tamanho do programa:** com
-  `--old_gen_growth_time_ratio=100`, o heap velho cresce o mínimo e cada
-  alocação grande dispara mark-sweeps com frequência; o custo de cada um cresce
-  com os objetos do próprio programa AOT no heap velho. No SP3, o código de
-  documento no `bench_runner` (+0,2 MB de heap velho vivo, ~+6% por
-  mark-sweep) fez `container/deobfuscate-idpf` acusar +5,0% sem mudança no
-  container: ~80% das instruções dele são dos ~21 mark-sweeps por iteração
-  (cópia de 256 KiB × 150). Opções: crescimento determinístico com folga fixa,
-  benchmark com fonte menor (mede o XOR, não o GC) ou rótulo
-  `perf-regression-accepted` quando só o GC mudar. Decidir antes do SP4, que
-  também crescerá o executável.
 - **Linhas > 80 colunas** em `benchmark/bin/bench_runner.dart:30` e
   `benchmark/tool/bench.dart:307` (string que o formatador não quebra).
 

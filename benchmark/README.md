@@ -37,6 +37,47 @@ dart run tool/bench.dart docdiff --out docdiff.json --report docdiff.md
 dart run tool/bench.dart wide-refresh --count 300 --seed 2026   # só manual
 ```
 
+### O modo `instructions`: flags da VM
+
+O harness roda o `bench_runner` de base e head com as mesmas flags em
+`DART_VM_OPTIONS` (`deterministicVmOptions`, em
+`lib/src/modes/instructions.dart`, com o motivo de cada uma). As flags vêm do
+harness do checkout que roda o modo, não da base: mudar as flags muda as duas
+versões medidas no mesmo job. Em resumo:
+
+- GC sem marcação nem varredura concorrentes, uma tarefa por fase,
+  crescimento do heap velho só por espaço (`--old_gen_growth_time_ratio=100`)
+  e semente fixa: execuções repetidas variam ~0,001%.
+- Folga fixa de ~200 MB no heap velho antes do primeiro mark-sweep
+  (`--old_gen_growth_space_ratio=99`, `--old_gen_growth_rate=400`). O custo
+  de um mark-sweep cresce com os objetos do próprio programa AOT no heap
+  velho; com o heap no mínimo, crescer o executável com código que o
+  benchmark nem executa mudava benchmarks de outro subsistema (no SP3,
+  +5% em `container/deobfuscate-idpf`, ~80% de GC, sem mudança no
+  container). Com a folga, nenhum benchmark do catálogo faz mark-sweep nas
+  execuções medidas.
+
+O que a contagem inclui: o trabalho do código, a alocação (e a cópia ou a
+inicialização do que se aloca) e os scavenges da geração nova. O que não
+inclui: o mark-sweep do heap velho, a não ser num benchmark que aloque mais
+de ~200 MB no heap velho em 4 iterações. O custo real do GC em tempo de
+parede fica com o gate `ab`, que usa as flags padrão da VM. Uma regressão de
+alocação continua reprovando: uma cópia extra de 256 KiB por chamada em
+`deobfuscateIdpf` dá +88,8%; só alocar um buffer extra de 256 KiB, +5,5%.
+
+Um efeito do tamanho do programa que as flags não removem: o AOT
+desvirtualiza menos quando o programa tem mais implementações das mesmas
+classes. Com o código de documento no executável, os benchmarks que
+parseiam XML no container (`opf`/`nav`/`ncx-parse-large`,
+`open-*-epub2-ncx`) ficaram +0,2–0,3% mais caros. Esse custo é real: um app
+que usa o Galley também tem o código de documento.
+
+Mudar estas flags muda os números absolutos de todo o catálogo. O gate do
+PR e a regressão gradual do noturno não sentem (base e head, ou
+`bench-baseline` e head, são medidos com as mesmas flags no mesmo job); no
+Bencher, a série de cada benchmark dá um degrau no commit da mudança, que
+não é regressão.
+
 ### O modo `wide`
 
 Baixa (uma vez; cache em `.corpus-cache/pg-wide/`, pausa de 2 s entre
