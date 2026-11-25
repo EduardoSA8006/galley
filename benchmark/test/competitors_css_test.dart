@@ -124,4 +124,22 @@ void main() {
       contains('| `hm/publisher-css` | 2.00 | 4.00 | 2.00 | 1.0 | 1.0 |'),
     );
   });
+
+  test('livro sem CSS (checksum 0 dos dois lados): razão —', () {
+    final cells = [
+      for (final a in cssAdapterNames)
+        CompareCell(
+          adapter: a,
+          book: 'public/sem-css',
+          metric: documentMetric,
+          wallNs: a == 'csslib' ? 3e3 : 1e3,
+          peakRss: 1048576,
+          checksum: 0,
+        ),
+    ];
+    expect(
+      renderCssCompareReport(cells, runs: 5),
+      contains('| `public/sem-css` | 0.00 | 0.00 | — | 1.0 | 1.0 |'),
+    );
+  });
 }

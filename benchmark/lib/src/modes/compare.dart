@@ -503,7 +503,7 @@ String _renderParseCompare(
       '$intro, cada medida num processo próprio; tempo = mediana de '
       '$runs execuções só do parse, RSS = maior pico (`VmHWM`) do processo '
       'inteiro, com as $trees ainda vivas. Só informativo, sem gate. '
-      '`razão` é $theirs ÷ $ours.',
+      '`razão` é $theirs ÷ $ours (— quando nada foi lido).',
     )
     ..writeln()
     ..writeln(
@@ -517,7 +517,10 @@ String _renderParseCompare(
     String ms(CompareCell? c) => c != null && c.ok ? _ms(c.wallNs!) : 'falhou';
     String mib(CompareCell? c) =>
         c != null && c.ok ? _mib(c.peakRss!) : 'falhou';
-    final ratio = g != null && x != null && g.ok && x.ok
+    // Checksum 0 dos dois lados (livro sem CSS, por exemplo): nada foi
+    // lido e a razão entre dois tempos de "nada" não diz coisa alguma.
+    final empty = g?.checksum == 0 && x?.checksum == 0;
+    final ratio = g != null && x != null && g.ok && x.ok && !empty
         ? (x.wallNs! / g.wallNs!).toStringAsFixed(2)
         : '—';
     b.writeln(
