@@ -381,7 +381,14 @@ final class _Tokenizer {
   }
 
   String _name() {
-    final b = StringBuffer();
+    // Caminho comum: nome sem escape vira um `substring` direto, sem
+    // `StringBuffer` por token (o leitor de CSS gera ~1 token a cada 2 bytes).
+    final from = p;
+    while (_isName(at(p))) {
+      p++;
+    }
+    if (!validEscape(p)) return s.substring(from, p);
+    final b = StringBuffer(s.substring(from, p));
     while (true) {
       final c = at(p);
       if (_isName(c)) {

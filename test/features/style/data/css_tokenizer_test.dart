@@ -57,6 +57,35 @@ void main() {
       expect(one(r'"\D800"').value, '�');
     });
 
+    test('nomes com e sem escape (corte direto e caminho com buffer)', () {
+      // Sem escape: corte direto do texto.
+      var t = one('abc-_9é');
+      expect(
+        (t.type, t.value, t.start, t.end),
+        (CssTokenType.ident, 'abc-_9é', 0, 7),
+      );
+      // Escape no meio.
+      t = one(r'a\62 c');
+      expect((t.type, t.value), (CssTokenType.ident, 'abc'));
+      // Escape no fim.
+      t = one(r'ab\63');
+      expect((t.type, t.value), (CssTokenType.ident, 'abc'));
+      // Escape de caractere comum seguido de mais nome.
+      expect(one(r'a\.b').value, 'a.b');
+      // Barra sem escape válido (antes de nova linha) termina o nome.
+      expect(types('ab\\\n').first, CssTokenType.ident);
+      expect(tokenizeCss('ab\\\n').first.value, 'ab');
+      // Função, at-keyword e hash passam pelo mesmo caminho.
+      t = tokenizeCss(r'f\6f o(').single;
+      expect((t.type, t.value), (CssTokenType.function, 'foo'));
+      t = one(r'@me\64 ia');
+      expect((t.type, t.value), (CssTokenType.atKeyword, 'media'));
+      t = one(r'#i\64');
+      expect((t.type, t.value, t.isIdHash), (CssTokenType.hash, 'id', true));
+      t = one('#abc');
+      expect((t.type, t.value), (CssTokenType.hash, 'abc'));
+    });
+
     test('url', () {
       final t = one('url( a.png )');
       expect((t.type, t.value), (CssTokenType.url, 'a.png'));
