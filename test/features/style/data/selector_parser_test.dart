@@ -38,6 +38,19 @@ void main() {
       expect(one('*').specificity, 0);
     });
 
+    test('estados de interface do nível 3 contam como classe', () {
+      for (final p in [
+        'target',
+        'enabled',
+        'disabled',
+        'checked',
+        'indeterminate',
+      ]) {
+        expect(one('p:$p').specificity, spec(0, 1, 1), reason: p);
+        expect(one(':$p').specificity, spec(0, 1, 0), reason: p);
+      }
+    });
+
     test('atributo e pseudo-classe contam como classe', () {
       expect(one('a[href]:hover').specificity, spec(0, 2, 1));
       expect(one('ul li:nth-child(2n+1)').specificity, spec(0, 1, 2));

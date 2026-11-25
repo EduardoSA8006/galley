@@ -193,7 +193,8 @@ enum PseudoClassKind {
   /// `:link`.
   link,
 
-  /// `:hover`, `:active`, `:focus`, `:visited`: válidos, nunca casam.
+  /// `:hover`, `:active`, `:focus`, `:visited`, `:target`, `:enabled`,
+  /// `:disabled`, `:checked`, `:indeterminate`: válidos, nunca casam.
   never,
 }
 

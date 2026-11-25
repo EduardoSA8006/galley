@@ -361,7 +361,12 @@ final class _SelectorParser {
         'hover' ||
         'active' ||
         'focus' ||
-        'visited' => const PseudoClassSelector(PseudoClassKind.never),
+        'visited' ||
+        'target' ||
+        'enabled' ||
+        'disabled' ||
+        'checked' ||
+        'indeterminate' => const PseudoClassSelector(PseudoClassKind.never),
         _ => throw _invalid,
       };
       _b++;

@@ -225,6 +225,16 @@ void main() {
       expect(hits('a:hover'), isEmpty);
       expect(hits('a:visited'), isEmpty);
       expect(hits('a:active, a:focus'), isEmpty);
+      for (final p in [
+        'target',
+        'enabled',
+        'disabled',
+        'checked',
+        'indeterminate',
+      ]) {
+        expect(hits(':$p'), isEmpty, reason: p);
+        expect(hits('p:$p, span'), ['span'], reason: p);
+      }
       expect(hits('p:not(.x)'), ['p2', 'p3']);
       expect(hits(':not(p.x)'), isNull);
       expect(hits('p:not([title])'), ['p2', 'p3']);
