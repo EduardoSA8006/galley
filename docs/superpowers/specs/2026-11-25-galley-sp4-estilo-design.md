@@ -1,7 +1,7 @@
 # Galley — Subprojeto 4: Estilo (motor CSS + preferências do leitor)
 
 - **Data:** 2026-11-25
-- **Status:** em revisão
+- **Status:** aprovado (2026-11-25)
 - **Documento pai:** `2026-11-24-galley-arquitetura-design.md` (§7 etapa 3, §8 item 4)
 - **Depende de:** SP1 (Container), SP2 (Benchmark) e SP3 (Documento), mergeados.
 - **Dados:** `dados/2026-11-25-levantamento-css.md` (levantamento de CSS em 372 livros).
