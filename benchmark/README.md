@@ -19,7 +19,7 @@ quando fazem sentido, um relatório em Markdown com `--report`.
 | `instructions` | CI (Valgrind) e local (`--counter perf`) | instruções por benchmark curto, base × head no mesmo job | **gate do PR**: reprova com regressão > 0,5% (`--threshold`); o noturno usa 0.10 contra a tag `bench-baseline` |
 | `ab` | CI | tempo de parede base × head, rodadas intercaladas, IC 95% bootstrap da razão das medianas | **gate do PR**: reprova se o IC fica inteiro acima de +5% |
 | `local` | máquina do mantenedor | tempo absoluto, RSS de pico, `perf` nativo, livros de 50 e 300 MiB, corpus público e privado | registro manual (`local-dev`); rode depois de mudanças de desempenho e antes de releases |
-| `compare` | CI noturno e local | Galley × `epubx` × `epub_plus` × `epub_pro`; e o parse de documento do Galley × DOM do `package:xml` (par à parte, `--doc-adapter`) | relatório; não bloqueia antes da 1.0 |
+| `compare` | CI noturno e local | Galley × `epubx` × `epub_plus` × `epub_pro`; o parse de documento do Galley × DOM do `package:xml` (par à parte, `--doc-adapter`); e a leitura de CSS do Galley × `package:csslib` (par à parte, `--css-adapter`) | relatório; não bloqueia antes da 1.0 |
 | `size` | CI noturno e local | bytes que o Galley acrescenta ao APK release arm64 | teto de **2 MiB** (2.097.152 bytes); acima disso sai com 1 |
 | `wide` | CI noturno e local | robustez: abre e lê todos os recursos de 300 livros do Project Gutenberg (`corpus/pg-wide.json`), parseia todos os documentos do spine e conta por classe | sai com 1 **só** se houver `crashed` (exceção que não é `GalleyException`: bug do Galley) |
 | `docdiff` | CI noturno e local | diferencial: em cada documento do spine do corpus público, a árvore do Galley × o DOM do `package:xml` | sai com 1 se houver **divergência** ou **erro interno** (bug do Galley); 70 se nenhum documento foi comparado |
@@ -385,7 +385,26 @@ que criar. Ao concluir um subprojeto, esta lista deve ser cumprida:
       (`retainedBytes` ÷ bytes do XHTML ≤ K). Diferencial noturno, que
       reprova: `docdiff` (árvore × DOM do `package:xml` no corpus
       público); o `wide` parseia todos os documentos do spine.
-- [ ] **SP4, estilo:** cascata e seletores.
+- [x] **SP4, estilo:** cascata e seletores. Catálogo: `style/parse-sheet-256kib`
+      (`buildStyleSheet` sobre uma folha sintética de 256 KiB),
+      `style/full-large-1mib` (`matchDocument` + `restyle` do XHTML sintético
+      de 1 MiB com a folha de editora de ~40 KiB, contexto aquecido no `setUp`,
+      como num capítulo N), `style/restyle-large-1mib` (só o `restyle` sobre o
+      casamento guardado: Literata/1,2/tema escuro e `none`),
+      `style/match-descendant-heavy` (2.000 regras descendentes no mesmo XHTML)
+      e `style/spine-hm-<livro>` (`styleDocument` em todo o spine de cada livro
+      `hm/*` bem formado). Ciclos de ~30–40 ms nativos, salvo `full-large-1mib`
+      (~85 ms) e `match-descendant-heavy` (~75 ms), cujo trabalho prescrito
+      (1 MiB, 2.000 regras) não cabe em 50 ms. **Meta da spec como registro
+      permanente:** o `restyle` custa no máximo 1/5 do estilo completo do mesmo
+      capítulo; `test/suites_style_test.dart` (tag `slow`, `-t slow`) conta as
+      instruções das duas suítes (cada uma faz duas passadas de preferências,
+      para a conta ser simétrica) e exige razão ≥ 5. Comparação informativa,
+      sem gate, no `compare`: `buildStyleSheet` × `parse` do `package:csslib`
+      (versão fixada em `pubspec.yaml`, só aqui, nunca no pacote `galley`) em
+      `hm/publisher-css`, nos livros do corpus público e em
+      `synthetic/css-256kib`, com `wall-time-ns` e `peak-rss-bytes` em
+      `compare/galley-css/parse/<livro>` e `compare/csslib/parse/<livro>`.
 - [ ] **SP5, layout:** paginação, repaginação ao mudar a fonte, medição
       fatiada.
 - [ ] **SP6, render e API:** FPS/jank, memória real em dispositivo,

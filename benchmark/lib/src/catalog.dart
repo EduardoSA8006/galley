@@ -2,6 +2,7 @@ import 'bench.dart';
 import 'suites/container_macro.dart';
 import 'suites/container_micro.dart';
 import 'suites/document_suites.dart';
+import 'suites/style_suites.dart';
 
 /// Benchmark vazio, usado para descontar a partida do processo.
 final class NoopBench implements Bench {
@@ -31,6 +32,7 @@ final class Catalog {
     ...containerMicroBenches(),
     ...containerMacroBenches(),
     ...documentBenches(),
+    ...styleBenches(),
   ];
 
   /// Devolve o benchmark de [id]; lança [ArgumentError] se não existir.

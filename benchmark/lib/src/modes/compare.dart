@@ -7,6 +7,7 @@ import '../corpus/handmade.dart';
 import '../corpus/manifest.dart';
 import '../corpus/synthetic.dart';
 import '../suites/document_suites.dart';
+import '../suites/style_suites.dart';
 import 'ab.dart' show abEnvironment;
 import 'build.dart';
 import 'local.dart' show OpenMeasurement, parseMeasureOpen;
@@ -428,6 +429,9 @@ const String documentMetric = 'parse';
 /// Nomes dos parsers da comparação de documentos, o nosso primeiro.
 const List<String> documentAdapterNames = ['galley-document', 'xml-dom'];
 
+/// Nomes dos leitores da comparação de CSS, o nosso primeiro.
+const List<String> cssAdapterNames = ['galley-css', 'csslib'];
+
 /// Seção do relatório: o parse do Galley (`parseDocumentBytes`) contra o DOM
 /// do `package:xml` (`XmlDocument.parse`, entidades HTML5), por documento
 /// (livro `hm/*`: todos os documentos do spine; `synthetic/xhtml-1mib`: o
@@ -435,6 +439,51 @@ const List<String> documentAdapterNames = ['galley-document', 'xml-dom'];
 String renderDocumentCompareReport(
   List<CompareCell> cells, {
   required int runs,
+}) => _renderParseCompare(
+  cells,
+  runs: runs,
+  heading: '## Documento: Galley × DOM do `package:xml`',
+  intro:
+      '`parseDocumentBytes` (árvore compacta, sem a leitura do arquivo) contra '
+      '`XmlDocument.parse` (DOM, mesmas entidades HTML5, mesmo texto '
+      'decodificado)',
+  ours: 'galley-document',
+  oursLabel: 'galley',
+  theirs: 'xml-dom',
+  what: 'documento',
+  trees: 'árvores',
+);
+
+/// Seção do relatório: a leitura de folhas do Galley (`buildStyleSheet`:
+/// regras, seletores e propriedades já interpretados) contra o `parse` do
+/// `package:csslib` (árvore de sintaxe), por livro (todas as folhas
+/// `text/css`) e na folha sintética. Só informativa: nunca reprova.
+String renderCssCompareReport(List<CompareCell> cells, {required int runs}) =>
+    _renderParseCompare(
+      cells,
+      runs: runs,
+      heading: '## CSS: Galley × `package:csslib`',
+      intro:
+          '`buildStyleSheet` (regras com seletores e propriedades '
+          'interpretados, sem a leitura do arquivo) contra `parse` do '
+          '`csslib` (árvore de sintaxe; não interpreta as propriedades)',
+      ours: 'galley-css',
+      oursLabel: 'galley',
+      theirs: 'csslib',
+      what: 'folhas',
+      trees: 'folhas lidas',
+    );
+
+String _renderParseCompare(
+  List<CompareCell> cells, {
+  required int runs,
+  required String heading,
+  required String intro,
+  required String ours,
+  required String oursLabel,
+  required String theirs,
+  required String what,
+  required String trees,
 }) {
   CompareCell? find(String book, String adapter) {
     for (final c in cells) {
@@ -448,25 +497,23 @@ String renderDocumentCompareReport(
     if (!books.contains(c.book)) books.add(c.book);
   }
   final b = StringBuffer()
-    ..writeln('## Documento: Galley × DOM do `package:xml`')
+    ..writeln(heading)
     ..writeln()
     ..writeln(
-      '`parseDocumentBytes` (árvore compacta, sem a leitura do arquivo) contra '
-      '`XmlDocument.parse` (DOM, mesmas entidades HTML5, mesmo texto '
-      'decodificado), cada medida num processo próprio; tempo = mediana de '
+      '$intro, cada medida num processo próprio; tempo = mediana de '
       '$runs execuções só do parse, RSS = maior pico (`VmHWM`) do processo '
-      'inteiro, com as árvores ainda vivas. Só informativo, sem gate. '
-      '`razão` é xml-dom ÷ galley-document.',
+      'inteiro, com as $trees ainda vivas. Só informativo, sem gate. '
+      '`razão` é $theirs ÷ $ours.',
     )
     ..writeln()
     ..writeln(
-      '| documento | galley (ms) | xml-dom (ms) | razão | galley RSS (MiB) | '
-      'xml-dom RSS (MiB) |',
+      '| $what | $oursLabel (ms) | $theirs (ms) | razão | $oursLabel RSS '
+      '(MiB) | $theirs RSS (MiB) |',
     )
     ..writeln('|---|---:|---:|---:|---:|---:|');
   for (final k in books) {
-    final g = find(k, 'galley-document');
-    final x = find(k, 'xml-dom');
+    final g = find(k, ours);
+    final x = find(k, theirs);
     String ms(CompareCell? c) => c != null && c.ok ? _ms(c.wallNs!) : 'falhou';
     String mib(CompareCell? c) =>
         c != null && c.ok ? _mib(c.peakRss!) : 'falhou';
@@ -614,6 +661,32 @@ Future<int> runCompare({
       log: logSink,
       metrics: const [documentMetric],
     );
+
+    // Comparação informativa de CSS: leitura de folhas do Galley × csslib.
+    final cssFile = File('${session.workDir.path}/synthetic-css-256kib.css')
+      ..writeAsStringSync(buildLargeCss(kLargeCssBytes));
+    final cssBooks = <CompareBook>[
+      for (final b in books)
+        if (b.key == 'hm/publisher-css' || b.key.startsWith('public/')) b,
+      CompareBook('synthetic/css-256kib', cssFile),
+    ];
+    final cssCells = await compareBooks(
+      adapters: [
+        for (final name in cssAdapterNames)
+          CompareAdapter(
+            name,
+            runner,
+            prefixArgs: ['--css-adapter', name],
+            supportsEager: false,
+          ),
+      ],
+      books: cssBooks,
+      runs: runs,
+      timeout: timeout,
+      workDir: workDir,
+      log: logSink,
+      metrics: const [documentMetric],
+    );
     clock.stop();
     final report = renderCompareReport(
       cells,
@@ -623,11 +696,12 @@ Future<int> runCompare({
       notes: notes,
     );
     final fullReport =
-        '$report\n${renderDocumentCompareReport(docCells, runs: runs)}';
+        '$report\n${renderDocumentCompareReport(docCells, runs: runs)}'
+        '\n${renderCssCompareReport(cssCells, runs: runs)}';
     if (outPath != null) {
       await File(outPath).writeAsString(
         const JsonEncoder.withIndent('  ')
-            .convert(compareBmf([...cells, ...docCells])),
+            .convert(compareBmf([...cells, ...docCells, ...cssCells])),
       );
     }
     if (reportPath != null) {

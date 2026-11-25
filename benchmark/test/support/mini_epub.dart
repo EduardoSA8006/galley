@@ -4,8 +4,14 @@ import 'dart:typed_data';
 import 'package:galley_benchmark/src/corpus/epub_writer.dart';
 
 /// EPUB 3 mínimo com um capítulo por item de [chapters] (XHTML cru, na
-/// ordem do spine), para os testes de `docdiff` e `wide`.
-Uint8List buildMiniEpub(List<String> chapters) {
+/// ordem do spine), para os testes de `docdiff`, `wide` e de estilo.
+///
+/// [styleSheets] (caminho no zip → texto CSS) entra no manifest como
+/// `text/css`; os capítulos o ligam por `<link>`, se quiserem.
+Uint8List buildMiniEpub(
+  List<String> chapters, {
+  Map<String, String> styleSheets = const {},
+}) {
   final out = BytesBuilder(copy: false);
   final zip = ZipWriter(out.add)
     ..addBytes('mimetype', utf8.encode('application/epub+zip'), deflate: false)
@@ -19,6 +25,8 @@ Uint8List buildMiniEpub(List<String> chapters) {
     ),
     for (var i = 0; i < chapters.length; i++)
       OpfItem('c$i', 'c$i.xhtml', 'application/xhtml+xml'),
+    for (var i = 0; i < styleSheets.length; i++)
+      OpfItem('css$i', styleSheets.keys.elementAt(i), 'text/css'),
   ];
   zip
     ..addBytes(
@@ -49,6 +57,7 @@ Uint8List buildMiniEpub(List<String> chapters) {
   for (var i = 0; i < chapters.length; i++) {
     zip.addBytes('c$i.xhtml', utf8.encode(chapters[i]));
   }
+  styleSheets.forEach((path, css) => zip.addBytes(path, utf8.encode(css)));
   zip.finish();
   return out.takeBytes();
 }
