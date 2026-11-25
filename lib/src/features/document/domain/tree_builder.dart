@@ -122,6 +122,7 @@ final class TreeBuilder {
       throw StateError('build() com $depth elemento(s) aberto(s)');
     }
     _built = true;
+    final indices = _buildIndices();
     final tree = DocumentTree.internal(
       flags: _flags.trimmed(),
       parents: _parents.trimmed(),
@@ -136,6 +137,7 @@ final class TreeBuilder {
       attributeValues: List<String>.of(_attributeValues, growable: false),
       distinctValueCount: _distinctValues.length,
       distinctValueChars: _distinctValueChars,
+      indices: indices,
       names: names..freeze(),
       tokens: tokens..freeze(),
     );
@@ -159,6 +161,131 @@ final class TreeBuilder {
     _attributeValues.clear();
     return tree;
   }
+
+  /// Monta os índices de consulta em O(n), antes de congelar [tokens]: um
+  /// passe conta e outro preenche, sempre em ordem de documento.
+  QueryIndices _buildIndices() {
+    final count = _flags.length;
+    final idName = names.lookup(Namespaces.none, 'id') ?? -1;
+    final classAttr = names.lookup(Namespaces.none, 'class') ?? -1;
+    final typeAttr = names.lookup(Namespaces.ops, 'type') ?? -1;
+
+    final byId = <String, int>{};
+    final classStarts = Int32List(count + 1);
+    final typeStarts = Int32List(count + 1);
+    final classValues = _Int32Array();
+    final typeValues = _Int32Array();
+    final nameCounts = Int32List(names.length + 1);
+    final elements = _Int32Array();
+
+    for (var n = 0; n < count; n++) {
+      classStarts[n] = classValues.length;
+      typeStarts[n] = typeValues.length;
+      if (_flags[n] & DocumentTree.kindMask != NodeKind.element.index) {
+        continue;
+      }
+      elements.add(n);
+      nameCounts[_data0[n]]++;
+      var seenId = false;
+      var seenClass = false;
+      var seenType = false;
+      final end = _attributeEnds[n];
+      for (var i = _data1[n]; i < end; i++) {
+        final name = _attributeNames[i];
+        if (name == idName && !seenId) {
+          seenId = true;
+          final value = _attributeValues[i];
+          if (value.isNotEmpty) byId.putIfAbsent(value, () => n);
+        } else if (name == classAttr && !seenClass) {
+          seenClass = true;
+          _tokenize(_attributeValues[i], classValues, classStarts[n]);
+        } else if (name == typeAttr && !seenType) {
+          seenType = true;
+          _tokenize(_attributeValues[i], typeValues, typeStarts[n]);
+        }
+      }
+    }
+    classStarts[count] = classValues.length;
+    typeStarts[count] = typeValues.length;
+    final classTokens = classValues.trimmed();
+
+    // Por nome: contagem, somas de prefixo e preenchimento (ordem estável).
+    final nameStarts = _prefixSums(nameCounts);
+    final nameFill = Int32List.fromList(nameStarts);
+    final nameElements = Int32List(nameStarts[names.length]);
+    for (var k = 0; k < elements.length; k++) {
+      final e = elements[k];
+      nameElements[nameFill[_data0[e]]++] = e;
+    }
+
+    // Por classe: o mesmo, sobre os tokens de classe de cada elemento.
+    final classCounts = Int32List(tokens.length + 1);
+    for (final token in classTokens) {
+      classCounts[token]++;
+    }
+    final classElementStarts = _prefixSums(classCounts);
+    final classFill = Int32List.fromList(classElementStarts);
+    final classElements = Int32List(classElementStarts[tokens.length]);
+    for (var k = 0; k < elements.length; k++) {
+      final e = elements[k];
+      for (var i = classStarts[e]; i < classStarts[e + 1]; i++) {
+        classElements[classFill[classTokens[i]]++] = e;
+      }
+    }
+
+    return QueryIndices(
+      idName: idName,
+      byId: byId,
+      classStarts: classStarts,
+      classTokens: classTokens,
+      typeStarts: typeStarts,
+      typeTokens: typeValues.trimmed(),
+      classElementStarts: classElementStarts,
+      classElements: classElements,
+      nameElementStarts: nameStarts,
+      nameElements: nameElements,
+    );
+  }
+
+  /// Soma de prefixos de [counts] (com um item a mais que o necessário nas
+  /// chaves): `result[k]` é o início do grupo `k`; o último, o total.
+  static Int32List _prefixSums(Int32List counts) {
+    final keys = counts.length - 1;
+    final starts = Int32List(keys + 1);
+    for (var k = 0; k < keys; k++) {
+      starts[k + 1] = starts[k] + counts[k];
+    }
+    return starts;
+  }
+
+  /// Separa [value] em tokens por espaço em branco ASCII, interna cada um e
+  /// acrescenta a [out] os que ainda não aparecem a partir de [from].
+  void _tokenize(String value, _Int32Array out, int from) {
+    final length = value.length;
+    var i = 0;
+    while (i < length) {
+      while (i < length && _isSpace(value.codeUnitAt(i))) {
+        i++;
+      }
+      final start = i;
+      while (i < length && !_isSpace(value.codeUnitAt(i))) {
+        i++;
+      }
+      if (i == start) break;
+      final token = tokens.intern(value.substring(start, i));
+      var seen = false;
+      for (var k = from; k < out.length; k++) {
+        if (out[k] == token) {
+          seen = true;
+          break;
+        }
+      }
+      if (!seen) out.add(token);
+    }
+  }
+
+  static bool _isSpace(int c) =>
+      c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D || c == 0x0C;
 
   /// Cria um nó como último filho do elemento aberto e devolve o índice.
   int _appendChild(int flags, int data0, int data1) {

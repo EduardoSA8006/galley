@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
@@ -49,6 +50,7 @@ final class DocumentTree {
     required this._attributeValues,
     required this._distinctValueCount,
     required this._distinctValueChars,
+    required this._indices,
     required this.names,
     required this.tokens,
   });
@@ -74,6 +76,7 @@ final class DocumentTree {
   final List<String> _attributeValues;
   final int _distinctValueCount;
   final int _distinctValueChars;
+  final QueryIndices _indices;
 
   /// Nomes internados (elementos e atributos) deste documento; congelada,
   /// só para consulta.
@@ -197,6 +200,61 @@ final class DocumentTree {
     }
   }
 
+  // --------------------------------------------------------------- consultas
+
+  /// Valor do atributo `id` do [element]; `null` se não tiver ou se for
+  /// vazio.
+  String? idOf(int element) {
+    _checkKind(element, NodeKind.element);
+    final nameId = _indices.idName;
+    if (nameId < 0) return null;
+    final value = attributeById(element, nameId);
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  /// O primeiro elemento (em ordem de documento) com o [id]; `null` se não
+  /// houver. `id` vazio nunca casa.
+  int? elementById(String id) => _indices.byId[id];
+
+  /// Ids dos tokens de `class` do [element] (ver [tokens]), sem repetição,
+  /// na ordem do atributo. A lista não é modificável.
+  List<int> classesOf(int element) {
+    _checkKind(element, NodeKind.element);
+    return _slice(_indices.classStarts, _indices.classTokens, element);
+  }
+
+  /// Elementos com a classe [className], em ordem de documento; vazia se a
+  /// classe não existir. A lista não é modificável.
+  List<int> elementsWithClass(String className) {
+    final token = tokens.lookup(className);
+    if (token == null) return const [];
+    return _slice(_indices.classElementStarts, _indices.classElements, token);
+  }
+
+  /// Elementos de nome ([namespace], [localName]), em ordem de documento;
+  /// vazia se o nome não existir. A lista não é modificável.
+  List<int> elementsNamed(int namespace, String localName) {
+    final name = names.lookup(namespace, localName);
+    if (name == null) return const [];
+    return _slice(_indices.nameElementStarts, _indices.nameElements, name);
+  }
+
+  /// Tokens de `epub:type` (namespace OPS) do [element], sem repetição, na
+  /// ordem do atributo. A lista não é modificável.
+  List<String> epubTypesOf(int element) {
+    _checkKind(element, NodeKind.element);
+    final ids = _slice(_indices.typeStarts, _indices.typeTokens, element);
+    if (ids.isEmpty) return const [];
+    return List<String>.unmodifiable(ids.map(tokens.tokenOf));
+  }
+
+  static List<int> _slice(Int32List starts, Int32List values, int i) {
+    final start = starts[i];
+    final end = starts[i + 1];
+    if (start == end) return const [];
+    return UnmodifiableListView(Int32List.sublistView(values, start, end));
+  }
+
   // ------------------------------------------------------------------ memória
 
   /// Bytes retidos pela árvore: os arranjos tipados, o texto em UTF-16 e os
@@ -215,11 +273,73 @@ final class DocumentTree {
       _attributeNames.lengthInBytes +
       _attributeValues.length * 8 +
       _distinctValueCount * 16 +
-      _distinctValueChars * 2;
+      _distinctValueChars * 2 +
+      _indices.retainedBytes;
 
   void _checkKind(int n, NodeKind kind) {
     if (_flags[n] & kindMask != kind.index) {
       throw ArgumentError.value(n, 'n', 'não é um nó do tipo ${kind.name}');
     }
   }
+}
+
+/// Índices de consulta montados no `TreeBuilder.build`: arranjos tipados
+/// agrupados por chave (formato CSR: `starts[k]..starts[k + 1]` delimita os
+/// valores da chave `k` em `values`).
+@internal
+final class QueryIndices {
+  /// Cria os índices a partir dos arranjos já montados.
+  QueryIndices({
+    required this.idName,
+    required this.byId,
+    required this.classStarts,
+    required this.classTokens,
+    required this.typeStarts,
+    required this.typeTokens,
+    required this.classElementStarts,
+    required this.classElements,
+    required this.nameElementStarts,
+    required this.nameElements,
+  });
+
+  /// Id do nome do atributo `id`; −1 se o documento não o usa.
+  final int idName;
+
+  /// Primeiro elemento de cada `id` não vazio.
+  final Map<String, int> byId;
+
+  /// Por nó: tokens de `class` (`classStarts` tem `nodeCount + 1` itens).
+  final Int32List classStarts;
+
+  /// Valores de [classStarts].
+  final Int32List classTokens;
+
+  /// Por nó: tokens de `epub:type`.
+  final Int32List typeStarts;
+
+  /// Valores de [typeStarts].
+  final Int32List typeTokens;
+
+  /// Por token: elementos com essa classe, em ordem de documento.
+  final Int32List classElementStarts;
+
+  /// Valores de [classElementStarts].
+  final Int32List classElements;
+
+  /// Por nome: elementos com esse nome, em ordem de documento.
+  final Int32List nameElementStarts;
+
+  /// Valores de [nameElementStarts].
+  final Int32List nameElements;
+
+  /// Bytes dos arranjos (o mapa de ids, por ser pequeno, não conta).
+  int get retainedBytes =>
+      classStarts.lengthInBytes +
+      classTokens.lengthInBytes +
+      typeStarts.lengthInBytes +
+      typeTokens.lengthInBytes +
+      classElementStarts.lengthInBytes +
+      classElements.lengthInBytes +
+      nameElementStarts.lengthInBytes +
+      nameElements.lengthInBytes;
 }
