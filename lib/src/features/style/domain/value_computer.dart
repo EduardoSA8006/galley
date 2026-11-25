@@ -84,25 +84,33 @@ final class ValueComputer {
   /// Valores calculados do elemento (ou do pseudo-elemento [pseudo]) com
   /// as declarações vencedoras [set], herdando de [parent] (`null` na
   /// raiz). [isRoot] liga as regras da raiz (`display` blocado).
+  ///
+  /// [fontScale] é o fator de tamanho do leitor (spec §8.7): multiplica o
+  /// `font-size` onde ele nasce absoluto (na raiz, toda a base de 16 px;
+  /// nos demais, a parte em px, `vw`/`vh` e as palavras-chave absolutas).
+  /// `em`, `%`, `rem`, `larger`/`smaller` e o valor herdado já acompanham o
+  /// pai ajustado, então o fator nunca é aplicado duas vezes.
   List<CssValue> compute(
     CascadedValues set, {
     required ComputedStyle? parent,
     bool isRoot = false,
     PseudoElement? pseudo,
+    double fontScale = 1,
   }) {
     final inherited = parent?.values ?? initialValues;
     final out = List<CssValue>.of(initialValues, growable: false);
 
     // `font-size` primeiro: as demais unidades dependem dele.
     final parentSize = parent == null
-        ? kInitialFontSize
+        ? kInitialFontSize * fontScale
         : (inherited[PropertyId.fontSize] as CssLength).px;
     final fontSize = _fontSize(
       set.valueOf(PropertyId.fontSize),
       parentSize,
-      isRoot ? kInitialFontSize : rootFontSize,
+      isRoot ? kInitialFontSize * fontScale : rootFontSize,
       pageWidth,
       pageHeight,
+      fontScale,
     );
     out[PropertyId.fontSize] = CssLength(px: fontSize);
     // Na raiz, `rem` das demais propriedades é o próprio tamanho calculado
@@ -341,12 +349,15 @@ double? _absoluteSize(int id) => switch (id) {
 ///
 /// `em`, `ex` (0,5 em) e `%` são sobre o tamanho do pai; `rem`, sobre o da
 /// raiz; `vw`/`vh` sobre a largura/altura da página ([width], [height]).
+/// As partes absolutas (px, `vw`/`vh`, palavras-chave absolutas e
+/// `initial`) são multiplicadas por [scale].
 double _fontSize(
   CssValue? specified,
   double parent,
   double root,
   double width,
   double height,
+  double scale,
 ) {
   double size;
   switch (specified) {
@@ -354,19 +365,22 @@ double _fontSize(
       size = parent;
     case CssKeyword(:final id):
       size = switch (id) {
-        CssKeywords.initial => kInitialFontSize,
+        CssKeywords.initial => kInitialFontSize * scale,
         CssKeywords.larger => parent * 1.2,
         CssKeywords.smaller => parent / 1.2,
-        _ => _absoluteSize(id) ?? parent, // inherit, unset
+        _ => switch (_absoluteSize(id)) {
+          final double s => s * scale,
+          null => parent, // inherit, unset
+        },
       };
     case CssLengthSpec():
       size =
-          specified.px +
+          specified.px * scale +
           specified.em * parent +
           specified.ex * 0.5 * parent +
           specified.rem * root +
-          specified.vw / 100 * width +
-          specified.vh / 100 * height +
+          specified.vw / 100 * width * scale +
+          specified.vh / 100 * height * scale +
           specified.percent / 100 * parent;
     default:
       size = parent;

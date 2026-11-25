@@ -5,6 +5,7 @@ import '../../document/domain/names.dart';
 import 'computed_style.dart';
 import 'css_value.dart';
 import 'matched_document.dart';
+import 'preference_pass.dart';
 import 'properties.dart';
 import 'reader_preferences.dart';
 import 'selector.dart';
@@ -23,8 +24,12 @@ import 'value_computer.dart';
 /// cobre o atalho de irmãos da §8.6 e também primos e níveis repetidos; as
 /// marcas de [MatchedDocument.flags] também entram na chave.
 ///
-/// [preferences] ainda não age: a passada de preferências chega numa etapa
-/// seguinte; o resultado é o do livro.
+/// [preferences] são aplicadas pela [PreferencePass] (spec §8.5, §8.7):
+/// cada estilo é calculado a partir do pai já ajustado e transformado em
+/// seguida; o tamanho da fonte entra no próprio cálculo. Por isso a chave
+/// do memo inclui também as marcas do pai (a fronteira do escopo), se o
+/// elemento é o `body` (fundo do tema) e, quando a família da editora é
+/// mantida, essa família. Sem preferências, o resultado é o do livro.
 StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
   final tree = matched.tree;
   final nodeCount = tree.nodeCount;
@@ -38,6 +43,10 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
   final elementStyles = Int32List(nodeCount)..fillRange(0, nodeCount, -1);
   final setCount = matched.sets.length;
   final memo = <int, int>{};
+  final pass = PreferencePass(preferences, matched);
+  final active = pass.isActive;
+  final familyTable = matched.familyTable;
+  final familyCount = familyTable.length + 1;
 
   int styleFor(
     int parentStyle,
@@ -45,22 +54,46 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
     int kind,
     int flags, {
     required bool isRoot,
+    int parentFlags = 0,
+    bool isBody = false,
+    int family = -1,
   }) {
     // kind: 0 = elemento, 1 + PseudoElement.index para pseudo-elementos.
     // As marcas de texto corrido entram na chave: elementos com marcas
     // diferentes nunca compartilham o cálculo (a passada de preferências
     // depende delas).
-    final key =
+    var key =
         (((parentStyle + 1) * setCount + set) * 5 + kind) * ElementFlags.limit +
         flags;
+    if (active) {
+      // Escopo do pai (texto corrido, título), `body` e família mantida.
+      final scope =
+          parentFlags & (ElementFlags.inTextRun | ElementFlags.heading);
+      key =
+          ((key * 8 + scope) * 2 + (isBody ? 1 : 0)) * familyCount + family + 1;
+    }
     final known = memo[key];
     if (known != null) return known;
+    final cascaded = matched.sets[set];
     final values = computer.compute(
-      matched.sets[set],
+      cascaded,
       parent: parentStyle < 0 ? null : styles[parentStyle],
       isRoot: isRoot,
       pseudo: kind == 0 ? null : PseudoElement.values[kind - 1],
+      fontScale: pass.fontScale,
     );
+    if (active) {
+      pass.apply(
+        values,
+        cascaded,
+        flags: flags,
+        parentFlags: parentFlags,
+        isRoot: isRoot,
+        isBody: isBody,
+        isPseudo: kind != 0,
+        publisherFamily: family < 0 ? null : familyTable[family],
+      );
+    }
     return memo[key] = interner.indexOf(values);
   }
 
@@ -107,6 +140,14 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
       0,
       flags,
       isRoot: isRoot,
+      parentFlags: isRoot ? 0 : matched.flags[parent],
+      isBody:
+          pass.dependsOnBody &&
+          tree.namespaceOf(n) == Namespaces.xhtml &&
+          tree.localNameOf(n) == 'body',
+      family: pass.keepsPublisherFamily(flags)
+          ? matched.publisherFamilies[n]
+          : -1,
     );
     elementStyles[n] = style;
     if (isRoot && !rootSeen) {
@@ -127,6 +168,7 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
         kind.index + 1,
         flags,
         isRoot: false,
+        parentFlags: flags,
       );
       final isBeforeOrAfter =
           kind == PseudoElement.before || kind == PseudoElement.after;
@@ -162,6 +204,7 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
     generatedTexts: List.unmodifiable(generated),
     fontFaces: matched.fontFaces,
     pageMargins: matched.pageMargins,
+    pageBackground: pass.theme?.background,
   );
 }
 
