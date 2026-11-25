@@ -43,6 +43,7 @@ ParsedDocument _fakeParser(
     ..endElement()
     ..endElement();
   return ParsedDocument(
+    path: real.path,
     tree: b.build(),
     head: real.head,
     diagnostics: real.diagnostics,
@@ -56,6 +57,7 @@ DocumentBytesParser _recoveredParser({String? internalError}) =>
     (bytes, {required path, mediaType = 'application/xhtml+xml'}) {
       final real = parseDocumentBytes(bytes, path: path, mediaType: mediaType);
       return ParsedDocument(
+        path: real.path,
         tree: real.tree,
         head: real.head,
         diagnostics: real.diagnostics,

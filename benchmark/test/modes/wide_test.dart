@@ -148,6 +148,7 @@ void main() {
       documentParser: (bytes, {required path, mediaType = ''}) {
         final real = parseDocumentBytes(bytes, path: path);
         return ParsedDocument(
+          path: real.path,
           tree: real.tree,
           head: real.head,
           diagnostics: real.diagnostics,

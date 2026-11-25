@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
+
 import '../../document/domain/document_tree.dart';
 import '../../document/domain/names.dart';
 import 'css_value.dart' show asciiLower;
@@ -17,6 +19,14 @@ const int _notMatchedGlobally = 3;
 /// O casamento é da direita para a esquerda e iterativo (pilha explícita,
 /// sem recursão). Guarda caches por árvore (nomes em minúsculas, posições
 /// entre irmãos), então use um casador por árvore.
+///
+/// Tem também um filtro de ancestrais (Bloom com contadores, como nos
+/// navegadores): quem percorre a árvore em ordem de documento empilha cada
+/// elemento com [pushAncestor] antes dos seus descendentes e o desempilha
+/// com [popAncestor] depois; [rejectsByAncestors] descarta, sem percorrer
+/// ancestrais, o seletor que exige um ancestral (id, classe ou nome) que
+/// não está no filtro. Só vale enquanto o filtro contém exatamente os
+/// ancestrais do elemento testado.
 final class SelectorMatcher {
   /// Cria o casador; [documentLang] é o idioma usado por `:lang()` quando
   /// nenhum ancestral declara `xml:lang`/`lang`.
@@ -50,9 +60,82 @@ final class SelectorMatcher {
   // Pilha do casamento: elemento candidato de cada nível.
   Int32List _candidates = Int32List(16);
 
+  /// Contadores do filtro de ancestrais: [_filterSize] posições, duas por
+  /// hash (os 12 bits baixos e os 12 seguintes). `Int32List` para não
+  /// saturar com milhares de ancestrais de mesmo nome.
+  final Int32List _filter = Int32List(_filterSize);
+  static const int _filterSize = 4096;
+  static const int _filterMask = _filterSize - 1;
+
+  /// Hash ([SelectorHashes.ofType]) por id de nome; 0 = ainda não calculado
+  /// (um hash 0 real só custa recalcular).
+  late final Int32List _nameHashes = Int32List(tree.names.length);
+
+  /// Hash ([SelectorHashes.ofClass]) por id de token de classe.
+  late final List<int?> _classHashes = List<int?>.filled(
+    tree.tokens.length,
+    null,
+  );
+
+  int _fullMatchAttempts = 0;
+
+  /// Quantas vezes [matches] rodou (casamentos completos, depois dos
+  /// filtros de quem chama).
+  @visibleForTesting
+  int get fullMatchAttempts => _fullMatchAttempts;
+
+  /// Acrescenta o elemento [element] (nome, id e classes) ao filtro de
+  /// ancestrais.
+  void pushAncestor(int element) => _updateFilter(element, 1);
+
+  /// Tira o elemento [element] do filtro de ancestrais (o inverso de
+  /// [pushAncestor], para o mesmo elemento).
+  void popAncestor(int element) => _updateFilter(element, -1);
+
+  /// `true` se algum dos [Selector.ancestorHashes] de [selector] está
+  /// ausente do filtro: nenhum elemento cujos ancestrais sejam os do filtro
+  /// pode casar. `false` não garante o casamento (falso positivo do Bloom).
+  bool rejectsByAncestors(Selector selector) {
+    final filter = _filter;
+    for (final h in selector.ancestorHashes) {
+      if (filter[h & _filterMask] == 0 ||
+          filter[(h >> 12) & _filterMask] == 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _updateFilter(int element, int delta) {
+    final filter = _filter;
+    void add(int h) {
+      filter[h & _filterMask] += delta;
+      filter[(h >> 12) & _filterMask] += delta;
+    }
+
+    final nameId = tree.nameOf(element);
+    var nameHash = _nameHashes[nameId];
+    if (nameHash == 0) {
+      nameHash = _nameHashes[nameId] = SelectorHashes.ofType(
+        tree.names.localNameOf(nameId),
+      ).toSigned(32);
+    }
+    add(nameHash);
+    final id = tree.idOf(element);
+    if (id != null) add(SelectorHashes.ofId(id));
+    for (final token in tree.classesOf(element)) {
+      add(
+        _classHashes[token] ??= SelectorHashes.ofClass(
+          tree.tokens.tokenOf(token),
+        ),
+      );
+    }
+  }
+
   /// Se [selector] casa o elemento [element] (o pseudo-elemento do seletor
   /// é ignorado aqui: casa o elemento que o origina).
   bool matches(Selector selector, int element) {
+    _fullMatchAttempts++;
     final compounds = selector.compounds;
     final combinators = selector.combinators;
     final last = compounds.length - 1;
