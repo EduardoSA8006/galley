@@ -286,7 +286,7 @@ final class _Builder {
         DiagnosticCodes.cssUnsupportedAtRule,
         DiagnosticSeverity.info,
         rule.offset,
-        '@import com $headName não suportado; ignorada',
+        '@import com $headName não suportada; ignorada',
       );
       return;
     }
