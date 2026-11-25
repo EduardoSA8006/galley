@@ -11,6 +11,7 @@ import 'package:galley/src/features/document/domain/tree_builder.dart';
 import 'package:galley_benchmark/src/corpus/handmade.dart';
 import 'package:galley_benchmark/src/modes/docdiff.dart';
 import 'package:test/test.dart';
+import 'package:xml/xml.dart';
 
 import '../support/mini_epub.dart';
 
@@ -141,6 +142,38 @@ void main() {
         final outcome = compareDocument('$name.xhtml', _bytes(text));
         expect(outcome.kind, DocDiffKind.match, reason: '$name: $outcome');
       }
+    });
+
+    test('raiz sem xmlns: o DOM aplica o namespace implícito do Galley', () {
+      final cases = <String, (String, String)>{
+        'html sem xmlns': (
+          '<html lang="pt"><head><title>t</title></head>'
+              '<body><p>x</p></body></html>',
+          'application/xhtml+xml',
+        ),
+        'xmlns="" interno continua valendo': (
+          '<html><body><x xmlns=""><y/></x><p/></body></html>',
+          'application/xhtml+xml',
+        ),
+        'svg sem xmlns': ('<svg><g><rect/></g></svg>', 'image/svg+xml'),
+        'SVG maiúsculo sem xmlns': ('<SVG><g/></SVG>', 'image/svg+xml'),
+        'raiz com prefixo, filhos sem prefixo': (
+          '<h:html xmlns:h="$_xhtml"><body/></h:html>',
+          'application/xhtml+xml',
+        ),
+      };
+      for (final MapEntry(key: name, value: (text, mediaType))
+          in cases.entries) {
+        final outcome = compareDocument(
+          '$name.xhtml',
+          _bytes(text),
+          mediaType: mediaType,
+        );
+        expect(outcome.kind, DocDiffKind.match, reason: '$name: $outcome');
+      }
+      // E a regra pesa nos dois lados: o primeiro evento está no XHTML.
+      final dom = domEvents(XmlDocument.parse('<html><body/></html>'));
+      expect(dom.first, '<{$_xhtml}html>');
     });
 
     test('internalError: falha própria, exit 1, fora do tolerante', () {

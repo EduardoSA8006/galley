@@ -314,9 +314,9 @@ Future<void> diffBook(
 /// [manifestPath] (cache em [cacheDir]): imprime o resumo em [log] e grava
 /// o BMF em [outPath] e o relatório em [reportPath] (se dados).
 ///
-/// Devolve 1 se houver divergência ou erro interno, [exitMeasurementFailure] se nenhum
-/// documento foi comparado (corpus inteiro indisponível) e 0 caso
-/// contrário.
+/// Devolve 1 se houver divergência ou erro interno,
+/// [exitMeasurementFailure] se nenhum documento foi comparado (corpus
+/// inteiro indisponível) e 0 caso contrário.
 Future<int> runDocDiffMode({
   required String manifestPath,
   required Directory cacheDir,
@@ -474,11 +474,24 @@ List<String> treeEvents(DocumentTree tree) {
 ///   como nome local. Uma declaração `xmlns:p=""` (ilegal) é ignorada.
 /// - Atributos sem prefixo ficam sem namespace (o DOM daria o padrão).
 /// - Atributo repetido: vale o primeiro (o DOM guarda todos).
+/// - Raiz sem `xmlns` padrão: como no Galley (`document.impliedNamespace`),
+///   os elementos sem prefixo fora de qualquer `xmlns` vão ao namespace
+///   XHTML, ou SVG se o nome local da raiz é `svg` (sem diferença de
+///   caixa); um `xmlns=""` explícito continua valendo.
 List<String> domEvents(XmlDocument document) {
   final out = _Events();
-  final stack = <(XmlElement, Iterator<XmlNode>)>[];
+  // (elemento, filhos, nome do elemento no formato `{uri}local`).
+  final stack = <(XmlElement, Iterator<XmlNode>, String)>[];
+  // Namespace padrão em vigor em cada nível aberto.
+  final defaults = <String>[];
 
   void enter(XmlElement e) {
+    final declared = e.getAttribute('xmlns');
+    final inherited = defaults.isEmpty
+        ? _impliedRootUri(e.name.local)
+        : defaults.last;
+    final defaultUri = declared ?? inherited;
+    defaults.add(defaultUri);
     final attributes = <(String, String, String)>[];
     final seen = <String>{};
     for (final a in e.attributes) {
@@ -490,16 +503,18 @@ List<String> domEvents(XmlDocument document) {
       if (!seen.add('{$uri}$local')) continue;
       attributes.add((uri, local, _sanitize(a.value, attribute: true)));
     }
-    out.enter(_elementName(e), attributes);
-    stack.add((e, e.children.iterator));
+    final name = _elementName(e, defaultUri);
+    out.enter(name, attributes);
+    stack.add((e, e.children.iterator, name));
   }
 
   enter(document.rootElement);
   while (stack.isNotEmpty) {
-    final (element, children) = stack.last;
+    final (_, children, name) = stack.last;
     if (!children.moveNext()) {
       stack.removeLast();
-      out.exit(_elementName(element));
+      defaults.removeLast();
+      out.exit(name);
       continue;
     }
     switch (children.current) {
@@ -517,9 +532,16 @@ List<String> domEvents(XmlDocument document) {
   return out.events;
 }
 
-String _elementName(XmlElement e) {
+/// URI implícita de uma raiz de nome local [local] sem `xmlns` (a mesma
+/// regra do `impliedRootNamespace` do Galley).
+String _impliedRootUri(String local) => local.toLowerCase() == 'svg'
+    ? 'http://www.w3.org/2000/svg'
+    : 'http://www.w3.org/1999/xhtml';
+
+/// Nome `{uri}local` de [e]; sem prefixo, no namespace padrão [defaultUri].
+String _elementName(XmlElement e, String defaultUri) {
   final name = e.name;
-  if (name.prefix == null) return '{${name.namespaceUri ?? ''}}${name.local}';
+  if (name.prefix == null) return '{$defaultUri}${name.local}';
   final (uri, local) = _resolvePrefixed(
     e,
     name.prefix!,
