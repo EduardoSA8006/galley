@@ -21,6 +21,7 @@ quando fazem sentido, um relatório em Markdown com `--report`.
 | `local` | máquina do mantenedor | tempo absoluto, RSS de pico, `perf` nativo, livros de 50 e 300 MiB, corpus público e privado | registro manual (`local-dev`); rode depois de mudanças de desempenho e antes de releases |
 | `compare` | CI noturno e local | Galley × `epubx` × `epub_plus` × `epub_pro` | relatório; não bloqueia antes da 1.0 |
 | `size` | CI noturno e local | bytes que o Galley acrescenta ao APK release arm64 | teto de **2 MiB** (2.097.152 bytes); acima disso sai com 1 |
+| `wide` | CI noturno e local | robustez: abre e lê todos os recursos de 300 livros do Project Gutenberg (`corpus/pg-wide.json`) e conta por classe | sai com 1 **só** se houver `crashed` (exceção que não é `GalleyException`: bug do Galley) |
 
 Exemplos:
 
@@ -30,6 +31,22 @@ dart run tool/bench.dart ab --base origin/main --head HEAD --out ab.json
 dart run tool/bench.dart local --out local.json --report local.md [--upload]
 dart run tool/bench.dart compare --out compare.json
 dart run tool/bench.dart size --out size.json
+dart run tool/bench.dart wide --out wide.json --report wide.md
+dart run tool/bench.dart wide-refresh --count 300 --seed 2026   # só manual
+```
+
+### O modo `wide`
+
+Baixa (uma vez; cache em `.corpus-cache/pg-wide/`, pausa de 2 s entre
+requisições ao espelho oficial) e abre os 300 livros de `corpus/pg-wide.json`,
+lendo todos os recursos do manifest. Cada livro cai em uma classe: `ok`,
+`diagnostics-error`, `failed` (`GalleyException`), `crashed` (qualquer outra
+exceção, ou seja, bug), `drift` (o PG regerou o arquivo; `sha256` mudou) ou
+`unavailable` (404, rede, prazo). O BMF traz `wide/<classe>` com `count`, e o
+resumo lista os números dos ebooks de cada classe que importa (para `crashed`,
+com o início da stack). Só `crashed` reprova. Como e por que os 300 livros
+foram escolhidos: `corpus/README.md`.
+
 ```
 
 ### O modo `size`

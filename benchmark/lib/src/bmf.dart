@@ -14,6 +14,9 @@ abstract final class MeasureSlug {
 
   /// Tamanho em bytes.
   static const sizeBytes = 'size-bytes';
+
+  /// Contagem de itens (ex.: livros por classe no modo `wide`).
+  static const count = 'count';
 }
 
 /// Uma medida de um benchmark, com intervalo opcional.

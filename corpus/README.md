@@ -167,6 +167,53 @@ deploy; o espelho guarda os bytes deste commit.
 Copyright © W3C® (MIT, ERCIM, Keio, Beihang) e contribuidores, sob a W3C
 Software and Document License.
 
+## Corpus amplo do Project Gutenberg (`pg-wide.json`)
+
+Além dos 20 livros curados acima, o `corpus/pg-wide.json` fixa **300 livros do
+Project Gutenberg** para testar **robustez** (spec §7.2, "Amplo"): o modo
+`wide` abre cada um com `EpubBook.open`, lê todos os recursos do manifest e
+classifica o resultado. Não serve para medir desempenho.
+
+- **Escolha:** o catálogo CSV para robôs do espelho
+  (`gutenberg.pglaf.org/cache/epub/feeds/pg_catalog.csv`) lista os ebooks do
+  tipo `Text`; eles são ordenados, embaralhados com `Random(2026)` e percorridos
+  na ordem até juntar 300 que tenham EPUB. Ebooks sem o arquivo (404) são
+  pulados, e o próximo da ordem entra. O resultado fica em `pg-wide.json`
+  (`ebookNo`, `url`, `sha256`); ele é o registro: refazer o sorteio mais tarde
+  pode dar outro conjunto, porque o catálogo cresce.
+- **Arquivo:** sempre `pgN.epub` ("EPUB (no images)", gerado pelo PG), em vez
+  de `pgN-images.epub`: é menor (o corpus todo cabe em poucas centenas de MB) e
+  uniforme. Os EPUBs com imagens já são exercitados pelos livros curados.
+- **Cache:** `.corpus-cache/pg-wide/<sha256>.epub` (ignorado pelo git;
+  nunca versione EPUBs).
+- **Deriva (`drift`):** o PG regera os EPUBs quando corrige o texto ou muda o
+  conversor, então o `sha256` pode mudar na origem. Isso é esperado, vira a
+  classe `drift` e **não reprova**. Quando muitos livros derivarem, refaça o
+  `pg-wide.json` (abaixo). Não há espelho no GitHub para este corpus.
+- **Política de robôs:** o `wide-refresh` e o `wide` usam o espelho oficial,
+  em sequência, User-Agent genérico
+  (`galley-benchmark-corpus-fetcher/1 (+https://github.com/EduardoSA8006/galley)`),
+  pausa de 2 s entre requisições de rede, prazo de conexão de 30 s e de 5 min por
+  requisição, e honram `Retry-After` (esperam até 2 min uma vez; pedidos maiores
+  abortam o `wide-refresh` e viram `unavailable` no `wide`).
+
+Classes: `ok`, `diagnostics-error` (abriu, mas com diagnóstico `error`),
+`failed` (lançou `GalleyException`: rejeição controlada), `crashed` (lançou
+**qualquer outra coisa**: bug do Galley, o único que reprova), `drift` e
+`unavailable`.
+
+Regerar (só manualmente, demora: ~300 downloads com 2 s de pausa):
+
+```
+cd benchmark
+dart run tool/bench.dart wide-refresh --count 300 --seed 2026
+```
+
+O progresso fica em `.corpus-cache/pg-wide/pg-wide-progress.jsonl`; se for
+interrompido, rodar de novo continua de onde parou. Para refazer do zero
+(catálogo novo), apague só `pg_catalog.csv` e `pg-wide-progress.jsonl` dessa
+pasta.
+
 ## Lacunas conhecidas
 
 - **Japonês direto do Aozora Bunko:** o Aozora Bunko não publica EPUBs

@@ -1,11 +1,14 @@
 import 'dart:io';
 
 import 'package:args/args.dart';
+import 'package:galley_benchmark/src/corpus/pg_wide.dart';
 import 'package:galley_benchmark/src/modes/ab.dart';
 import 'package:galley_benchmark/src/modes/compare.dart';
 import 'package:galley_benchmark/src/modes/instructions.dart';
+import 'package:galley_benchmark/src/modes/build.dart' show repoRoot;
 import 'package:galley_benchmark/src/modes/local.dart';
 import 'package:galley_benchmark/src/modes/size.dart';
+import 'package:galley_benchmark/src/modes/wide.dart';
 
 /// Orquestrador dos benchmarks: `dart run tool/bench.dart <modo> [opções]`.
 ///
@@ -37,6 +40,17 @@ import 'package:galley_benchmark/src/modes/size.dart';
 ///   arm64) com e sem o Galley e mede a diferença de bytes do APK. Aceita
 ///   `--out` (BMF). Sai com 1 se passar de 2 MiB e com 70 se a compilação
 ///   falha.
+///
+/// - `wide`: robustez no corpus amplo do Project Gutenberg
+///   (`corpus/pg-wide.json`, 300 livros; cache em `.corpus-cache/pg-wide/`):
+///   abre cada livro e lê todos os recursos do manifest, classificando em
+///   `ok`, `diagnostics-error`, `failed`, `crashed`, `drift` e `unavailable`.
+///   Aceita `--out` (BMF com `wide/<classe>`) e `--report`. Sai com 1
+///   **só** se houver `crashed` (bug do Galley) e com 70 em falha de
+///   preparação.
+/// - `wide-refresh`: escolhe `--count` (300) livros do catálogo do PG com
+///   `Random(--seed)` (2026), baixa e grava `corpus/pg-wide.json`. Só
+///   manualmente; faz 1 requisição a cada 2 s ao espelho oficial.
 ///
 /// Argumentos inválidos saem com 64.
 Future<void> main(List<String> args) async {
@@ -108,7 +122,15 @@ Future<void> main(List<String> args) async {
     );
   final size = ArgParser()
     ..addOption('out', help: 'Arquivo BMF (JSON) de saída.');
+  final wide = ArgParser()
+    ..addOption('out', help: 'Arquivo BMF (JSON) de saída.')
+    ..addOption('report', help: 'Relatório em texto (Markdown).');
+  final wideRefresh = ArgParser()
+    ..addOption('count', defaultsTo: '300', help: 'Livros a escolher.')
+    ..addOption('seed', defaultsTo: '2026', help: 'Semente do sorteio.');
   final parser = ArgParser()
+    ..addCommand('wide', wide)
+    ..addCommand('wide-refresh', wideRefresh)
     ..addCommand('size', size)
     ..addCommand('compare', compare)
     ..addCommand('local', local)
@@ -121,10 +143,37 @@ Future<void> main(List<String> args) async {
     final command = parsed.command;
     if (command == null) {
       throw const FormatException(
-        'informe o modo (instructions, ab, local, compare ou size)',
+        'informe o modo (instructions, ab, local, compare, size, wide ou wide-refresh)',
       );
     }
-    if (command.name == 'size') {
+    if (command.name == 'wide') {
+      final root = await repoRoot();
+      code = await runWideMode(
+        manifestPath: '${root.path}/corpus/pg-wide.json',
+        cacheDir: Directory('${root.path}/.corpus-cache/pg-wide'),
+        outPath: command.option('out'),
+        reportPath: command.option('report'),
+      );
+    } else if (command.name == 'wide-refresh') {
+      final count = int.parse(command.option('count')!);
+      final seed = int.parse(command.option('seed')!);
+      if (count < 1) throw const FormatException('count < 1');
+      final root = await repoRoot();
+      var refreshCode = 0;
+      try {
+        final entries = await refreshPgWide(
+          count: count,
+          seed: seed,
+          cacheDir: Directory('${root.path}/.corpus-cache/pg-wide'),
+          outPath: '${root.path}/corpus/pg-wide.json',
+        );
+        stderr.writeln('corpus/pg-wide.json: ${entries.length} livros');
+      } on Object catch (e) {
+        stderr.writeln('Falha no wide-refresh: $e');
+        refreshCode = 70;
+      }
+      code = refreshCode;
+    } else if (command.name == 'size') {
       code = await runSize(outPath: command.option('out'));
     } else if (command.name == 'compare') {
       final runs = int.parse(command.option('runs')!);
@@ -178,10 +227,18 @@ Future<void> main(List<String> args) async {
       );
     }
   } on FormatException catch (e) {
-    await _invalidArgs(e.message, instructions, ab, local, compare, size);
+    await _invalidArgs(e.message, instructions, ab, local, compare, size, wide);
   } on ArgumentError catch (e) {
     // Opção obrigatória ausente ou valor fora da lista permitida.
-    await _invalidArgs('${e.message}', instructions, ab, local, compare, size);
+    await _invalidArgs(
+      '${e.message}',
+      instructions,
+      ab,
+      local,
+      compare,
+      size,
+      wide,
+    );
   }
   await stdout.flush();
   await stderr.flush();
@@ -196,11 +253,12 @@ Future<Never> _invalidArgs(
   ArgParser c,
   ArgParser d,
   ArgParser e,
+  ArgParser f,
 ) async {
   stderr.writeln(
     'Argumentos inválidos: $message\n'
-    'Uso: dart run tool/bench.dart <instructions|ab|local|compare|size> [opções]\n'
-    'instructions:\n${a.usage}\nab:\n${b.usage}\nlocal:\n${c.usage}\ncompare:\n${d.usage}\nsize:\n${e.usage}',
+    'Uso: dart run tool/bench.dart <instructions|ab|local|compare|size|wide|wide-refresh> [opções]\n'
+    'instructions:\n${a.usage}\nab:\n${b.usage}\nlocal:\n${c.usage}\ncompare:\n${d.usage}\nsize:\n${e.usage}\nwide:\n${f.usage}',
   );
   await stderr.flush();
   exit(64);
