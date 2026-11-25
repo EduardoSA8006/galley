@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
 import 'package:xml/xml.dart';
 
 import '../../../core/diagnostics/diagnostic.dart';
@@ -66,13 +67,15 @@ const Set<String> _supportedMediaTypes = {
 ///
 /// Um documento sem conteúdo (vazio, só espaços ou sem elemento nem texto)
 /// vira uma árvore com `<html>` e `<body>` virtuais e vazios, com o
-/// diagnóstico `document.unparseable`.
+/// diagnóstico `document.unparseable`. Um defeito interno (exceção que
+/// não é [XmlException]) também vira esse documento, com
+/// [ParsedDocument.internalError] preenchido: sinal de bug do Galley.
 ParsedDocument parseDocumentBytes(
   Uint8List bytes, {
   required String path,
   String mediaType = 'application/xhtml+xml',
 }) {
-  try {
+  return guardParse(path, () {
     final text = decodeText(bytes);
     XmlException? failure;
     if (mediaType != 'text/html') {
@@ -87,12 +90,27 @@ ParsedDocument parseDocumentBytes(
       policy: TolerantRepairPolicy(html: mediaType == 'text/html'),
     );
     return _assemble(adapter, text, path, failure);
+  });
+}
+
+/// O catch-all de [parseDocumentBytes]: roda [body] e transforma qualquer
+/// exceção no documento irrecuperável de [path].
+///
+/// Uma [XmlException] é conteúdo ruim; qualquer outra coisa é defeito
+/// interno e também preenche [ParsedDocument.internalError] com o tipo da
+/// exceção. Separado só para os testes exercitarem esse caminho, que o
+/// parse real não alcança sem um bug.
+@visibleForTesting
+ParsedDocument guardParse(String path, ParsedDocument Function() body) {
+  try {
+    return body();
   } on XmlException catch (e) {
     return _unparseable(path, e.message);
   } on Object catch (e) {
     // Contrato "nunca lança": um defeito inesperado também vira capítulo
-    // vazio, em vez de exceção crua.
-    return _unparseable(path, 'erro inesperado (${e.runtimeType})');
+    // vazio, em vez de exceção crua, marcado como erro interno.
+    final type = '${e.runtimeType}';
+    return _unparseable(path, 'erro inesperado ($type)', internalError: type);
   }
 }
 
@@ -140,7 +158,11 @@ int? _lineOf(XmlException e) => switch (e) {
 };
 
 /// Documento irrecuperável: `<html><body/></html>` virtuais.
-ParsedDocument _unparseable(String path, String reason) {
+ParsedDocument _unparseable(
+  String path,
+  String reason, {
+  String? internalError,
+}) {
   final builder = TreeBuilder();
   final names = builder.names;
   builder
@@ -160,6 +182,7 @@ ParsedDocument _unparseable(String path, String reason) {
       ),
     ],
     recovered: true,
+    internalError: internalError,
   );
 }
 

@@ -12,6 +12,7 @@ final class ParsedDocument {
     required this.head,
     required List<Diagnostic> diagnostics,
     required this.recovered,
+    this.internalError,
   }) : diagnostics = List.unmodifiable(diagnostics);
 
   /// A árvore do documento.
@@ -26,4 +27,13 @@ final class ParsedDocument {
   /// `true` se o documento não pôde ser lido como XML bem formado e a
   /// árvore veio da recuperação (inclusive o documento irrecuperável).
   final bool recovered;
+
+  /// Tipo da exceção inesperada que o leitor capturou (ex.: `StateError`),
+  /// ou `null` no caso normal.
+  ///
+  /// Só é preenchido pelo catch-all de `parseDocumentBytes`, que transforma
+  /// um defeito interno em documento irrecuperável para cumprir o contrato
+  /// "nunca lança". Não-nulo é **sinal de bug do Galley**, não de um
+  /// documento ruim: o benchmark (`wide`, `docdiff`) reprova com ele.
+  final String? internalError;
 }
