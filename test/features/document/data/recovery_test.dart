@@ -1,0 +1,650 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:galley/src/core/diagnostics/diagnostic.dart';
+import 'package:galley/src/core/diagnostics/diagnostic_codes.dart';
+import 'package:galley/src/features/document/data/event_adapter.dart';
+import 'package:galley/src/features/document/data/parse_document.dart';
+import 'package:galley/src/features/document/domain/document_tree.dart';
+import 'package:galley/src/features/document/domain/names.dart';
+import 'package:galley/src/features/document/domain/parsed_document.dart';
+import 'package:xml/xml.dart';
+
+const _path = 'OEBPS/ch1.xhtml';
+const _xhtml = 'http://www.w3.org/1999/xhtml';
+
+ParsedDocument _parse(String source, {String? mediaType}) => parseDocumentBytes(
+  Uint8List.fromList(utf8.encode(source)),
+  path: _path,
+  mediaType: mediaType ?? 'application/xhtml+xml',
+);
+
+/// Envolve [body] num XHTML com `<html>` e `<body>` reais.
+String _doc(String body) => '<html xmlns="$_xhtml"><body>$body</body></html>';
+
+/// Forma compacta da árvore: `nome[filhos]`, `*` nos nós virtuais e texto
+/// entre aspas.
+String _dump(DocumentTree tree) {
+  final out = StringBuffer();
+  void visit(int n) {
+    if (tree.kindOf(n) == NodeKind.text) {
+      out.write('"${tree.textOf(n)}"');
+      return;
+    }
+    out.write(tree.localNameOf(n));
+    if (tree.isVirtual(n)) out.write('*');
+    final children = tree.childrenOf(n).toList();
+    if (children.isEmpty) return;
+    out.write('[');
+    children.forEach(visit);
+    out.write(']');
+  }
+
+  tree.childrenOf(tree.documentNode).forEach(visit);
+  return out.toString();
+}
+
+List<String> _codes(ParsedDocument doc) => [
+  for (final d in doc.diagnostics) d.code,
+];
+
+int _count(ParsedDocument doc, String code) =>
+    _codes(doc).where((c) => c == code).length;
+
+void main() {
+  group('entrada no modo tolerante', () {
+    test('documento bem formado não passa pelo modo tolerante', () {
+      final doc = _parse(_doc('<p>a</p>'));
+      expect(doc.recovered, isFalse);
+      expect(_dump(doc.tree), 'html[body[p["a"]]]');
+      expect(_codes(doc), isNot(contains(DiagnosticCodes.recovered)));
+    });
+
+    test('malformado emite document.recovered (warning) com a linha', () {
+      final doc = _parse(
+        '<html xmlns="$_xhtml">\n<body>\n<p>a < b</p>\n</body></html>',
+      );
+      expect(doc.recovered, isTrue);
+      final recovered = doc.diagnostics
+          .where((d) => d.code == DiagnosticCodes.recovered)
+          .toList();
+      expect(recovered, hasLength(1));
+      expect(recovered.single.severity, DiagnosticSeverity.warning);
+      expect(recovered.single.location, '$_path:3');
+    });
+
+    test('text/html bem formado: recovered sem document.recovered', () {
+      final doc = _parse(
+        '<html><head><title>T</title></head><body><p>x</p></body></html>',
+        mediaType: 'text/html',
+      );
+      expect(doc.recovered, isTrue);
+      expect(_codes(doc), isNot(contains(DiagnosticCodes.recovered)));
+      expect(_codes(doc), isNot(contains(DiagnosticCodes.unclosedElement)));
+      expect(_dump(doc.tree), 'html[head[title["T"]]body[p["x"]]]');
+      // Sem xmlns, o HTML cai no namespace XHTML (e o <head> é lido).
+      expect(doc.tree.elementsNamed(Namespaces.xhtml, 'p'), hasLength(1));
+      expect(doc.head.title, 'T');
+    });
+  });
+
+  group('regras de recuperação', () {
+    test('<p>a<p>b: dois p irmãos', () {
+      final doc = _parse(_doc('<p>a<p>b'));
+      expect(_dump(doc.tree), 'html[body[p["a"]p["b"]]]');
+      expect(_codes(doc), contains(DiagnosticCodes.unclosedElement));
+    });
+
+    test('bloco fecha o p aberto', () {
+      final doc = _parse(_doc('<p>a<div>b</div>'));
+      expect(_dump(doc.tree), 'html[body[p["a"]div["b"]]]');
+    });
+
+    test('<ul><li>a<li>b</ul>', () {
+      final doc = _parse(_doc('<ul><li>a<li>b</ul>'));
+      expect(_dump(doc.tree), 'html[body[ul[li["a"]li["b"]]]]');
+      expect(_codes(doc), contains(DiagnosticCodes.unclosedElement));
+    });
+
+    test('li aninhado numa lista interna não fecha o li de fora', () {
+      final doc = _parse(_doc('<ul><li>a<ul><li>b</ul></ul>'));
+      expect(_dump(doc.tree), 'html[body[ul[li["a"ul[li["b"]]]]]]');
+    });
+
+    test('dt/dd fecham dt/dd', () {
+      final doc = _parse(_doc('<dl><dt>a<dd>b<dt>c</dl>'));
+      expect(_dump(doc.tree), 'html[body[dl[dt["a"]dd["b"]dt["c"]]]]');
+    });
+
+    test('<table><tr><td>1<td>2<tr><td>3</table>', () {
+      final doc = _parse(_doc('<table><tr><td>1<td>2<tr><td>3</table>'));
+      expect(
+        _dump(doc.tree),
+        'html[body[table[tr[td["1"]td["2"]]tr[td["3"]]]]]',
+      );
+      expect(_codes(doc), contains(DiagnosticCodes.unclosedElement));
+    });
+
+    test('option fecha option', () {
+      final doc = _parse(_doc('<select><option>a<option>b</select>'));
+      expect(_dump(doc.tree), 'html[body[select[option["a"]option["b"]]]]');
+    });
+
+    test('<P>x</p>: fechamento ignora maiúsculas', () {
+      final doc = _parse(_doc('<P>x</p>'));
+      expect(_dump(doc.tree), 'html[body[P["x"]]]');
+      expect(_codes(doc), isNot(contains(DiagnosticCodes.strayEndTag)));
+      expect(_codes(doc), isNot(contains(DiagnosticCodes.unclosedElement)));
+    });
+
+    test('a < b no texto: o < volta ao texto', () {
+      final doc = _parse(_doc('<p>a < b</p>'));
+      expect(_dump(doc.tree), 'html[body[p["a < b"]]]');
+      expect(_codes(doc), contains(DiagnosticCodes.markupAsText));
+      expect(doc.recovered, isTrue);
+    });
+
+    test('<br> sem barra é vazio; </br> é ignorado', () {
+      final doc = _parse(_doc('<p>a<br>b<img src="x.png"></img>c</p>'));
+      expect(_dump(doc.tree), 'html[body[p["a"br"b"img"c"]]]');
+      expect(_codes(doc), isNot(contains(DiagnosticCodes.strayEndTag)));
+    });
+
+    test('<script>/<style>: conteúdo bruto até o fechamento', () {
+      final doc = _parse(
+        _doc(
+          '<script>if (a<b && c<d) {}</script>'
+          '<STYLE>p > a::before { content: "<p>" }</style><p>x</p>',
+        ),
+      );
+      final tree = doc.tree;
+      final script = tree.elementsNamed(Namespaces.xhtml, 'script').single;
+      expect(tree.textOf(tree.firstChildOf(script)), 'if (a<b && c<d) {}');
+      final style = tree.elementsNamed(Namespaces.xhtml, 'STYLE').single;
+      expect(
+        tree.textOf(tree.firstChildOf(style)),
+        'p > a::before { content: "<p>" }',
+      );
+      expect(tree.elementsNamed(Namespaces.xhtml, 'p'), hasLength(1));
+    });
+
+    test('<style> com CDATA mantém o conteúdo da seção', () {
+      final doc = _parse(
+        '<html xmlns="$_xhtml"><head><style><![CDATA[a<b{}]]></style>'
+        '</head><body><p>a < b</p></body></html>',
+      );
+      final tree = doc.tree;
+      final style = tree.elementsNamed(Namespaces.xhtml, 'style').single;
+      expect(tree.textOf(tree.firstChildOf(style)), 'a<b{}');
+    });
+
+    test('atributo duplicado: vale o primeiro', () {
+      final doc = _parse(_doc('<p id="1" id="2">a<p>b'));
+      final tree = doc.tree;
+      final p = tree.elementsNamed(Namespaces.xhtml, 'p').first;
+      expect(tree.attribute(p, Namespaces.none, 'id'), '1');
+      expect(_codes(doc), contains(DiagnosticCodes.duplicateAttribute));
+    });
+
+    test('</div> solto é descartado', () {
+      final doc = _parse(_doc('<p>a</p></div><p>b</p>'));
+      expect(_dump(doc.tree), 'html[body[p["a"]p["b"]]]');
+      expect(_count(doc, DiagnosticCodes.strayEndTag), 1);
+      final stray = doc.diagnostics.firstWhere(
+        (d) => d.code == DiagnosticCodes.strayEndTag,
+      );
+      expect(stray.location, '$_path:1');
+    });
+
+    test('fechamento fecha até o correspondente', () {
+      final doc = _parse(_doc('<div><span><b>x</div><p>y</p>'));
+      expect(_dump(doc.tree), 'html[body[div[span[b["x"]]]p["y"]]]');
+      expect(_count(doc, DiagnosticCodes.unclosedElement), 2);
+    });
+
+    test('<div><span> sem fechar: fecha tudo no fim', () {
+      final doc = _parse('<div><span>x');
+      expect(_dump(doc.tree), 'html*[body*[div[span["x"]]]]');
+      // Os virtuais não contam; div e span sim.
+      expect(_count(doc, DiagnosticCodes.unclosedElement), 2);
+      expect(doc.recovered, isTrue);
+    });
+
+    test('texto antes de <html> vai para dentro do body virtual', () {
+      final doc = _parse(
+        'oi<html xmlns="$_xhtml"><body><p>x</p></body></html>',
+      );
+      expect(_dump(doc.tree), 'html*[body*["oi"p["x"]]]');
+      expect(doc.tree.elementsNamed(Namespaces.xhtml, 'p'), hasLength(1));
+    });
+
+    test('elemento solto na raiz ganha html e body virtuais', () {
+      final doc = _parse('<p>a</p><p>b</p>');
+      expect(_dump(doc.tree), 'html*[body*[p["a"]p["b"]]]');
+    });
+
+    test('conteúdo depois de </body> fica no body', () {
+      final doc = _parse('${_doc('<p>a</p>')}\n<p>b</p>\n');
+      expect(_dump(doc.tree), 'html[body[p["a"]p["b"]]]');
+    });
+
+    test('raiz svg não é envolvida', () {
+      final doc = _parse(
+        '<svg xmlns="http://www.w3.org/2000/svg"><g><rect/></svg>',
+        mediaType: 'image/svg+xml',
+      );
+      expect(_dump(doc.tree), 'svg[g[rect]]');
+    });
+
+    test("'' e '   ' caem no caminho irrecuperável", () {
+      for (final source in ['', '   ', '<!-- só comentário -->']) {
+        final doc = _parse(source);
+        expect(_dump(doc.tree), 'html*[body*]', reason: source);
+        expect(_codes(doc), [DiagnosticCodes.unparseable], reason: source);
+        expect(doc.recovered, isTrue);
+      }
+      final html = _parse('', mediaType: 'text/html');
+      expect(_codes(html), [DiagnosticCodes.unparseable]);
+    });
+  });
+
+  group('robustez', () {
+    test('muitos < no texto: termina, tudo vira texto', () {
+      final source = _doc('<p>${'<' * 50000}</p>');
+      final watch = Stopwatch()..start();
+      final doc = _parse(source);
+      watch.stop();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 20)));
+      final p = doc.tree.elementsNamed(Namespaces.xhtml, 'p').single;
+      expect(doc.tree.textOf(doc.tree.firstChildOf(p)), '<' * 50000);
+      // Limite por código: 20 ocorrências + 1 resumo.
+      expect(_count(doc, DiagnosticCodes.markupAsText), 21);
+    });
+
+    test('100k <div> sem fechar: tempo linear', () {
+      final source = '<div>' * 100000;
+      final watch = Stopwatch()..start();
+      final doc = _parse(source);
+      watch.stop();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 20)));
+      expect(
+        doc.tree.elementsNamed(Namespaces.xhtml, 'div'),
+        hasLength(100000),
+      );
+      expect(_count(doc, DiagnosticCodes.unclosedElement), 21);
+      expect(
+        doc.diagnostics.last.message,
+        contains('100000'),
+        reason: 'o resumo traz o total',
+      );
+    });
+
+    test('100k </span> soltos dentro de 100k <div>: tempo linear', () {
+      final source = '${'<div>' * 100000}${'</span>' * 100000}';
+      final watch = Stopwatch()..start();
+      final doc = _parse(source);
+      watch.stop();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 20)));
+      expect(_count(doc, DiagnosticCodes.strayEndTag), 21);
+    });
+
+    test('100k <p> irmãos implícitos: tempo linear', () {
+      final source = _doc('<p>x' * 100000);
+      final watch = Stopwatch()..start();
+      final doc = _parse(source);
+      watch.stop();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 20)));
+      expect(doc.tree.elementsNamed(Namespaces.xhtml, 'p'), hasLength(100000));
+    });
+
+    test('entrada com bytes estranhos não lança', () {
+      final doc = parseDocumentBytes(
+        Uint8List.fromList([0x3C, 0x00, 0xFF, 0x3C, 0x2F, 0x3E, 0x26, 0x3C]),
+        path: _path,
+      );
+      expect(doc.tree.elementsNamed(Namespaces.xhtml, 'body'), hasLength(1));
+    });
+  });
+
+  group('correções da revisão', () {
+    for (final (label, unit) in [
+      ('<!DOCTYPE x [', '<!DOCTYPE x ['),
+      ('<!DOCTYPE x', '<!DOCTYPE x '),
+      ('<![CDATA[', '<![CDATA['),
+      ('<!--', '<!--'),
+      ('<?x ', '<?x '),
+    ]) {
+      test('~100 KB de "$label" sem terminador: tempo linear', () {
+        final source = _doc('<p>${unit * (100000 ~/ unit.length)}</p>');
+        final watch = Stopwatch()..start();
+        final doc = _parse(source);
+        watch.stop();
+        expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+        expect(doc.tree.elementsNamed(Namespaces.xhtml, 'p'), hasLength(1));
+      });
+    }
+
+    test('comentário sem fim vira texto e o resto do documento segue', () {
+      final doc = _parse(_doc('<p>a <!-- b</p><p>c</p>'));
+      expect(_dump(doc.tree), 'html[body[p["a <!-- b"]p["c"]]]');
+    });
+
+    test('doctype no modo tolerante é descartado e contado', () {
+      final doc = _parse(
+        '<!DOCTYPE html>\n<html><body><p>a<p>b</body></html>',
+        mediaType: 'text/html',
+      );
+      expect(_dump(doc.tree), 'html[body[p["a"]p["b"]]]');
+      final dropped = doc.diagnostics.singleWhere(
+        (d) => d.code == DiagnosticCodes.droppedNodes,
+      );
+      expect(dropped.message, contains('1 doctype'));
+    });
+
+    test('text/html: nomes de elemento e atributo em minúsculas', () {
+      final doc = _parse(
+        '<HTML LANG="pt"><HEAD><TITLE>T</TITLE></HEAD>'
+        '<BODY><P CLASS="a">x</P></BODY></HTML>',
+        mediaType: 'text/html',
+      );
+      expect(_dump(doc.tree), 'html[head[title["T"]]body[p["x"]]]');
+      expect(doc.head.title, 'T');
+      expect(doc.head.lang, 'pt');
+      final p = doc.tree.elementsNamed(Namespaces.xhtml, 'p').single;
+      expect(doc.tree.attribute(p, Namespaces.none, 'class'), 'a');
+    });
+
+    test('text/html: SVG dentro do HTML mantém a caixa', () {
+      final doc = _parse(
+        '<html><body><svg xmlns="http://www.w3.org/2000/svg" '
+        'viewBox="0 0 1 1"><foreignObject/></svg></body></html>',
+        mediaType: 'text/html',
+      );
+      final tree = doc.tree;
+      final svg = tree.elementsNamed(
+        tree.names.namespaceIdOf('http://www.w3.org/2000/svg')!,
+        'svg',
+      );
+      expect(tree.attribute(svg.single, Namespaces.none, 'viewBox'), '0 0 1 1');
+      expect(_dump(tree), 'html[body[svg[foreignObject]]]');
+    });
+
+    test('XHTML recuperado mantém a caixa dos nomes', () {
+      final doc = _parse(_doc('<P CLASS="a">x'));
+      expect(_dump(doc.tree), 'html[body[P["x"]]]');
+    });
+
+    test(
+      '<html> depois de texto: atributos e prefixos vão ao html virtual',
+      () {
+        final doc = _parse(
+          'oi<html xmlns="$_xhtml" xmlns:ex="urn:ex" lang="pt">'
+          '<body><p ex:a="1">x</p></body></html>',
+        );
+        final tree = doc.tree;
+        final html = tree.elementsNamed(Namespaces.xhtml, 'html').single;
+        expect(tree.isVirtual(html), isTrue);
+        expect(tree.attribute(html, Namespaces.none, 'lang'), 'pt');
+        expect(doc.head.lang, 'pt');
+        final ex = tree.names.namespaceIdOf('urn:ex');
+        expect(ex, isNotNull);
+        final p = tree.elementsNamed(Namespaces.xhtml, 'p').single;
+        expect(tree.attribute(p, ex!, 'a'), '1');
+        expect(_codes(doc), isNot(contains(DiagnosticCodes.undeclaredPrefix)));
+      },
+    );
+
+    test('<html> tardio com 80k xmlns:pN: tempo linear', () {
+      // Antes: cada declaração recontava as anteriores, O(k²) (40k
+      // declarações levavam 4,9 s).
+      final declarations = StringBuffer();
+      for (var i = 0; i < 80000; i++) {
+        declarations.write(' xmlns:p$i="urn:$i"');
+      }
+      final source =
+          '<p>a<html xmlns="$_xhtml"$declarations><body>'
+          '<p79999:q/><p0:q/></body></html>';
+      expect(source.length, greaterThan(1024 * 1024));
+      final watch = Stopwatch()..start();
+      final doc = _parse(source);
+      watch.stop();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+      for (final uri in ['urn:0', 'urn:79999']) {
+        final ns = doc.tree.names.namespaceIdOf(uri);
+        expect(doc.tree.elementsNamed(ns!, 'q'), hasLength(1), reason: uri);
+      }
+    });
+
+    test('<html> tardio: prefixo dele fica abaixo do redeclarado dentro', () {
+      final doc = _parse(
+        '<p>a<x xmlns:e="urn:in"><html xmlns:e="urn:root" xmlns:e="urn:2">'
+        '<e:q/></html></x><e:r/>',
+      );
+      final tree = doc.tree;
+      final inner = tree.names.namespaceIdOf('urn:in');
+      expect(inner, isNotNull);
+      expect(tree.elementsNamed(inner!, 'q'), hasLength(1));
+    });
+
+    test('<script> dentro de valor de atributo não abre texto bruto', () {
+      final doc = _parse(_doc('<p title="<script>">a</p><p>b < c</p>'));
+      final tree = doc.tree;
+      final ps = tree.elementsNamed(Namespaces.xhtml, 'p');
+      expect(ps, hasLength(2));
+      expect(tree.attribute(ps.first, Namespaces.none, 'title'), '<script>');
+      expect(_dump(tree), 'html[body[p["a"]p["b < c"]]]');
+    });
+
+    test('text/html: fechamentos implícitos válidos são info', () {
+      final doc = _parse(
+        '<html><body><ul><li>a<li>b</ul><p>x<p>y',
+        mediaType: 'text/html',
+      );
+      final unclosed = doc.diagnostics
+          .where((d) => d.code == DiagnosticCodes.unclosedElement)
+          .toList();
+      expect(unclosed, isNotEmpty);
+      expect(
+        unclosed.map((d) => d.severity),
+        everyElement(DiagnosticSeverity.info),
+      );
+    });
+
+    test('text/html: fechamento trocado continua warning', () {
+      final doc = _parse(
+        '<html><body><div><span>a</div></body></html>',
+        mediaType: 'text/html',
+      );
+      final unclosed = doc.diagnostics.singleWhere(
+        (d) => d.code == DiagnosticCodes.unclosedElement,
+      );
+      expect(unclosed.severity, DiagnosticSeverity.warning);
+    });
+
+    test('XHTML: fechamentos implícitos continuam warning', () {
+      final doc = _parse(_doc('<p>a<p>b'));
+      final unclosed = doc.diagnostics.firstWhere(
+        (d) => d.code == DiagnosticCodes.unclosedElement,
+      );
+      expect(unclosed.severity, DiagnosticSeverity.warning);
+    });
+  });
+
+  group('& sem ;', () {
+    String textOfP(ParsedDocument doc) {
+      final tree = doc.tree;
+      final p = tree.elementsNamed(Namespaces.xhtml, 'p').first;
+      return tree.textOf(tree.firstChildOf(p));
+    }
+
+    for (final (label, unit) in [('&', '&'), ('&a', '&a'), ('&#12', '&#12')]) {
+      final body = unit * (100000 ~/ unit.length);
+      for (final (path, source, mediaType) in [
+        ('estrito', _doc('<p>$body</p>'), null),
+        ('malformado', _doc('<p>$body'), null),
+        ('text/html', '<p>$body</p>', 'text/html'),
+      ]) {
+        test('~100 KB de "$label" ($path): linear e literal', () {
+          final watch = Stopwatch()..start();
+          final doc = _parse(source, mediaType: mediaType);
+          watch.stop();
+          expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+          expect(doc.recovered, path != 'estrito');
+          expect(textOfP(doc), body);
+        });
+      }
+    }
+
+    test('entidades válidas continuam decodificadas', () {
+      final doc = _parse(
+        _doc('<p title="a &amp; b & c">&nbsp;&#233;&#xE9;&amp;&lt; x & y</p>'),
+      );
+      expect(doc.recovered, isFalse);
+      expect(textOfP(doc), ' éé&< x & y');
+      final p = doc.tree.elementsNamed(Namespaces.xhtml, 'p').single;
+      expect(doc.tree.attribute(p, Namespaces.none, 'title'), 'a & b & c');
+    });
+
+    test('& sem ; ao lado de entidades: mesmo texto de antes', () {
+      final doc = _parse(_doc('<p>a & b &amp; c &foo; d &#65 e &#65;</p>'));
+      expect(textOfP(doc), 'a & b & c &foo; d &#65 e A');
+    });
+
+    test('CDATA não é tocado', () {
+      final doc = _parse(_doc('<p>x & y</p><p><![CDATA[a & b &amp;]]></p>'));
+      final tree = doc.tree;
+      final ps = tree.elementsNamed(Namespaces.xhtml, 'p');
+      expect(tree.textOf(tree.firstChildOf(ps.first)), 'x & y');
+      expect(tree.textOf(tree.firstChildOf(ps.last)), 'a & b &amp;');
+    });
+
+    for (final prefix in [
+      '<?pi <![CDATA[ ?>',
+      '<?pi <!-- ?>',
+      '<p title="<!--">x</p>',
+      '<p title="<![CDATA[">x</p>',
+    ]) {
+      for (final mediaType in [null, 'text/html']) {
+        test('abridor falso "$prefix" + 100 KB de & ($mediaType)', () {
+          final body = '&' * 100000;
+          final watch = Stopwatch()..start();
+          final doc = _parse(_doc('$prefix<p>$body</p>'), mediaType: mediaType);
+          watch.stop();
+          expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+          final tree = doc.tree;
+          final last = tree.elementsNamed(Namespaces.xhtml, 'p').last;
+          expect(tree.textOf(tree.firstChildOf(last)), body);
+        });
+      }
+    }
+
+    test('doctype com "<!--" no SYSTEM + 100 KB de &', () {
+      final body = '&' * 100000;
+      final source =
+          '<!DOCTYPE x SYSTEM "<!--"><html xmlns="$_xhtml"><body>'
+          '<p>$body</p></body></html>';
+      for (final mediaType in [null, 'text/html']) {
+        final watch = Stopwatch()..start();
+        final doc = _parse(source, mediaType: mediaType);
+        watch.stop();
+        expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+        expect(textOfP(doc), body);
+      }
+    });
+
+    test('decode linear dá o mesmo texto do package:xml', () {
+      const original = XmlDefaultEntityMapping.html5();
+      for (final input in [
+        '&abc def;',
+        '&foo;',
+        '&#xZZ;',
+        '&#65',
+        '&;',
+        '&&;',
+        '&#;',
+        '&#x;',
+        '&nbsp&nbsp;',
+        '&AElig',
+        '&AElig;',
+        '&#000000000000065;',
+        '&#x41;&#X41;&#65;',
+        '&#+65; &# 65 ;',
+        'fim &',
+        'a & b &amp; c &foo; d &#65 e &#65;',
+        '&&&a&b;&c&;;',
+        'sem entidade',
+        '',
+      ]) {
+        expect(
+          EventAdapter.entities.decode(input),
+          original.decode(input),
+          reason: input,
+        );
+      }
+    });
+
+    test('& em atributo: mesmo valor do package:xml', () {
+      const value = '&abc def; &nbsp&nbsp; &#65 & &;';
+      final doc = _parse(_doc('<p title="$value">x</p>'));
+      final p = doc.tree.elementsNamed(Namespaces.xhtml, 'p').single;
+      expect(
+        doc.tree.attribute(p, Namespaces.none, 'title'),
+        const XmlDefaultEntityMapping.html5().decode(value),
+      );
+    });
+
+    test(
+      'comentário com marcador de CDATA + 100 KB de &: linear e literal',
+      () {
+        final body = '&' * 100000;
+        final watch = Stopwatch()..start();
+        final doc = _parse(_doc('<!-- <![CDATA[ --><p>$body</p>'));
+        watch.stop();
+        expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+        expect(textOfP(doc), body);
+      },
+    );
+  });
+
+  group('correções da revisão (rodada 2)', () {
+    test('doctype com > entre aspas é descartado inteiro', () {
+      final doc = _parse(
+        '<!DOCTYPE x PUBLIC "a>b" \'c>d\' [<!ENTITY e "a>b">]><p>a<p>b',
+        mediaType: 'text/html',
+      );
+      expect(_dump(doc.tree), 'html*[body*[p["a"]p["b"]]]');
+      final dropped = doc.diagnostics.singleWhere(
+        (d) => d.code == DiagnosticCodes.droppedNodes,
+      );
+      expect(dropped.message, contains('1 doctype'));
+    });
+
+    for (final unit in ['<!DOCTYPE x "', '<!DOCTYPE x ["', '<!DOCTYPE "<']) {
+      test('~100 KB de "$unit": tempo linear', () {
+        final source = _doc('<p>${unit * (100000 ~/ unit.length)}</p>');
+        final watch = Stopwatch()..start();
+        _parse(source, mediaType: 'text/html');
+        _parse(source);
+        watch.stop();
+        expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+      });
+    }
+
+    test('text/html: svg com prefixo mantém a caixa dentro dele', () {
+      final doc = _parse(
+        '<html><body><s:svg xmlns:s="http://www.w3.org/2000/svg" '
+        'viewBox="0 0 1 1"><rect PathLength="1"/></s:svg>'
+        '<P>x</P></body></html>',
+        mediaType: 'text/html',
+      );
+      final tree = doc.tree;
+      final svgNs = tree.names.namespaceIdOf('http://www.w3.org/2000/svg')!;
+      final svg = tree.elementsNamed(svgNs, 'svg').single;
+      expect(tree.attribute(svg, Namespaces.none, 'viewBox'), '0 0 1 1');
+      final rect = tree.firstChildOf(svg);
+      expect(tree.attribute(rect, Namespaces.none, 'PathLength'), '1');
+      expect(tree.elementsNamed(Namespaces.xhtml, 'p'), hasLength(1));
+    });
+  });
+}

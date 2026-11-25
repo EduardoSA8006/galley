@@ -8,8 +8,8 @@
 #
 # Testbeds no Bencher (branch main): instruções em `github-ubuntu-valgrind`
 # e A/B em `github-ubuntu-ab`, os mesmos do PR, para que o
-# `--start-point main` do PR traga este histórico; compare, size e wide (só
-# do noturno) em `github-ubuntu-nightly`.
+# `--start-point main` do PR traga este histórico; compare, size, wide e
+# docdiff (só do noturno) em `github-ubuntu-nightly`.
 #
 # O `wide` (corpus amplo, downloads longos) roda só no agendamento e no
 # disparo manual, nunca a cada push.
@@ -123,6 +123,10 @@ jobs:
           if [ -f "$RUNNER_TEMP/out/report.md" ]; then
             cat "$RUNNER_TEMP/out/report.md" >> "$GITHUB_STEP_SUMMARY"
           fi
+          # O efeito de layout do código AOT depende da CPU (README, modo ab).
+          cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs)
+          echo "CPU do runner: $cpu"
+          printf '\nCPU do runner: %s\n' "$cpu" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -194,6 +198,72 @@ jobs:
         if: always()
         with:
           name: nightly-compare
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # Diferencial de documentos: a árvore do Galley contra o DOM do
+  # `package:xml` em cada documento do spine do corpus público. Reprova o
+  # noturno se houver divergência (bug do montador).
+  docdiff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      # Mesmo cache do corpus público que o `compare` (mesmo prefixo); a
+      # chave de save leva o sufixo do job para não colidir com a dele na
+      # mesma execução. Salvo com always(), só se chegaram livros novos.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .corpus-cache/*.epub
+          key: corpus-${{ hashFiles('corpus/manifest.json') }}-${{ github.run_id }}-docdiff
+          restore-keys: corpus-${{ hashFiles('corpus/manifest.json') }}-
+      - name: Livros no cache (antes)
+        id: docdiff-cache-before
+        run: echo "n=$(find .corpus-cache -maxdepth 1 -name '*.epub' 2>/dev/null | wc -l || true)" >> "$GITHUB_OUTPUT"
+      - name: Dependências do benchmark
+        working-directory: benchmark
+        run: dart pub get
+      - name: Diferencial de documentos
+        working-directory: benchmark
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          dart run tool/bench.dart docdiff \
+            --out "$RUNNER_TEMP/out/bmf.json" \
+            --report "$RUNNER_TEMP/out/report.md"
+      - name: Livros no cache (depois)
+        id: docdiff-cache-after
+        if: always()
+        env:
+          BEFORE: ${{ steps.docdiff-cache-before.outputs.n }}
+        run: |
+          n=$(find .corpus-cache -maxdepth 1 -name '*.epub' 2>/dev/null | wc -l || true)
+          echo "Livros no cache: ${BEFORE:-0} -> $n"
+          if [ "$n" -gt "${BEFORE:-0}" ]; then
+            echo "grew=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.docdiff-cache-after.outputs.grew == 'true'
+        with:
+          path: .corpus-cache/*.epub
+          key: corpus-${{ hashFiles('corpus/manifest.json') }}-${{ github.run_id }}-docdiff
+      - name: Resumo
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/out/report.md" ]; then
+            cat "$RUNNER_TEMP/out/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: nightly-docdiff
           path: ${{ runner.temp }}/out/
           if-no-files-found: warn
           retention-days: 30
@@ -318,7 +388,7 @@ jobs:
   # repositório. Instruções e A/B nos mesmos testbeds do PR.
   upload:
     name: upload (${{ matrix.kind }})
-    needs: [instructions, ab, compare, size]
+    needs: [instructions, ab, compare, size, docdiff]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -333,6 +403,8 @@ jobs:
           - kind: compare
             testbed: github-ubuntu-nightly
           - kind: size
+            testbed: github-ubuntu-nightly
+          - kind: docdiff
             testbed: github-ubuntu-nightly
     env:
       BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}

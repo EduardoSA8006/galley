@@ -94,4 +94,48 @@ abstract final class DiagnosticCodes {
 
   /// Nenhuma navegação utilizável; navegação vazia (warning).
   static const String navMissing = 'nav.missing';
+
+  /// Comentários, instruções de processamento e doctype descartados do
+  /// documento; a mensagem traz a contagem de cada tipo (info).
+  static const String droppedNodes = 'document.droppedNodes';
+
+  /// Prefixo de namespace usado sem declaração; `epub:` cai no namespace
+  /// OPS, os demais num namespace "desconhecido" (info).
+  static const String undeclaredPrefix = 'document.undeclaredPrefix';
+
+  /// Raiz sem declaração `xmlns` padrão: os elementos sem prefixo são
+  /// lidos no namespace XHTML (ou SVG, numa raiz `svg`), como se ele
+  /// estivesse declarado (info).
+  static const String impliedNamespace = 'document.impliedNamespace';
+
+  /// Declaração de namespace ilegal (`xmlns:p=""` ou `xmlns:="…"`),
+  /// ignorada (info).
+  static const String invalidNamespaceDeclaration =
+      'document.invalidNamespaceDeclaration';
+
+  /// Documento malformado lido pelo modo tolerante (warning).
+  static const String recovered = 'document.recovered';
+
+  /// Fechamento sem abertura correspondente, descartado (warning).
+  static const String strayEndTag = 'document.strayEndTag';
+
+  /// Elemento sem fechamento, fechado implicitamente (warning).
+  static const String unclosedElement = 'document.unclosedElement';
+
+  /// Caractere que não inicia marcação válida (por exemplo um `<` solto no
+  /// texto), mantido como texto pelo modo tolerante (warning).
+  static const String markupAsText = 'document.markupAsText';
+
+  /// Atributo repetido no mesmo elemento; vale o primeiro (info).
+  static const String duplicateAttribute = 'document.duplicateAttribute';
+
+  /// Documento irrecuperável; vira um `<body>` vazio (error).
+  static const String unparseable = 'document.unparseable';
+
+  /// `<link>` ou `<style>` fora do `<head>`, coletado mesmo assim (info).
+  static const String headInBody = 'document.headInBody';
+
+  /// `<link rel="stylesheet">` com href externo ou que escapa do zip;
+  /// ignorado (info).
+  static const String externalStyleSheet = 'document.externalStyleSheet';
 }

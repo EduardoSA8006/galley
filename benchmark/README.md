@@ -19,9 +19,10 @@ quando fazem sentido, um relatório em Markdown com `--report`.
 | `instructions` | CI (Valgrind) e local (`--counter perf`) | instruções por benchmark curto, base × head no mesmo job | **gate do PR**: reprova com regressão > 0,5% (`--threshold`); o noturno usa 0.10 contra a tag `bench-baseline` |
 | `ab` | CI | tempo de parede base × head, rodadas intercaladas, IC 95% bootstrap da razão das medianas | **gate do PR**: reprova se o IC fica inteiro acima de +5% |
 | `local` | máquina do mantenedor | tempo absoluto, RSS de pico, `perf` nativo, livros de 50 e 300 MiB, corpus público e privado | registro manual (`local-dev`); rode depois de mudanças de desempenho e antes de releases |
-| `compare` | CI noturno e local | Galley × `epubx` × `epub_plus` × `epub_pro` | relatório; não bloqueia antes da 1.0 |
+| `compare` | CI noturno e local | Galley × `epubx` × `epub_plus` × `epub_pro`; e o parse de documento do Galley × DOM do `package:xml` (par à parte, `--doc-adapter`) | relatório; não bloqueia antes da 1.0 |
 | `size` | CI noturno e local | bytes que o Galley acrescenta ao APK release arm64 | teto de **2 MiB** (2.097.152 bytes); acima disso sai com 1 |
-| `wide` | CI noturno e local | robustez: abre e lê todos os recursos de 300 livros do Project Gutenberg (`corpus/pg-wide.json`) e conta por classe | sai com 1 **só** se houver `crashed` (exceção que não é `GalleyException`: bug do Galley) |
+| `wide` | CI noturno e local | robustez: abre e lê todos os recursos de 300 livros do Project Gutenberg (`corpus/pg-wide.json`), parseia todos os documentos do spine e conta por classe | sai com 1 **só** se houver `crashed` (exceção que não é `GalleyException`: bug do Galley) |
+| `docdiff` | CI noturno e local | diferencial: em cada documento do spine do corpus público, a árvore do Galley × o DOM do `package:xml` | sai com 1 se houver **divergência** ou **erro interno** (bug do Galley); 70 se nenhum documento foi comparado |
 
 Exemplos:
 
@@ -32,22 +33,137 @@ dart run tool/bench.dart local --out local.json --report local.md [--upload]
 dart run tool/bench.dart compare --out compare.json
 dart run tool/bench.dart size --out size.json
 dart run tool/bench.dart wide --out wide.json --report wide.md
+dart run tool/bench.dart docdiff --out docdiff.json --report docdiff.md
 dart run tool/bench.dart wide-refresh --count 300 --seed 2026   # só manual
 ```
+
+### O modo `instructions`: flags da VM
+
+O harness roda o `bench_runner` de base e head com as mesmas flags em
+`DART_VM_OPTIONS` (`deterministicVmOptions`, em
+`lib/src/modes/instructions.dart`, com o motivo de cada uma). As flags vêm do
+harness do checkout que roda o modo, não da base: mudar as flags muda as duas
+versões medidas no mesmo job. Em resumo:
+
+- GC sem marcação nem varredura concorrentes, uma tarefa por fase,
+  crescimento do heap velho só por espaço (`--old_gen_growth_time_ratio=100`)
+  e semente fixa: execuções repetidas variam ~0,001%.
+- Folga fixa de ~200 MB no heap velho antes do primeiro mark-sweep
+  (`--old_gen_growth_space_ratio=99`, `--old_gen_growth_rate=400`). O custo
+  de um mark-sweep cresce com os objetos do próprio programa AOT no heap
+  velho; com o heap no mínimo, crescer o executável com código que o
+  benchmark nem executa mudava benchmarks de outro subsistema (no SP3,
+  +5% em `container/deobfuscate-idpf`, ~80% de GC, sem mudança no
+  container). Com a folga, nenhum benchmark do catálogo faz mark-sweep nas
+  execuções medidas.
+
+O que a contagem inclui: o trabalho do código, a alocação (e a cópia ou a
+inicialização do que se aloca) e os scavenges da geração nova. O que não
+inclui: o mark-sweep do heap velho, a não ser num benchmark que aloque mais
+de ~200 MB no heap velho em 4 iterações. O custo real do GC em tempo de
+parede fica com o gate `ab`, que usa as flags padrão da VM. Uma regressão de
+alocação continua reprovando: uma cópia extra de 256 KiB por chamada em
+`deobfuscateIdpf` dá +88,8%; só alocar um buffer extra de 256 KiB, +5,5%.
+
+Um efeito do tamanho do programa que as flags não removem: o AOT
+desvirtualiza menos quando o programa tem mais implementações das mesmas
+classes. Com o código de documento no executável, os benchmarks que
+parseiam XML no container (`opf`/`nav`/`ncx-parse-large`,
+`open-*-epub2-ncx`) ficaram +0,2–0,3% mais caros. Esse custo é real: um app
+que usa o Galley também tem o código de documento.
+
+Mudar estas flags muda os números absolutos de todo o catálogo. O gate do
+PR e a regressão gradual do noturno não sentem (base e head, ou
+`bench-baseline` e head, são medidos com as mesmas flags no mesmo job); no
+Bencher, a série de cada benchmark dá um degrau no commit da mudança, que
+não é regressão.
+
+### O modo `ab`: layout do código AOT
+
+O `ab` compila base e head com `dart compile exe` padrão e roda cada amostra
+com as flags padrão da VM. Um efeito que ele sente e o `instructions` não:
+o tempo de um laço quente pode mudar com o **endereço** do código no
+executável, sem nenhuma instrução a mais. Isso depende da CPU do runner, que
+varia entre jobs (o GitHub sorteia AMD EPYC 7763/Zen 3, 9V74/Zen 4 e
+9V45/Zen 5; a linha "CPU do runner" no resumo de cada fatia diz qual foi).
+
+Caso do SP3 (PR #6): o `crc32` recebia `List<int>` e fazia duas chamadas
+indiretas por byte (`length` e `[]` pela tabela de despacho). Experimento no
+CI com executáveis da `main` que só diferem por código morto noutra função
+(mesmas instruções executadas): `crc32-1mib` +5–8% e `inflate-1mib` +4–6% em
+Zen 3 e Zen 5, nada em Zen 4. O gate reprovava sem mudança no container.
+Com o laço sobre `Uint8List` (sem chamadas), os mesmos deslocamentos ficam em
+±1% nas três CPUs, e o laço é ~2× mais rápido.
+
+Não adotado: `--align_all_loops` (flag do `gen_snapshot`, via
+`--extra-gen-snapshot-options`). Alinha o cabeçalho dos laços a 32 bytes, mas
+os destinos das chamadas e o resto do layout continuam mudando: em Zen 5 o
+deslocamento ainda dava −8%, e a flag deixou o `crc32` 8% mais lento. Também
+mediria um programa que nenhum app compila.
+
+Se o `ab` reprovar um benchmark cujo código não mudou e cujas instruções
+(gate `instructions`) ficaram iguais, suspeite de layout: veja a CPU do
+runner, procure chamadas indiretas ou despacho dinâmico no laço quente e
+prefira corrigir o laço (tipo exato, sem chamada por elemento). O limite de
+5% e o método não mudam; uma regressão real de tempo continua reprovando.
 
 ### O modo `wide`
 
 Baixa (uma vez; cache em `.corpus-cache/pg-wide/`, pausa de 2 s entre
 requisições ao espelho oficial) e abre os 300 livros de `corpus/pg-wide.json`,
-lendo todos os recursos do manifest. Cada livro cai em uma classe: `ok`,
-`diagnostics-error`, `failed` (`GalleyException`), `crashed` (qualquer outra
-exceção, ou seja, bug), `drift` (o PG regerou o arquivo; `sha256` mudou) ou
-`unavailable` (404, rede, prazo). O BMF traz `wide/<classe>` com `count`, e o
-resumo lista os números dos ebooks de cada classe que importa (para `crashed`,
-com o início da stack). Só `crashed` reprova. Como e por que os 300 livros
-foram escolhidos: `corpus/README.md`. Um `Retry-After` longo (acima de 2 min)
-faz o `wide` parar de pedir ao espelho: os livros que ainda não estão no cache
-viram `unavailable`.
+lendo cada recurso do manifest uma vez e parseando com `parseDocumentBytes`
+os bytes já lidos de cada documento do spine. Cada livro cai em uma classe:
+`ok`, `diagnostics-error`, `failed` (`GalleyException`), `crashed` (qualquer
+outra exceção, ou um documento com `internalError`, a exceção inesperada que
+o leitor de documentos capturou: bug), `drift` (o PG regerou o arquivo;
+`sha256` mudou) ou `unavailable` (404, rede, prazo). O BMF traz
+`wide/<classe>` com `count`, e o resumo lista os números dos ebooks de cada
+classe que importa (para `crashed`, com o início da stack e, num
+`internalError`, o tipo da exceção e o caminho do documento). Os documentos
+que caíram no modo tolerante não reprovam: são contados (`wide/documents` e
+`wide/documents-tolerant` no BMF; no resumo, os livros que os têm). Só
+`crashed` reprova. Como e por que os 300 livros foram escolhidos:
+`corpus/README.md`. Um `Retry-After` longo (acima de 2 min) faz o `wide`
+parar de pedir ao espelho: os livros que ainda não estão no cache viram
+`unavailable`.
+
+### O modo `docdiff`
+
+Para cada livro de `corpus/manifest.json` (cache em `.corpus-cache/`, o
+mesmo do `compare`), lê cada documento do spine (cada caminho uma vez) com
+`parseDocumentBytes` e com `XmlDocument.parse` do `package:xml` (entidades
+HTML5 do próprio `package:xml`, não a variante linear do Galley) e compara as
+duas sequências de eventos: entrar no elemento (URI do namespace, nome local
+e atributos ordenados por URI e nome local, sem `xmlns*`), texto (fundido,
+CDATA como texto, comentários e PIs ignorados) e sair do elemento.
+
+O lado do DOM reproduz as diferenças intencionais do Galley antes de
+comparar (CRLF → LF, TAB/LF/CR → espaço nos atributos, caracteres proibidos
+→ U+FFFD, prefixos `xml:`/`epub:`/`xlink:` sem declaração resolvidos e os
+demais no namespace reservado, atributo repetido: vale o primeiro); a lista
+está no código (`lib/src/modes/docdiff.dart`). A decodificação dos bytes
+(`decodeText`) é a mesma nos dois lados e não é verificada por este
+diferencial.
+
+Cada documento cai em uma classe:
+
+- **bateu** ou **divergência** (bug do Galley; reprova);
+- **erro interno** (`internalError`: o leitor capturou uma exceção
+  inesperada; bug do Galley; reprova);
+- **tolerante**: o Galley leu pelo modo tolerante; fica fora da comparação;
+- **XHTML tolerante que o DOM leu**: `application/xhtml+xml` que o Galley
+  mandou ao modo tolerante, mas o DOM aceitou; fora da comparação e não
+  reprova, mas aparece no relatório para revelar uma regressão que mande
+  XHTML válido ao modo tolerante;
+- **DOM não leu**: o Galley leu pelo caminho estrito e o DOM lançou; fora da
+  comparação.
+
+O relatório traz as contagens e, até 10 de cada, as divergências (caminho
+`<livro>/<documento>` e primeiro evento divergente), os erros internos, o
+XHTML tolerante que o DOM leu e os que o DOM não leu. O BMF traz
+`docdiff/mismatch`, `docdiff/internal-error` e
+`docdiff/tolerant-dom-parsed` (`count`). Sai com 1 se houver divergência ou
+erro interno e com 70 se nenhum documento foi comparado.
 
 ### O modo `size`
 
@@ -123,15 +239,19 @@ bytes entre os dois APKs, gravada como `size-bytes` em
   manual): `instructions` (com a regressão gradual contra `bench-baseline`,
   10%, quando a tag existe; sem ela, mede só o head e avisa), `ab` longo (31
   rodadas, só o head), `compare` (só relatório; nunca reprova o noturno),
-  `size`, `wide` (job independente, prazo de 150 min por causa da primeira
-  execução sem cache; roda **só na agenda e no disparo manual**, nunca a cada
-  push) e o envio de tudo ao Bencher (`--branch main`) em jobs sem checkout:
-  instruções em `github-ubuntu-valgrind` e A/B em `github-ubuntu-ab` (os
-  mesmos testbeds do PR, para o `--start-point main` do PR trazer este
-  histórico), `compare`, `size` e `wide` em `github-ubuntu-nightly`. Os
-  caches de corpus do `compare` e do `wide` usam `actions/cache/restore` e
-  `actions/cache/save` com `if: always()`: são salvos mesmo se o job falhar
-  (um `crashed` ou o prazo estourado), sempre que chegaram livros novos.
+  `size`, `docdiff` (diferencial de documentos; **reprova** o noturno com
+  divergência ou erro interno), `wide` (job independente, prazo de 150 min
+  por causa da primeira execução sem cache; roda **só na agenda e no
+  disparo manual**, nunca a cada push) e o envio de tudo ao Bencher
+  (`--branch main`) em jobs sem checkout: instruções em
+  `github-ubuntu-valgrind` e A/B em `github-ubuntu-ab` (os mesmos testbeds
+  do PR, para o `--start-point main` do PR trazer este histórico),
+  `compare`, `size`, `docdiff` e `wide` em `github-ubuntu-nightly`. Os
+  caches de corpus do `compare`, do `docdiff` (mesmo prefixo de chave do
+  `compare`, com sufixo próprio no save) e do `wide` usam
+  `actions/cache/restore` e `actions/cache/save` com `if: always()`: são
+  salvos mesmo se o job falhar (um `crashed`, uma divergência ou o prazo
+  estourado), sempre que chegaram livros novos.
 
 Para medir uma fatia localmente:
 `dart run tool/bench.dart instructions --base origin/main --head HEAD --shard 2/4`.
@@ -159,7 +279,7 @@ PR e noturno usam o mesmo testbed por tipo de medida):
 |---|---|---|
 | `github-ubuntu-valgrind` | instruções | PR (`pr-<número>`) e noturno (`main`) |
 | `github-ubuntu-ab` | A/B de tempo de parede | PR (`pr-<número>`) e noturno (`main`) |
-| `github-ubuntu-nightly` | `compare`, `size`, `wide` | só o noturno (`main`) |
+| `github-ubuntu-nightly` | `compare`, `size`, `wide`, `docdiff` | só o noturno (`main`) |
 | `local-dev` | modo `local` | máquina do mantenedor (branch atual) |
 
 ### Passo a passo manual do mantenedor (uma vez)
@@ -246,7 +366,25 @@ resolver `bench-baseline`.
 Cada subprojeto acrescenta ao benchmark as métricas e comparações das etapas
 que criar. Ao concluir um subprojeto, esta lista deve ser cumprida:
 
-- [ ] **SP3, documento:** parsing de XHTML.
+- [x] **SP3, documento:** parsing de XHTML. Catálogo (cada ciclo de 10–50 ms
+      nativos): `document/build-large-1mib` (XHTML sintético textual de 1 MiB, um
+      capítulo de romance, com tabelas, *ruby*, MathML, `style=` e
+      `epub:type`), `document/build-dense-256kib` (denso em marcação, pouco
+      texto: pega regressão por elemento/atributo),
+      `document/query-id-class`, `document/build-tolerant` (documento
+      malformado), `document/transfer-large` (`Isolate.run` que faz o
+      parse de 1 MiB e devolve a árvore: mede parse + spawn + transferência;
+      a diferença para `document/build-large-1mib` estima o custo do envio) e `document/parse-spine-hm-<livro>` (todos os
+      documentos do spine de cada livro `hm/*` não malformado). Comparação
+      informativa, sem gate, no `compare`: `parseDocumentBytes` ×
+      `XmlDocument.parse` (entidades HTML5) em cada livro `hm/*`, no XHTML
+      textual (`synthetic/xhtml-1mib`) e no denso (`synthetic/dense-256kib`), com `wall-time-ns` e
+      `peak-rss-bytes` em `compare/galley-document/parse/<doc>` e
+      `compare/xml-dom/parse/<doc>`. Teto de memória no pacote `galley`:
+      `test/features/document/memory_counter_test.dart`
+      (`retainedBytes` ÷ bytes do XHTML ≤ K). Diferencial noturno, que
+      reprova: `docdiff` (árvore × DOM do `package:xml` no corpus
+      público); o `wide` parseia todos os documentos do spine.
 - [ ] **SP4, estilo:** cascata e seletores.
 - [ ] **SP5, layout:** paginação, repaginação ao mudar a fonte, medição
       fatiada.

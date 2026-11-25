@@ -6,6 +6,7 @@ import '../corpus/fetcher.dart';
 import '../corpus/handmade.dart';
 import '../corpus/manifest.dart';
 import '../corpus/synthetic.dart';
+import '../suites/document_suites.dart';
 import 'ab.dart' show abEnvironment;
 import 'build.dart';
 import 'local.dart' show OpenMeasurement, parseMeasureOpen;
@@ -166,7 +167,9 @@ Future<OpenMeasurement> _runOnce(
 /// mesma ordem, deixa o arquivo no cache de página para todos. Uma falha vira
 /// uma célula com [CompareCell.failure] e não aborta nada; se o `open` de um
 /// adaptador falha num livro, `read-all` e `read-one` dele herdam a falha sem
-/// rodar ([CompareCell.inherited]). Progresso em [log].
+/// rodar ([CompareCell.inherited]). [metrics] troca as métricas medidas (a
+/// primeira também faz o aquecimento); a comparação de documentos usa
+/// `['parse']`. Progresso em [log].
 Future<List<CompareCell>> compareBooks({
   required List<CompareAdapter> adapters,
   required List<CompareBook> books,
@@ -174,19 +177,20 @@ Future<List<CompareCell>> compareBooks({
   required Duration timeout,
   required Directory workDir,
   required StringSink log,
+  List<String> metrics = compareMetrics,
 }) async {
   final cells = <CompareCell>[];
   for (final book in books) {
     log.writeln('medindo ${book.key}');
     for (final adapter in adapters) {
       try {
-        await _runOnce(adapter, book, 'open', workDir, timeout);
+        await _runOnce(adapter, book, metrics.first, workDir, timeout);
       } on MeasurementFailure {
         // Aquecimento: a falha aparece na medição de verdade.
       }
     }
     final openFailed = <String, String>{};
-    for (final metric in compareMetrics) {
+    for (final metric in metrics) {
       if (metric == 'read-one' && book.readOneResource == null) continue;
       final active = [
         for (final a in adapters)
@@ -418,6 +422,69 @@ String renderCompareReport(
   return b.toString();
 }
 
+/// Métrica da comparação de documentos.
+const String documentMetric = 'parse';
+
+/// Nomes dos parsers da comparação de documentos, o nosso primeiro.
+const List<String> documentAdapterNames = ['galley-document', 'xml-dom'];
+
+/// Seção do relatório: o parse do Galley (`parseDocumentBytes`) contra o DOM
+/// do `package:xml` (`XmlDocument.parse`, entidades HTML5), por documento
+/// (livro `hm/*`: todos os documentos do spine; `synthetic/xhtml-1mib`: o
+/// XHTML sintético). Só informativa: nunca reprova.
+String renderDocumentCompareReport(
+  List<CompareCell> cells, {
+  required int runs,
+}) {
+  CompareCell? find(String book, String adapter) {
+    for (final c in cells) {
+      if (c.book == book && c.adapter == adapter) return c;
+    }
+    return null;
+  }
+
+  final books = <String>[];
+  for (final c in cells) {
+    if (!books.contains(c.book)) books.add(c.book);
+  }
+  final b = StringBuffer()
+    ..writeln('## Documento: Galley × DOM do `package:xml`')
+    ..writeln()
+    ..writeln(
+      '`parseDocumentBytes` (árvore compacta, sem a leitura do arquivo) contra '
+      '`XmlDocument.parse` (DOM, mesmas entidades HTML5, mesmo texto '
+      'decodificado), cada medida num processo próprio; tempo = mediana de '
+      '$runs execuções só do parse, RSS = maior pico (`VmHWM`) do processo '
+      'inteiro, com as árvores ainda vivas. Só informativo, sem gate. '
+      '`razão` é xml-dom ÷ galley-document.',
+    )
+    ..writeln()
+    ..writeln(
+      '| documento | galley (ms) | xml-dom (ms) | razão | galley RSS (MiB) | '
+      'xml-dom RSS (MiB) |',
+    )
+    ..writeln('|---|---:|---:|---:|---:|---:|');
+  for (final k in books) {
+    final g = find(k, 'galley-document');
+    final x = find(k, 'xml-dom');
+    String ms(CompareCell? c) => c != null && c.ok ? _ms(c.wallNs!) : 'falhou';
+    String mib(CompareCell? c) =>
+        c != null && c.ok ? _mib(c.peakRss!) : 'falhou';
+    final ratio = g != null && x != null && g.ok && x.ok
+        ? (x.wallNs! / g.wallNs!).toStringAsFixed(2)
+        : '—';
+    b.writeln(
+      '| `$k` | ${ms(g)} | ${ms(x)} | $ratio | ${mib(g)} | ${mib(x)} |',
+    );
+  }
+  b.writeln();
+  final failed = cells.where((c) => !c.ok).toList();
+  for (final c in failed) {
+    b.writeln('- `${c.adapter}` `${c.book}`: ${c.failure}');
+  }
+  return b.toString();
+}
+
 /// Executa o modo `compare`: Galley contra `epubx`, `epub_plus` e `epub_pro`
 /// nos livros do corpus escrito à mão, no sintético de 50 MiB e no corpus
 /// público (cache em `.corpus-cache/`).
@@ -517,6 +584,36 @@ Future<int> runCompare({
       workDir: workDir,
       log: logSink,
     );
+
+    // Comparação informativa de documentos: parse do Galley × DOM do xml.
+    final docFile = File('${session.workDir.path}/synthetic-xhtml-1mib.xhtml')
+      ..writeAsBytesSync(buildLargeXhtml(kLargeXhtmlBytes));
+    final denseFile = File(
+      '${session.workDir.path}/synthetic-dense-256kib.xhtml',
+    )..writeAsBytesSync(buildDenseXhtml(kDenseXhtmlBytes));
+    final docBooks = <CompareBook>[
+      for (final b in books)
+        if (b.key.startsWith('hm/') && !b.key.contains('malformed')) b,
+      CompareBook('synthetic/xhtml-1mib', docFile),
+      CompareBook('synthetic/dense-256kib', denseFile),
+    ];
+    final docCells = await compareBooks(
+      adapters: [
+        for (final name in documentAdapterNames)
+          CompareAdapter(
+            name,
+            runner,
+            prefixArgs: ['--doc-adapter', name],
+            supportsEager: false,
+          ),
+      ],
+      books: docBooks,
+      runs: runs,
+      timeout: timeout,
+      workDir: workDir,
+      log: logSink,
+      metrics: const [documentMetric],
+    );
     clock.stop();
     final report = renderCompareReport(
       cells,
@@ -525,13 +622,18 @@ Future<int> runCompare({
       elapsed: clock.elapsed,
       notes: notes,
     );
+    final fullReport =
+        '$report\n${renderDocumentCompareReport(docCells, runs: runs)}';
     if (outPath != null) {
       await File(outPath).writeAsString(
-        const JsonEncoder.withIndent('  ').convert(compareBmf(cells)),
+        const JsonEncoder.withIndent('  ')
+            .convert(compareBmf([...cells, ...docCells])),
       );
     }
-    if (reportPath != null) await File(reportPath).writeAsString(report);
-    if (echoReport) stdout.write(report);
+    if (reportPath != null) {
+      await File(reportPath).writeAsString(fullReport);
+    }
+    if (echoReport) stdout.write(fullReport);
     return 0;
   });
 }

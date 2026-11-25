@@ -37,14 +37,19 @@ String decodeText(Uint8List bytes) {
   return utf8.decode(bytes, allowMalformed: true);
 }
 
+/// Junta os pares de bytes a partir de [start] em unidades UTF-16 (um byte
+/// ímpar no fim é ignorado).
+///
+/// As unidades vão para um [Uint16List] do tamanho exato, não para uma lista
+/// que cresce: em documentos grandes, a lista crescente realocava um array de
+/// 8 bytes por unidade várias vezes, e essas alocações grandes disparavam
+/// mark-sweeps do heap velho, cujo custo cresce com o tamanho do programa.
 String _decodeUtf16(Uint8List bytes, int start, {required bool littleEndian}) {
-  final units = <int>[];
-  for (var i = start; i + 1 < bytes.length; i += 2) {
-    units.add(
-      littleEndian
-          ? bytes[i] | (bytes[i + 1] << 8)
-          : (bytes[i] << 8) | bytes[i + 1],
-    );
+  final units = Uint16List((bytes.length - start) >> 1);
+  final hi = littleEndian ? 1 : 0;
+  final lo = 1 - hi;
+  for (var u = 0, i = start; u < units.length; u++, i += 2) {
+    units[u] = (bytes[i + hi] << 8) | bytes[i + lo];
   }
   return String.fromCharCodes(units);
 }

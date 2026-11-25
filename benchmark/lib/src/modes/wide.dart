@@ -1,16 +1,21 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:galley/galley.dart';
+import 'package:galley/src/features/document/data/parse_document.dart';
 
 import '../bmf.dart' as bmf;
 import '../corpus/fetcher.dart';
 import '../corpus/manifest.dart';
 import '../corpus/pg_wide.dart';
+import 'docdiff.dart' show DocumentBytesParser, documentMediaTypes;
 
 /// Classe de resultado de um livro do corpus amplo.
 enum WideClass {
-  /// Abriu, leu todos os recursos e não houve diagnóstico `error`.
+  /// Abriu, leu todos os recursos, parseou os documentos do spine e não
+  /// houve diagnóstico `error` no livro.
   ok('ok'),
 
   /// Abriu e leu tudo, mas com algum diagnóstico `error`.
@@ -20,7 +25,8 @@ enum WideClass {
   /// controlada).
   failed('failed'),
 
-  /// O Galley lançou outra coisa: **bug do Galley**; reprova o noturno.
+  /// O Galley lançou outra coisa (na abertura, na leitura ou no parse de um
+  /// documento): **bug do Galley**; reprova o noturno.
   crashed('crashed'),
 
   /// O `sha256` mudou na origem (o PG regera os EPUBs); não reprova.
@@ -38,7 +44,13 @@ enum WideClass {
 /// Resultado de um livro.
 final class WideResult {
   /// Cria o resultado.
-  const WideResult(this.entry, this.cls, [this.detail = '']);
+  const WideResult(
+    this.entry,
+    this.cls, [
+    this.detail = '',
+    this.documents = 0,
+    this.tolerantDocuments = 0,
+  ]);
 
   /// O livro.
   final PgWideEntry entry;
@@ -48,23 +60,92 @@ final class WideResult {
 
   /// Detalhe: exceção (e o início da stack, no `crashed`) ou causa.
   final String detail;
+
+  /// Documentos do spine parseados.
+  final int documents;
+
+  /// Desses, quantos caíram no modo tolerante (não reprova).
+  final int tolerantDocuments;
 }
 
-/// Abre [file], lê todos os recursos do manifest e devolve se houve
-/// diagnóstico `error`. Pode lançar qualquer coisa; [runWide] classifica.
-typedef WideReader = Future<bool> Function(File file);
+/// O que o [WideReader] leu de um livro.
+final class WideRead {
+  /// Cria o resultado da leitura.
+  const WideRead({
+    required this.hasError,
+    this.documents = 0,
+    this.tolerantDocuments = 0,
+  });
 
-/// Leitor padrão: `EpubBook.open` e leitura de todos os recursos do manifest.
-Future<bool> readWholeBook(File file) async {
+  /// Se o livro teve diagnóstico `error`.
+  final bool hasError;
+
+  /// Documentos do spine parseados.
+  final int documents;
+
+  /// Desses, quantos caíram no modo tolerante.
+  final int tolerantDocuments;
+}
+
+/// Abre [file], lê todos os recursos do manifest e parseia os documentos do
+/// spine. Pode lançar qualquer coisa; [runWide] classifica.
+typedef WideReader = Future<WideRead> Function(File file);
+
+/// Leitor padrão: `EpubBook.open`, leitura de todos os recursos do manifest
+/// (cada um uma vez) e [parse] (por padrão `parseDocumentBytes`) dos bytes
+/// já lidos de cada documento do spine (itens que não são documento ficam
+/// de fora).
+///
+/// Um documento com `internalError` (exceção inesperada capturada pelo
+/// leitor: bug do Galley) lança [WideInternalError], que [runWide] classifica
+/// como `crashed`.
+Future<WideRead> readWholeBook(
+  File file, {
+  DocumentBytesParser parse = parseDocumentBytes,
+}) async {
   final book = await EpubBook.open(file.path);
   try {
+    final spineDocuments = {
+      for (final s in book.spine.items)
+        if (documentMediaTypes.contains(s.item.mediaType)) s.item.path,
+    };
+    var documents = 0;
+    var tolerant = 0;
     for (final item in book.manifest.values) {
-      await book.resource(item.path);
+      final bytes = await book.resource(item.path);
+      if (!spineDocuments.contains(item.path)) continue;
+      final parsed = parse(bytes, path: item.path, mediaType: item.mediaType);
+      final internal = parsed.internalError;
+      if (internal != null) throw WideInternalError(item.path, internal);
+      documents++;
+      if (parsed.recovered) tolerant++;
     }
-    return book.diagnostics.any((d) => d.severity == DiagnosticSeverity.error);
+    return WideRead(
+      hasError: book.diagnostics.any(
+        (d) => d.severity == DiagnosticSeverity.error,
+      ),
+      documents: documents,
+      tolerantDocuments: tolerant,
+    );
   } finally {
     await book.close();
   }
+}
+
+/// Um documento do spine voltou com `ParsedDocument.internalError`: o
+/// leitor do Galley capturou uma exceção inesperada (bug).
+final class WideInternalError implements Exception {
+  /// Cria o erro do documento [path] com a exceção do tipo [type].
+  const WideInternalError(this.path, this.type);
+
+  /// Caminho do documento no EPUB.
+  final String path;
+
+  /// Tipo da exceção capturada.
+  final String type;
+
+  @override
+  String toString() => 'erro interno do Galley ($type) no documento $path';
 }
 
 /// Resultados de uma execução do modo `wide`.
@@ -81,15 +162,32 @@ final class WideReport {
       c: results.where((r) => r.cls == c).length,
   };
 
+  /// Documentos do spine parseados, somando todos os livros.
+  int get documents => results.fold(0, (s, r) => s + r.documents);
+
+  /// Documentos que caíram no modo tolerante, somando todos os livros.
+  int get tolerantDocuments =>
+      results.fold(0, (s, r) => s + r.tolerantDocuments);
+
   /// 1 só se houve `crashed`; as demais classes não reprovam.
   int get exitCode => counts[WideClass.crashed]! > 0 ? 1 : 0;
 
-  /// BMF com `wide/<classe>` → `count`.
+  /// BMF com `wide/<classe>`, `wide/documents` e `wide/documents-tolerant`
+  /// → `count`.
   Map<String, Object> toBmf() => bmf.toBmf({
     for (final e in counts.entries)
       'wide/${e.key.slug}': [
         bmf.Measure(slug: bmf.MeasureSlug.count, value: e.value.toDouble()),
       ],
+    'wide/documents': [
+      bmf.Measure(slug: bmf.MeasureSlug.count, value: documents.toDouble()),
+    ],
+    'wide/documents-tolerant': [
+      bmf.Measure(
+        slug: bmf.MeasureSlug.count,
+        value: tolerantDocuments.toDouble(),
+      ),
+    ],
   });
 
   /// Resumo em texto: contagem por classe e os livros de cada classe que
@@ -99,6 +197,20 @@ final class WideReport {
     b.writeln('${results.length} livros');
     for (final e in counts.entries) {
       b.writeln('  ${e.key.slug}: ${e.value}');
+    }
+    b.writeln(
+      'documentos do spine: $documents '
+      '(modo tolerante: $tolerantDocuments)',
+    );
+    final tolerantBooks = [
+      for (final r in results)
+        if (r.tolerantDocuments > 0)
+          '#${r.entry.ebookNo} (${r.tolerantDocuments})',
+    ];
+    if (tolerantBooks.isNotEmpty) {
+      b.writeln(
+        '  livros com documento tolerante: ${tolerantBooks.join(', ')}',
+      );
     }
     for (final cls in [
       WideClass.crashed,
@@ -127,17 +239,22 @@ final class WideReport {
 /// classifica; nunca lança por causa de um livro.
 ///
 /// [fetcher] e [reader] são injetáveis (padrões: [CorpusFetcher] com pausa de
-/// [pgPause] e [readWholeBook]). Progresso em [log] (padrão: stderr).
+/// [pgPause] e [readWholeBook]); [documentParser] troca o parse de
+/// documentos do leitor padrão. Progresso em [log] (padrão: stderr).
 Future<WideReport> runWide(
   List<PgWideEntry> entries, {
   required Directory cacheDir,
   CorpusFetcher? fetcher,
   WideReader? reader,
+  DocumentBytesParser? documentParser,
   StringSink? log,
 }) async {
   final out = log ?? stderr;
   final f = fetcher ?? CorpusFetcher(cacheDir: cacheDir, pause: pgPause);
-  final read = reader ?? readWholeBook;
+  final read =
+      reader ??
+      (File file) =>
+          readWholeBook(file, parse: documentParser ?? parseDocumentBytes);
   final results = <WideResult>[];
   try {
     var suspended = false; // o servidor pediu Retry-After: sem mais rede
@@ -211,11 +328,14 @@ Future<({WideResult result, Duration? retryAfter})> _classify(
     );
   }
   try {
-    final hasError = await read(file);
+    final r = await read(file);
     return (
       result: WideResult(
         e,
-        hasError ? WideClass.diagnosticsError : WideClass.ok,
+        r.hasError ? WideClass.diagnosticsError : WideClass.ok,
+        '',
+        r.documents,
+        r.tolerantDocuments,
       ),
       retryAfter: null,
     );

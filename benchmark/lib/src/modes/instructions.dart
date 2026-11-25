@@ -33,17 +33,34 @@ const int defaultHighIterations = 4;
 ///   depende da fração de tempo gasta em GC; com o padrão (3%), o número de
 ///   mark-sweeps mudava entre execuções (saltos de ~5% em
 ///   `container/deobfuscate-idpf`). Com 100, só o espaço decide.
+/// - `--old_gen_growth_space_ratio=99` com `--old_gen_growth_rate=400`: folga
+///   fixa de 400 páginas (~200 MB) no heap velho antes do primeiro
+///   mark-sweep (o limite vira `usado + 400 páginas`, porque `usado ÷ 1%` é
+///   maior). Sem isso o heap velho ficava no mínimo (~5 MB) e cada alocação
+///   grande disparava mark-sweeps; o custo de cada um cresce com os objetos
+///   do próprio programa AOT no heap, e crescer o executável (código que o
+///   benchmark nem executa) mudava benchmarks de outro subsistema (+5% em
+///   `container/deobfuscate-idpf` no SP3). Com a folga, nenhum benchmark do
+///   catálogo faz mark-sweep nas execuções medidas; o limite não depende do
+///   tamanho do programa.
 /// - `--random_seed` fixo: os hash codes de identidade vêm de um gerador
 ///   aleatório da VM; sem semente, as colisões nos mapas mudam a cada
 ///   execução (~0,1% de variação).
 ///
-/// Com isso, execuções repetidas variam ~0,001%, e o custo do GC continua
-/// medido. `--marker_tasks=0` não serve: a VM aborta no primeiro mark-sweep
+/// Com isso, execuções repetidas variam ~0,001%. A contagem inclui a
+/// alocação (e a cópia ou inicialização do que é alocado) e as coletas da
+/// geração nova (scavenges, cujo custo não depende do tamanho do programa),
+/// mas não o mark-sweep do heap velho, que agora só roda em quem aloca mais
+/// de ~200 MB no heap velho em 4 iterações. O custo real do GC em tempo de
+/// parede fica com o gate `ab`, que roda com as flags padrão da VM.
+/// `--marker_tasks=0` não serve: a VM aborta no primeiro mark-sweep
 /// (`expected: num_tasks > 0`).
 const String deterministicVmOptions =
     '--no_concurrent_mark,--no_concurrent_sweep,'
     '--marker_tasks=1,--scavenger_tasks=1,'
-    '--old_gen_growth_time_ratio=100,--random_seed=42';
+    '--old_gen_growth_time_ratio=100,'
+    '--old_gen_growth_space_ratio=99,--old_gen_growth_rate=400,'
+    '--random_seed=42';
 
 /// Tempo máximo de cada execução do `bench_runner` sob o contador.
 const Duration defaultRunTimeout = Duration(minutes: 10);
