@@ -16,7 +16,8 @@ abstract final class ElementFlags {
   /// tabelas e `pre`, com tamanho a até ±15% do corpo. Só elementos XHTML.
   static const int textRunRoot = 1;
 
-  /// A raiz de texto corrido e todos os seus descendentes.
+  /// A raiz de texto corrido e os seus descendentes em linha (um bloco
+  /// interno é classificado por si mesmo).
   static const int inTextRun = 2;
 
   /// `h1`–`h6` e descendentes.
@@ -146,11 +147,17 @@ TextRunMarks classifyTextRuns({
     final parent = tree.parentOf(n);
     final isElementParent =
         parent >= 0 && tree.kindOf(parent) == NodeKind.element;
+    final display = (style[PropertyId.display] as CssKeyword).id;
+    // Título e link passam a todos os descendentes; o texto corrido só aos
+    // descendentes em linha (`em`, `span`, `a`...): um bloco interno (`pre`,
+    // tabela, título, epígrafe menor) é classificado por si mesmo.
     var f = isElementParent
         ? flags[parent] &
-              (ElementFlags.inTextRun |
-                  ElementFlags.heading |
-                  ElementFlags.link)
+              (_inlineLevel.contains(display)
+                  ? ElementFlags.inTextRun |
+                        ElementFlags.heading |
+                        ElementFlags.link
+                  : ElementFlags.heading | ElementFlags.link)
         : 0;
     var inBlocked = isElementParent && blocked[parent] != 0;
 
@@ -166,7 +173,6 @@ TextRunMarks classifyTextRuns({
       }
     }
 
-    final display = (style[PropertyId.display] as CssKeyword).id;
     if (display == CssKeywords.listItem) f |= ElementFlags.listItem;
 
     final family = style[PropertyId.fontFamily] as CssFontFamilies;

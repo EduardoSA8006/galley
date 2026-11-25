@@ -1,3 +1,5 @@
+import 'package:meta/meta.dart';
+
 import 'css_value.dart';
 import 'matched_document.dart';
 import 'properties.dart';
@@ -119,6 +121,17 @@ final class PreferencePass {
         (_preserveHeadingFonts && flags & ElementFlags.heading != 0);
   }
 
+  /// Se a passada guarda, em paralelo, o valor herdado da editora das
+  /// propriedades que ajusta no texto corrido ([PublisherSnapshot]): só
+  /// com alguma delas em "ajustar".
+  bool get tracksPublisher =>
+      _adjusts(_lineHeight) ||
+      _adjusts(_textIndent) ||
+      _adjusts(_textAlign) ||
+      _adjusts(_hyphenation) ||
+      _adjusts(_wordSpacing) ||
+      _adjusts(_letterSpacing);
+
   /// Transforma [values] (calculados da editora a partir do pai já
   /// ajustado) no lugar.
   ///
@@ -127,7 +140,14 @@ final class PreferencePass {
   /// pseudo-elemento, as do elemento nas duas). [publisherFamily] é a
   /// família calculada da editora do elemento, usada quando
   /// [keepsPublisherFamily]; num pseudo-elemento, `null` (fica a calculada).
-  void apply(
+  ///
+  /// [parentPublisher] é o instantâneo da editora do pai quando o pai está
+  /// no texto corrido (com [tracksPublisher]). Um elemento que sai do
+  /// escopo (bloco interno: `pre`, tabela, título, epígrafe menor) herda
+  /// dele, nas propriedades que não declara, o valor da editora e não o
+  /// ajustado. Devolve o instantâneo do próprio elemento quando ele está no
+  /// texto corrido (para os filhos), senão `null`.
+  PublisherSnapshot? apply(
     List<CssValue> values,
     CascadedValues set, {
     required int flags,
@@ -136,14 +156,13 @@ final class PreferencePass {
     required bool isBody,
     required bool isPseudo,
     CssFontFamilies? publisherFamily,
+    PublisherSnapshot? parentPublisher,
   }) {
     final inRun = _inRun(flags);
     final enteringRun = inRun && (isRoot || !_inRun(parentFlags));
     final heading = flags & ElementFlags.heading != 0;
     final enteringHeading =
-        heading &&
-        (isRoot ||
-            (parentFlags & ElementFlags.heading == 0 && !_inRun(parentFlags)));
+        heading && (isRoot || parentFlags & ElementFlags.heading == 0);
     bool runBorn(int p) => inRun && (enteringRun || _declares(set, p));
     bool headingBorn(int p) =>
         heading && !inRun && (enteringHeading || _declares(set, p));
@@ -163,6 +182,25 @@ final class PreferencePass {
           vh: lh.vh,
         );
       }
+    }
+
+    // Saída do texto corrido: o herdado volta a ser o da editora.
+    const tracked = PublisherSnapshot.properties;
+    if (!inRun && parentPublisher != null) {
+      for (var k = 0; k < tracked.length; k++) {
+        if (!_declares(set, tracked[k])) {
+          values[tracked[k]] = parentPublisher.values[k];
+        }
+      }
+    }
+    PublisherSnapshot? own;
+    if (inRun && tracksPublisher) {
+      own = PublisherSnapshot([
+        for (var k = 0; k < tracked.length; k++)
+          parentPublisher == null || _declares(set, tracked[k])
+              ? values[tracked[k]]
+              : parentPublisher.values[k],
+      ]);
     }
 
     final lineHeight = _lineHeight;
@@ -265,6 +303,7 @@ final class PreferencePass {
         values[p] = const CssKeyword(CssKeywords.currentcolor);
       }
     }
+    return own;
   }
 
   CssFontFamilies _mapGenerics(CssFontFamilies value) {
@@ -281,6 +320,41 @@ final class PreferencePass {
     return out == null ? value : CssFontFamilies(List.unmodifiable(out));
   }
 }
+
+/// Valores da editora (sem os ajustes de texto corrido) das propriedades
+/// herdadas que a passada ajusta, guardados em paralelo para os blocos que
+/// saem do texto corrido herdarem o da editora (spec §8.7). Igualdade por
+/// valor, para internar.
+@immutable
+final class PublisherSnapshot {
+  /// Cria o instantâneo; [values] paralelo a [properties].
+  PublisherSnapshot(List<CssValue> values)
+    : assert(values.length == properties.length, 'um valor por propriedade'),
+      values = List.unmodifiable(values);
+
+  /// Propriedades guardadas.
+  static const List<int> properties = [
+    PropertyId.lineHeight,
+    PropertyId.textAlign,
+    PropertyId.hyphens,
+    PropertyId.wordSpacing,
+    PropertyId.letterSpacing,
+    PropertyId.textIndent,
+  ];
+
+  /// Valor da editora de cada item de [properties].
+  final List<CssValue> values;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PublisherSnapshot && listEquals(other.values, values);
+
+  @override
+  int get hashCode => Object.hashAll(values);
+}
+
+bool _adjusts(Preference<Object?>? p) =>
+    p != null && p.policy == PreferencePolicy.adjust;
 
 /// Texto corrido para as preferências: dentro de uma raiz de texto corrido
 /// e fora de títulos.

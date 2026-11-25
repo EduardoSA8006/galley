@@ -29,7 +29,9 @@ import 'value_computer.dart';
 /// seguida; o tamanho da fonte entra no próprio cálculo. Por isso a chave
 /// do memo inclui também as marcas do pai (a fronteira do escopo), se o
 /// elemento é o `body` (fundo do tema) e, quando a família da editora é
-/// mantida, essa família. Sem preferências, o resultado é o do livro.
+/// mantida, essa família. Com ajustes de texto corrido, guarda em paralelo
+/// o herdado da editora ([PublisherSnapshot]) dos elementos de texto
+/// corrido, e o instantâneo do pai também entra na chave. Sem preferências, o resultado é o do livro.
 StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
   final tree = matched.tree;
   final nodeCount = tree.nodeCount;
@@ -47,6 +49,18 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
   final active = pass.isActive;
   final familyTable = matched.familyTable;
   final familyCount = familyTable.length + 1;
+  // Instantâneos da editora dos elementos de texto corrido (ver
+  // [PublisherSnapshot]), internados; por nó, o índice (−1 = nenhum).
+  final tracks = pass.tracksPublisher;
+  final snapshots = <PublisherSnapshot>[];
+  final snapshotIndex = <PublisherSnapshot, int>{};
+  final elementSnapshots = tracks
+      ? (Int32List(nodeCount)..fillRange(0, nodeCount, -1))
+      : null;
+  // Com instantâneos, o resultado depende também do instantâneo do pai: o
+  // memo passa a ser (chave, instantâneo do pai) → (estilo, instantâneo).
+  final trackedMemo = <(int, int), (int, int)>{};
+  var lastSnapshot = -1;
 
   int styleFor(
     int parentStyle,
@@ -57,6 +71,7 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
     int parentFlags = 0,
     bool isBody = false,
     int family = -1,
+    int parentSnapshot = -1,
   }) {
     // kind: 0 = elemento, 1 + PseudoElement.index para pseudo-elementos.
     // As marcas de texto corrido entram na chave: elementos com marcas
@@ -72,8 +87,16 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
       key =
           ((key * 8 + scope) * 2 + (isBody ? 1 : 0)) * familyCount + family + 1;
     }
-    final known = memo[key];
-    if (known != null) return known;
+    if (tracks) {
+      final known = trackedMemo[(key, parentSnapshot)];
+      if (known != null) {
+        lastSnapshot = known.$2;
+        return known.$1;
+      }
+    } else {
+      final known = memo[key];
+      if (known != null) return known;
+    }
     final cascaded = matched.sets[set];
     final values = computer.compute(
       cascaded,
@@ -82,8 +105,9 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
       pseudo: kind == 0 ? null : PseudoElement.values[kind - 1],
       fontScale: pass.fontScale,
     );
+    PublisherSnapshot? own;
     if (active) {
-      pass.apply(
+      own = pass.apply(
         values,
         cascaded,
         flags: flags,
@@ -92,9 +116,19 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
         isBody: isBody,
         isPseudo: kind != 0,
         publisherFamily: family < 0 ? null : familyTable[family],
+        parentPublisher: parentSnapshot < 0 ? null : snapshots[parentSnapshot],
       );
     }
-    return memo[key] = interner.indexOf(values);
+    final style = interner.indexOf(values);
+    if (!tracks) return memo[key] = style;
+    var snapshot = -1;
+    if (own != null) {
+      snapshot = snapshotIndex[own] ??= snapshots.length;
+      if (snapshot == snapshots.length) snapshots.add(own);
+    }
+    trackedMemo[(key, parentSnapshot)] = (style, snapshot);
+    lastSnapshot = snapshot;
+    return style;
   }
 
   final pseudoIn = matched.pseudoElements;
@@ -148,7 +182,11 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
       family: pass.keepsPublisherFamily(flags)
           ? matched.publisherFamilies[n]
           : -1,
+      parentSnapshot: elementSnapshots == null || isRoot
+          ? -1
+          : elementSnapshots[parent],
     );
+    if (elementSnapshots != null) elementSnapshots[n] = lastSnapshot;
     elementStyles[n] = style;
     if (isRoot && !rootSeen) {
       rootSeen = true;

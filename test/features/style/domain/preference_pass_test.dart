@@ -8,6 +8,7 @@ import 'package:galley/src/features/style/domain/properties.dart';
 import 'package:galley/src/features/style/domain/reader_preferences.dart';
 import 'package:galley/src/features/style/domain/restyle.dart';
 import 'package:galley/src/features/style/domain/styled_document.dart';
+import 'package:galley/src/features/style/domain/text_run.dart';
 
 import '../../../support/style_fixture.dart';
 
@@ -517,6 +518,115 @@ void main() {
         if (changed.contains(p)) continue;
         expect(b[p], a[p], reason: propertyInfo(p).name);
       }
+    });
+  });
+
+  group('Ruling T10 I1: blocos internos de um bloco com texto direto', () {
+    const body =
+        '<div class="run">texto direto <em>e</em>'
+        '<p class="ep">epígrafe <em>x</em></p>'
+        '<table><tr><td>célula</td></tr></table>'
+        '<pre>código</pre>'
+        '<h1>Título</h1>'
+        '<p class="n">normal <em>y</em></p></div>';
+    const css =
+        'body{font-size:16px;line-height:1.2} p.ep{font-size:.8em} '
+        'p{margin:0}';
+    const prefs = ReaderPreferences(
+      lineHeight: Preference(2),
+      textAlign: Preference(ReaderTextAlign.justify),
+      hyphenation: Preference(true),
+      letterSpacing: Preference(.1),
+      wordSpacing: Preference(.25),
+      textIndent: Preference(2),
+    );
+    const tracked = [
+      PropertyId.lineHeight,
+      PropertyId.textAlign,
+      PropertyId.hyphens,
+      PropertyId.wordSpacing,
+      PropertyId.letterSpacing,
+      PropertyId.textIndent,
+    ];
+
+    test('marcas: só os descendentes em linha herdam o texto corrido', () {
+      final m = _match(body: body, css: css);
+      int flagsOf(String name, {String? cls}) =>
+          m.flags[_el(m.tree, name, cls: cls)];
+      expect(flagsOf('div') & ElementFlags.textRunRoot, isNonZero);
+      expect(flagsOf('em') & ElementFlags.inTextRun, isNonZero);
+      for (final (name, cls) in [
+        ('p', 'ep'),
+        ('table', null),
+        ('td', null),
+        ('pre', null),
+        ('h1', null),
+      ]) {
+        expect(
+          flagsOf(name, cls: cls) & ElementFlags.inTextRun,
+          0,
+          reason: '$name.$cls',
+        );
+      }
+      expect(flagsOf('p', cls: 'n') & ElementFlags.textRunRoot, isNonZero);
+    });
+
+    test('epígrafe, tabela, célula e pre ficam com a editora', () {
+      final none = _doc(ReaderPreferences.none, body: body, css: css);
+      final d = _doc(prefs, body: body, css: css);
+      for (final (name, cls) in [
+        ('p', 'ep'),
+        ('table', null),
+        ('td', null),
+        ('pre', null),
+      ]) {
+        for (final p in tracked) {
+          expect(
+            d.value(name, p, cls: cls),
+            none.value(name, p, cls: cls),
+            reason: '$name.$cls ${propertyInfo(p).name}',
+          );
+        }
+      }
+      // O em dentro da epígrafe herda da editora também.
+      expect(d.lineHeight('p', cls: 'ep'), 1.2);
+    });
+
+    test('o título recebe só o fator de título sobre o valor da editora', () {
+      final none = _doc(ReaderPreferences.none, body: body, css: css);
+      final d = _doc(prefs, body: body, css: css);
+      expect(d.lineHeight('h1'), closeTo(1.8, 1e-9));
+      for (final p in tracked) {
+        if (p == PropertyId.lineHeight) continue;
+        expect(d.value('h1', p), none.value('h1', p), reason: '$p');
+      }
+    });
+
+    test('o caso normal continua: bloco e parágrafo aninhado sem dobrar', () {
+      final d = _doc(prefs, body: body, css: css);
+      expect(d.lineHeight('div'), closeTo(2.4, 1e-9));
+      expect(d.lineHeight('p', cls: 'n'), closeTo(2.4, 1e-9));
+      expect(d.px('div', PropertyId.textIndent), 32);
+      expect(d.px('p', PropertyId.textIndent, cls: 'n'), 32);
+      expect(
+        d.value('p', PropertyId.textAlign, cls: 'n'),
+        const CssKeyword(CssKeywords.justify),
+      );
+      expect(
+        d.value('div', PropertyId.hyphens),
+        const CssKeyword(CssKeywords.auto),
+      );
+      expect(d.px('em', PropertyId.letterSpacing), closeTo(1.6, 1e-9));
+    });
+
+    test('forçar continua valendo nos blocos internos', () {
+      final d = _doc(
+        const ReaderPreferences(lineHeight: Preference(1.8, policy: _force)),
+        body: body,
+        css: css,
+      );
+      expect(d.lineHeight('pre'), 1.8);
+      expect(d.lineHeight('p', cls: 'ep'), 1.8);
     });
   });
 
