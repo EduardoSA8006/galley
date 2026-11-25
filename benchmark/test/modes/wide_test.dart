@@ -1,11 +1,11 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-// ignore_for_file: implementation_imports
-
 import 'package:galley/src/features/document/data/parse_document.dart';
 import 'package:galley/src/features/document/domain/parsed_document.dart';
 import 'package:galley_benchmark/src/corpus/fetcher.dart';
@@ -20,6 +20,8 @@ import 'package:test/test.dart';
 import '../support/mini_epub.dart';
 
 String _sha(List<int> b) => sha256.convert(b).toString();
+
+const _xhtmlNs = 'http://www.w3.org/1999/xhtml';
 
 void main() {
   late HttpServer server;
@@ -175,8 +177,8 @@ void main() {
 
   test('documento no modo tolerante: contado, não reprova', () async {
     routes[10] = buildMiniEpub([
-      '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>ok</p></body></html>',
-      '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>aberto</div></body></html>',
+      '<html xmlns="$_xhtmlNs"><body><p>ok</p></body></html>',
+      '<html xmlns="$_xhtmlNs"><body><p>aberto</div></body></html>',
     ]);
     final report = await run([entry(10)]);
 

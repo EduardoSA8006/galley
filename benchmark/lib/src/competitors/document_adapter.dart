@@ -70,14 +70,28 @@ final class XmlDomParser implements DocumentParser {
   }
 }
 
+/// Media-types do spine medidos no `compare`: os documentos XML que os
+/// dois parsers leem pelo mesmo caminho (o `text/html` iria ao modo
+/// tolerante do Galley e não é XML para o DOM; outros itens não são
+/// documento).
+const Set<String> comparedMediaTypes = {
+  'application/xhtml+xml',
+  'image/svg+xml',
+};
+
 /// Carrega os documentos de [path]: num `.epub`, os documentos do spine (em
-/// ordem); em qualquer outro arquivo, o próprio arquivo.
+/// ordem, cada caminho uma vez, só [comparedMediaTypes]); em qualquer outro
+/// arquivo, o próprio arquivo.
 Future<List<Uint8List>> loadDocuments(String path) async {
   if (!path.endsWith('.epub')) return [File(path).readAsBytesSync()];
   final book = await EpubBook.fromBytes(File(path).readAsBytesSync());
   try {
+    final seen = <String>{};
     return [
-      for (final item in book.spine.items) await book.resource(item.item.path),
+      for (final spineItem in book.spine.items)
+        if (comparedMediaTypes.contains(spineItem.item.mediaType) &&
+            seen.add(spineItem.item.path))
+          await book.resource(spineItem.item.path),
     ];
   } finally {
     await book.close();

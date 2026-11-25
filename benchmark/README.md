@@ -302,8 +302,9 @@ que criar. Ao concluir um subprojeto, esta lista deve ser cumprida:
       `epub:type`), `document/build-dense-256kib` (denso em marcação, pouco
       texto: pega regressão por elemento/atributo),
       `document/query-id-class`, `document/build-tolerant` (documento
-      malformado), `document/transfer-large` (`Isolate.run` devolvendo a
-      árvore de 1 MiB) e `document/parse-spine-hm-<livro>` (todos os
+      malformado), `document/transfer-large` (`Isolate.run` que faz o
+      parse de 1 MiB e devolve a árvore: mede parse + spawn + transferência;
+      a diferença para `document/build-large-1mib` estima o custo do envio) e `document/parse-spine-hm-<livro>` (todos os
       documentos do spine de cada livro `hm/*` não malformado). Comparação
       informativa, sem gate, no `compare`: `parseDocumentBytes` ×
       `XmlDocument.parse` (entidades HTML5) em cada livro `hm/*`, no XHTML

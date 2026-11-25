@@ -244,6 +244,8 @@ List<Bench> documentBenches() => <Bench>[
       return _checksum(d);
     };
   }),
+  // Mede parse + spawn + transferência (não só o envio); a diferença para
+  // `document/build-large-1mib` estima o custo da transferência.
   _DocBench('document/transfer-large', () async {
     final bytes = buildLargeXhtml(kLargeXhtmlBytes);
     return () async {

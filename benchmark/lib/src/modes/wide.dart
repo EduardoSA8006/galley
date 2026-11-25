@@ -1,7 +1,7 @@
+// ignore_for_file: implementation_imports
+
 import 'dart:convert';
 import 'dart:io';
-
-// ignore_for_file: implementation_imports
 
 import 'package:galley/galley.dart';
 import 'package:galley/src/features/document/data/parse_document.dart';
