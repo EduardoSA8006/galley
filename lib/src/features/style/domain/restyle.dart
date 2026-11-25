@@ -36,10 +36,11 @@ import 'value_computer.dart';
 /// cada estilo é calculado a partir do pai já ajustado e transformado em
 /// seguida; o tamanho da fonte entra no próprio cálculo. Por isso a chave
 /// do memo inclui também as marcas do pai (a fronteira do escopo), se o
-/// elemento é o `body` (fundo do tema) e, quando a família da editora é
-/// mantida, essa família. Com ajustes de texto corrido, guarda em paralelo
-/// o herdado da editora ([PublisherSnapshot]) dos elementos de texto
-/// corrido, e o instantâneo do pai também entra na chave. Sem preferências, o resultado é o do livro.
+/// elemento é o `body` (fundo do tema, margens com o espaçamento forçado)
+/// e, quando a família da editora é mantida, essa família. Com ajustes de
+/// texto corrido, guarda em paralelo o herdado da editora
+/// ([PublisherSnapshot]) dos elementos de texto corrido, e o instantâneo do
+/// pai também entra na chave. Sem preferências, o resultado é o do livro.
 ///
 /// Só [GalleyException] escapa: um defeito interno (exceção inesperada)
 /// vira os estilos da folha padrão, sem preferências, com

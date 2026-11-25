@@ -217,7 +217,8 @@ final class _MediaParser {
     for (var i = from; i < to; i++) {
       final token = t[i];
       if (token.type == CssTokenType.whitespace) continue;
-      // `(1/2 <= aspect-ratio <= 1/1)` tem 11 itens; nenhum recurso válido passa disso.
+      // `(1/2 <= aspect-ratio <= 1/1)` tem 11 itens; nenhum recurso válido
+      // passa disso.
       if (items.length == 11) return MediaConstant.unknown;
       // Blocos não fazem parte de recurso algum.
       if (match[i] >= 0) return MediaConstant.unknown;
