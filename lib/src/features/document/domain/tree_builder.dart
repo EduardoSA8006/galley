@@ -89,6 +89,35 @@ final class TreeBuilder {
     _attributeEnds[_open.last] = _attributeNames.length;
   }
 
+  /// Nó do elemento aberto na profundidade [level] (1 é a raiz).
+  int openNodeAt(int level) => _open[level];
+
+  /// Acrescenta o atributo [nameId] = [value] ao elemento [element] já com
+  /// filhos (uso da recuperação, ao juntar um `<html>` tardio na raiz).
+  ///
+  /// Só é válido se [element] ainda não tem atributos ou se os dele são os
+  /// últimos gravados (as faixas de atributos são contíguas); senão lança
+  /// `StateError`.
+  void lateAttribute(int element, int nameId, String value) {
+    _checkNotBuilt();
+    final end = _attributeNames.length;
+    if (_attributeEnds[element] != end) {
+      if (_attributeEnds[element] != _data1[element]) {
+        throw StateError('atributos de $element não são os últimos');
+      }
+      // Faixa vazia: passa a começar no fim.
+      _data1[element] = end;
+    }
+    var shared = _distinctValues[value];
+    if (shared == null) {
+      _distinctValues[value] = shared = value;
+      _distinctValueChars += value.length;
+    }
+    _attributeNames.add(nameId);
+    _attributeValues.add(shared);
+    _attributeEnds[element] = _attributeNames.length;
+  }
+
   /// Acrescenta [data] como texto no elemento aberto, fundindo com o nó de
   /// texto imediatamente anterior, se houver. Texto vazio é ignorado.
   void text(String data) {

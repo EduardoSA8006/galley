@@ -304,4 +304,136 @@ void main() {
       expect(doc.tree.elementsNamed(Namespaces.xhtml, 'body'), hasLength(1));
     });
   });
+
+  group('correções da revisão', () {
+    for (final (label, unit) in [
+      ('<!DOCTYPE x [', '<!DOCTYPE x ['),
+      ('<!DOCTYPE x', '<!DOCTYPE x '),
+      ('<![CDATA[', '<![CDATA['),
+      ('<!--', '<!--'),
+      ('<?x ', '<?x '),
+    ]) {
+      test('~100 KB de "$label" sem terminador: tempo linear', () {
+        final source = _doc('<p>${unit * (100000 ~/ unit.length)}</p>');
+        final watch = Stopwatch()..start();
+        final doc = _parse(source);
+        watch.stop();
+        expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+        expect(doc.tree.elementsNamed(Namespaces.xhtml, 'p'), hasLength(1));
+      });
+    }
+
+    test('comentário sem fim vira texto e o resto do documento segue', () {
+      final doc = _parse(_doc('<p>a <!-- b</p><p>c</p>'));
+      expect(_dump(doc.tree), 'html[body[p["a <!-- b"]p["c"]]]');
+    });
+
+    test('doctype no modo tolerante é descartado e contado', () {
+      final doc = _parse(
+        '<!DOCTYPE html>\n<html><body><p>a<p>b</body></html>',
+        mediaType: 'text/html',
+      );
+      expect(_dump(doc.tree), 'html[body[p["a"]p["b"]]]');
+      final dropped = doc.diagnostics.singleWhere(
+        (d) => d.code == DiagnosticCodes.droppedNodes,
+      );
+      expect(dropped.message, contains('1 doctype'));
+    });
+
+    test('text/html: nomes de elemento e atributo em minúsculas', () {
+      final doc = _parse(
+        '<HTML LANG="pt"><HEAD><TITLE>T</TITLE></HEAD>'
+        '<BODY><P CLASS="a">x</P></BODY></HTML>',
+        mediaType: 'text/html',
+      );
+      expect(_dump(doc.tree), 'html[head[title["T"]]body[p["x"]]]');
+      expect(doc.head.title, 'T');
+      expect(doc.head.lang, 'pt');
+      final p = doc.tree.elementsNamed(Namespaces.xhtml, 'p').single;
+      expect(doc.tree.attribute(p, Namespaces.none, 'class'), 'a');
+    });
+
+    test('text/html: SVG dentro do HTML mantém a caixa', () {
+      final doc = _parse(
+        '<html><body><svg xmlns="http://www.w3.org/2000/svg" '
+        'viewBox="0 0 1 1"><foreignObject/></svg></body></html>',
+        mediaType: 'text/html',
+      );
+      final tree = doc.tree;
+      final svg = tree.elementsNamed(
+        tree.names.namespaceIdOf('http://www.w3.org/2000/svg')!,
+        'svg',
+      );
+      expect(tree.attribute(svg.single, Namespaces.none, 'viewBox'), '0 0 1 1');
+      expect(_dump(tree), 'html[body[svg[foreignObject]]]');
+    });
+
+    test('XHTML recuperado mantém a caixa dos nomes', () {
+      final doc = _parse(_doc('<P CLASS="a">x'));
+      expect(_dump(doc.tree), 'html[body[P["x"]]]');
+    });
+
+    test(
+      '<html> depois de texto: atributos e prefixos vão ao html virtual',
+      () {
+        final doc = _parse(
+          'oi<html xmlns="$_xhtml" xmlns:ex="urn:ex" lang="pt">'
+          '<body><p ex:a="1">x</p></body></html>',
+        );
+        final tree = doc.tree;
+        final html = tree.elementsNamed(Namespaces.xhtml, 'html').single;
+        expect(tree.isVirtual(html), isTrue);
+        expect(tree.attribute(html, Namespaces.none, 'lang'), 'pt');
+        expect(doc.head.lang, 'pt');
+        final ex = tree.names.namespaceIdOf('urn:ex');
+        expect(ex, isNotNull);
+        final p = tree.elementsNamed(Namespaces.xhtml, 'p').single;
+        expect(tree.attribute(p, ex!, 'a'), '1');
+        expect(_codes(doc), isNot(contains(DiagnosticCodes.undeclaredPrefix)));
+      },
+    );
+
+    test('<script> dentro de valor de atributo não abre texto bruto', () {
+      final doc = _parse(_doc('<p title="<script>">a</p><p>b < c</p>'));
+      final tree = doc.tree;
+      final ps = tree.elementsNamed(Namespaces.xhtml, 'p');
+      expect(ps, hasLength(2));
+      expect(tree.attribute(ps.first, Namespaces.none, 'title'), '<script>');
+      expect(_dump(tree), 'html[body[p["a"]p["b < c"]]]');
+    });
+
+    test('text/html: fechamentos implícitos válidos são info', () {
+      final doc = _parse(
+        '<html><body><ul><li>a<li>b</ul><p>x<p>y',
+        mediaType: 'text/html',
+      );
+      final unclosed = doc.diagnostics
+          .where((d) => d.code == DiagnosticCodes.unclosedElement)
+          .toList();
+      expect(unclosed, isNotEmpty);
+      expect(
+        unclosed.map((d) => d.severity),
+        everyElement(DiagnosticSeverity.info),
+      );
+    });
+
+    test('text/html: fechamento trocado continua warning', () {
+      final doc = _parse(
+        '<html><body><div><span>a</div></body></html>',
+        mediaType: 'text/html',
+      );
+      final unclosed = doc.diagnostics.singleWhere(
+        (d) => d.code == DiagnosticCodes.unclosedElement,
+      );
+      expect(unclosed.severity, DiagnosticSeverity.warning);
+    });
+
+    test('XHTML: fechamentos implícitos continuam warning', () {
+      final doc = _parse(_doc('<p>a<p>b'));
+      final unclosed = doc.diagnostics.firstWhere(
+        (d) => d.code == DiagnosticCodes.unclosedElement,
+      );
+      expect(unclosed.severity, DiagnosticSeverity.warning);
+    });
+  });
 }

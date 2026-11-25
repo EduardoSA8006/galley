@@ -22,8 +22,14 @@ import 'event_adapter.dart';
 ///   (`document.unclosedElement`).
 /// - Elementos vazios do HTML são fechados na hora; fechamentos deles são
 ///   ignorados.
-/// - `<script>`/`<style>`: conteúdo bruto até o fechamento (ver
-///   [escapeRawText]).
+/// - `<script>`/`<style>`: conteúdo bruto até o fechamento; comentários,
+///   CDATA, instruções de processamento e doctypes sem terminador viram
+///   texto, e doctypes são descartados antes da leitura (ver
+///   [prepareTolerantText]).
+/// - Em `text/html` ([html]), nomes de elemento e de atributo sem prefixo
+///   vão para minúsculas (fora de `<svg>`/`<math>`, que mantêm a caixa), e
+///   os fechamentos implícitos válidos em HTML (fim de tag opcional) saem
+///   com severidade info em vez de warning.
 /// - Conteúdo fora de `<html>`/`<body>` vai para `html`/`body` virtuais;
 ///   uma raiz `svg` não é envolvida. Os fechamentos da raiz e do `<body>`
 ///   não fecham nada (o que vier depois continua no `<body>`); tudo fecha
@@ -35,8 +41,36 @@ import 'event_adapter.dart';
 /// Uma instância por documento (guarda estado da leitura). Toda operação
 /// é O(1) amortizado por evento, mesmo em entradas patológicas.
 final class TolerantRepairPolicy extends RepairPolicy {
-  /// Cria a política para ler um documento.
-  TolerantRepairPolicy();
+  /// Cria a política para ler um documento; [html] para `text/html`.
+  TolerantRepairPolicy({this.html = false});
+
+  /// Se o documento é `text/html`.
+  final bool html;
+
+  /// Elementos cujo fechamento é opcional no HTML.
+  static const Set<String> optionalEndTags = {
+    'html',
+    'head',
+    'body',
+    'p',
+    'li',
+    'dt',
+    'dd',
+    'tr',
+    'td',
+    'th',
+    'option',
+    'optgroup',
+    'thead',
+    'tbody',
+    'tfoot',
+    'colgroup',
+    'caption',
+    'rb',
+    'rt',
+    'rtc',
+    'rp',
+  };
 
   /// Elementos vazios do HTML.
   static const Set<String> voidElements = {
@@ -118,6 +152,9 @@ final class TolerantRepairPolicy extends RepairPolicy {
   /// Se o fechamento da raiz ou do `<body>` já apareceu.
   bool _ended = false;
 
+  /// Se um `<html>` tardio já foi juntado ao `html` virtual.
+  bool _merged = false;
+
   @override
   bool get validating => false;
 
@@ -128,7 +165,8 @@ final class TolerantRepairPolicy extends RepairPolicy {
   int get defaultNamespace => Namespaces.xhtml;
 
   @override
-  String prepare(String text) => escapeRawText(text);
+  String prepare(EventAdapter adapter, String text) =>
+      prepareTolerantText(text, onDoctype: adapter.countDoctype);
 
   @override
   void onText(EventAdapter adapter, String value) {
@@ -148,7 +186,10 @@ final class TolerantRepairPolicy extends RepairPolicy {
   }
 
   @override
-  void onStart(EventAdapter adapter, XmlStartElementEvent event) {
+  void onStart(EventAdapter adapter, XmlStartElementEvent event) =>
+      _start(adapter, html ? _lowercased(event) : event);
+
+  void _start(EventAdapter adapter, XmlStartElementEvent event) {
     final key = _key(event.name);
     if (adapter.openDepth == 0) {
       if (key == 'html' || _localPart(key) == 'svg') {
@@ -160,8 +201,15 @@ final class TolerantRepairPolicy extends RepairPolicy {
       _openVirtual(adapter, 'html');
     }
     if (_wrap) {
-      // Um segundo `<html>` ou `<body>` não abre nada.
-      if (key == 'html') return;
+      // Um `<html>` tardio junta-se ao virtual (uma vez); um segundo
+      // `<html>` ou `<body>` não abre nada.
+      if (key == 'html') {
+        if (!_merged && _virtual[0]) {
+          _merged = true;
+          adapter.mergeIntoRoot(event);
+        }
+        return;
+      }
       if (key == 'body') {
         if (_body >= 0) return;
         _closeAbove(adapter, 0);
@@ -292,7 +340,9 @@ final class TolerantRepairPolicy extends RepairPolicy {
 
   void _reportUnclosed(EventAdapter adapter, int index) => adapter.report(
     DiagnosticCodes.unclosedElement,
-    DiagnosticSeverity.warning,
+    html && optionalEndTags.contains(_openKeys[index])
+        ? DiagnosticSeverity.info
+        : DiagnosticSeverity.warning,
     'elemento <${adapter.openNameAt(index)}> sem fechamento; '
     'fechado implicitamente',
   );
@@ -331,6 +381,48 @@ final class TolerantRepairPolicy extends RepairPolicy {
 
   String _key(String name) => _keys[name] ??= name.toLowerCase();
 
+  /// [event] com os nomes sem prefixo em minúsculas (`text/html`). Dentro
+  /// de `<svg>`/`<math>` nada muda; no próprio `<svg>`/`<math>`, só o nome
+  /// do elemento.
+  XmlStartElementEvent _lowercased(XmlStartElementEvent event) {
+    if (_innermost(const ['svg', 'math']) >= 0) return event;
+    final name = _lowerUnprefixed(event.name);
+    final foreignRoot = name == 'svg' || name == 'math';
+    List<XmlEventAttribute>? attributes;
+    if (!foreignRoot) {
+      final original = event.attributes;
+      for (var i = 0; i < original.length; i++) {
+        final attribute = original[i];
+        final lower = _lowerUnprefixed(attribute.name);
+        if (identical(lower, attribute.name) && attributes == null) continue;
+        attributes ??= original.sublist(0, i);
+        attributes.add(
+          identical(lower, attribute.name)
+              ? attribute
+              : XmlEventAttribute(
+                  lower,
+                  attribute.value,
+                  attribute.attributeType,
+                ),
+        );
+      }
+    }
+    if (identical(name, event.name) && attributes == null) return event;
+    return XmlStartElementEvent(
+      name,
+      attributes ?? event.attributes,
+      event.isSelfClosing,
+    );
+  }
+
+  /// [name] em minúsculas se não tem prefixo; o próprio [name] se já está
+  /// em minúsculas ou tem prefixo.
+  String _lowerUnprefixed(String name) {
+    if (name.contains(':')) return name;
+    final key = _key(name);
+    return key == name ? name : key;
+  }
+
   static String _localPart(String key) => key.substring(key.indexOf(':') + 1);
 
   static bool _isBlank(String value) {
@@ -342,72 +434,235 @@ final class TolerantRepairPolicy extends RepairPolicy {
   }
 }
 
-/// [text] com o conteúdo de `<script>` e `<style>` tornado texto bruto: os
-/// `<` entre a abertura e o fechamento correspondente (sem diferença de
-/// maiúsculas; sem fechamento, até o fim) viram `&lt;`, que o
-/// `package:xml` decodifica de volta. Seções CDATA dentro deles ficam como
-/// estão. Comentários e CDATA fora deles são pulados. As quebras de linha
-/// não mudam, então as linhas dos diagnósticos continuam valendo.
+/// Prepara [text] para a leitura tolerante, num único passe linear que
+/// acompanha as tags como o `package:xml` as lê (valores de atributo entre
+/// aspas incluídos):
 ///
-/// Um único passe linear; devolve o próprio [text] se não há o que trocar.
-String escapeRawText(String text) {
-  final length = text.length;
-  StringBuffer? out;
-  var copied = 0;
-  var i = text.indexOf('<');
-  while (i >= 0) {
+/// - Conteúdo de `<script>`/`<style>` vira texto bruto: os `<` entre a
+///   abertura e o fechamento correspondente (sem diferença de maiúsculas;
+///   sem fechamento, até o fim) viram `&lt;`, que o `package:xml`
+///   decodifica de volta. Seções CDATA terminadas dentro deles ficam como
+///   estão.
+/// - O `<` de um comentário, CDATA ou instrução de processamento sem
+///   terminador à frente vira `&lt;` (texto). Sem isso, o `package:xml`
+///   varreria até o fim a cada tentativa, em tempo quadrático.
+/// - Um `<!DOCTYPE …>` é trocado por espaços (mantendo as quebras de
+///   linha) e contado em [onDoctype]; sem terminador, vira texto.
+///
+/// As quebras de linha não mudam, então as linhas dos diagnósticos
+/// continuam valendo. Devolve o próprio [text] se não há o que trocar.
+String prepareTolerantText(String text, {void Function()? onDoctype}) =>
+    _Preparer(text, onDoctype).run();
+
+final class _Preparer {
+  _Preparer(this.text, this.onDoctype)
+    : length = text.length,
+      _commentEnd = _Finder(text, '-->'),
+      _cdataEnd = _Finder(text, ']]>'),
+      _processingEnd = _Finder(text, '?>'),
+      _greaterThan = _Finder(text, '>'),
+      _bracketOpen = _Finder(text, '['),
+      _bracketClose = _Finder(text, ']'),
+      _doubleQuote = _Finder(text, '"'),
+      _singleQuote = _Finder(text, "'");
+
+  final String text;
+  final int length;
+  final void Function()? onDoctype;
+  final _Finder _commentEnd;
+  final _Finder _cdataEnd;
+  final _Finder _processingEnd;
+  final _Finder _greaterThan;
+  final _Finder _bracketOpen;
+  final _Finder _bracketClose;
+  final _Finder _doubleQuote;
+  final _Finder _singleQuote;
+
+  StringBuffer? _out;
+  int _copied = 0;
+
+  String run() {
+    var i = _next(0);
+    while (i >= 0) {
+      i = _next(_step(i));
+    }
+    final out = _out;
+    if (out == null) return text;
+    out.write(text.substring(_copied));
+    return out.toString();
+  }
+
+  int _next(int from) => from < length ? text.indexOf('<', from) : -1;
+
+  /// Trata a marcação que começa no `<` em [i]; devolve de onde seguir.
+  int _step(int i) {
     if (text.startsWith('<!--', i)) {
-      i = _after(text, '-->', i + 4);
-      continue;
+      final end = _commentEnd.find(i + 4);
+      return end < 0 ? _escape(i) : end + 3;
     }
     if (text.startsWith('<![CDATA[', i)) {
-      i = _after(text, ']]>', i + 9);
-      continue;
+      final end = _cdataEnd.find(i + 9);
+      return end < 0 ? _escape(i) : end + 3;
     }
-    final name = _rawTextName(text, i + 1);
-    if (name == null) {
-      i = i + 1 < length ? text.indexOf('<', i + 1) : -1;
-      continue;
+    if (text.startsWith('<!', i) && _matchesName(text, i + 2, 'doctype')) {
+      final end = _doctypeEnd(i + 9);
+      if (end < 0) return _escape(i);
+      _blank(i, end + 1);
+      onDoctype?.call();
+      return end + 1;
     }
-    final tagEnd = _tagEnd(text, i + 1 + name.length);
-    if (tagEnd < 0) break;
-    if (text.codeUnitAt(tagEnd - 1) == 0x2F) {
-      // `<script/>`: sem conteúdo.
-      i = tagEnd + 1 < length ? text.indexOf('<', tagEnd + 1) : -1;
-      continue;
+    if (text.startsWith('<?', i)) {
+      final end = _processingEnd.find(i + 2);
+      return end < 0 ? _escape(i) : end + 2;
     }
-    var k = tagEnd + 1;
+    if (i + 1 < length && _isNameStart(text.codeUnitAt(i + 1))) {
+      final end = _startTagEnd(i + 1);
+      if (end < 0) return i + 1;
+      final name = _rawTextName(text, i + 1);
+      if (name == null || text.codeUnitAt(end - 1) == 0x2F) return end + 1;
+      return _rawText(end + 1, name);
+    }
+    return i + 1;
+  }
+
+  /// Escapa os `<` do conteúdo bruto a partir de [from] até o fechamento
+  /// de [name]; devolve a posição depois do `<` do fechamento (ou o fim).
+  int _rawText(int from, String name) {
+    var k = from;
     while (true) {
-      k = k < length ? text.indexOf('<', k) : -1;
-      if (k < 0) break;
+      k = _next(k);
+      if (k < 0) return length;
       if (text.startsWith('<![CDATA[', k)) {
-        final end = text.indexOf(']]>', k + 9);
-        k = end < 0 ? length : end + 3;
-        continue;
+        final end = _cdataEnd.find(k + 9);
+        if (end >= 0) {
+          k = end + 3;
+          continue;
+        }
+      } else if (_isClosingTag(text, k, name)) {
+        return k + 1;
       }
-      if (_isClosingTag(text, k, name)) break;
-      (out ??= StringBuffer())
-        ..write(text.substring(copied, k))
-        ..write('&lt;');
-      copied = k + 1;
+      k = _escape(k);
+    }
+  }
+
+  /// Fim (`>`) do doctype cujo nome começa depois de [from]: o primeiro `>`,
+  /// ou, se um `[` vem antes dele, o primeiro `>` depois do `]` seguinte.
+  int _doctypeEnd(int from) {
+    final greater = _greaterThan.find(from);
+    final open = _bracketOpen.find(from);
+    if (open >= 0 && (greater < 0 || open < greater)) {
+      final close = _bracketClose.find(open + 1);
+      return close < 0 ? -1 : _greaterThan.find(close + 1);
+    }
+    return greater;
+  }
+
+  /// Fim (`>`) da tag de abertura cujo nome começa em [j], como a
+  /// gramática do `package:xml` a lê (atributos separados por espaço, com
+  /// valor entre aspas, sem aspas ou sem valor); −1 se não é uma tag.
+  int _startTagEnd(int j) {
+    var k = _skipName(j);
+    while (true) {
+      final spaced = k < length && _isSpace(text.codeUnitAt(k));
+      k = _skipSpace(k);
+      if (k >= length) return -1;
+      final c = text.codeUnitAt(k);
+      if (c == 0x3E) return k;
+      if (c == 0x2F) {
+        return k + 1 < length && text.codeUnitAt(k + 1) == 0x3E ? k + 1 : -1;
+      }
+      if (!spaced || !_isNameStart(c)) return -1;
+      k = _skipName(k);
+      final equals = _skipSpace(k);
+      if (equals >= length || text.codeUnitAt(equals) != 0x3D) continue;
+      k = _skipSpace(equals + 1);
+      if (k >= length) return -1;
+      final q = text.codeUnitAt(k);
+      if (q == 0x22 || q == 0x27) {
+        final end = (q == 0x22 ? _doubleQuote : _singleQuote).find(k + 1);
+        if (end < 0) return -1;
+        k = end + 1;
+      } else if (_isNameChar(q)) {
+        k = _skipName(k);
+      } else {
+        return -1;
+      }
+    }
+  }
+
+  int _skipName(int k) {
+    while (k < length && _isNameChar(text.codeUnitAt(k))) {
       k++;
     }
-    // Continua depois do `<` do fechamento.
-    i = k >= 0 && k + 1 < length ? text.indexOf('<', k + 1) : -1;
+    return k;
   }
-  if (out == null) return text;
-  out.write(text.substring(copied));
-  return out.toString();
+
+  int _skipSpace(int k) {
+    while (k < length && _isSpace(text.codeUnitAt(k))) {
+      k++;
+    }
+    return k;
+  }
+
+  /// Troca o `<` em [i] por `&lt;`; devolve a posição seguinte.
+  int _escape(int i) {
+    _replace(i, i + 1, '&lt;');
+    return i + 1;
+  }
+
+  /// Troca `text[from, to)` por espaços, mantendo as quebras de linha.
+  void _blank(int from, int to) {
+    final units = <int>[
+      for (var k = from; k < to; k++) text.codeUnitAt(k) == 0x0A ? 0x0A : 0x20,
+    ];
+    _replace(from, to, String.fromCharCodes(units));
+  }
+
+  void _replace(int from, int to, String replacement) {
+    (_out ??= StringBuffer())
+      ..write(text.substring(_copied, from))
+      ..write(replacement);
+    _copied = to;
+  }
 }
 
-/// Próximo `<` depois de [terminator] (procurado a partir de [from]); −1
-/// se não há.
-int _after(String text, String terminator, int from) {
-  final end = text.indexOf(terminator, from);
-  if (end < 0) return -1;
-  final next = end + terminator.length;
-  return next < text.length ? text.indexOf('<', next) : -1;
+/// `indexOf` de [pattern] com memória do último resultado: com consultas
+/// em ordem crescente, cada trecho do texto é varrido no máximo uma vez.
+final class _Finder {
+  _Finder(this.text, this.pattern);
+
+  final String text;
+  final String pattern;
+  int _from = 0;
+  int _result = -2;
+
+  /// Posição da primeira ocorrência a partir de [from], ou −1.
+  int find(int from) {
+    if (_result != -2 && from >= _from && (_result < 0 || from <= _result)) {
+      return _result;
+    }
+    _from = from;
+    _result = from <= text.length ? text.indexOf(pattern, from) : -1;
+    return _result;
+  }
 }
+
+bool _isSpace(int c) => c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D;
+
+/// Primeiro caractere de nome XML (aproximado: letras ASCII, `_`, `:` e
+/// tudo a partir de U+00C0).
+bool _isNameStart(int c) =>
+    (c | 0x20) >= 0x61 && (c | 0x20) <= 0x7A ||
+    c == 0x5F ||
+    c == 0x3A ||
+    c >= 0xC0;
+
+bool _isNameChar(int c) =>
+    _isNameStart(c) ||
+    (c >= 0x30 && c <= 0x39) ||
+    c == 0x2D ||
+    c == 0x2E ||
+    c == 0xB7;
 
 /// `script` ou `style` se começam em [i] (sem diferença de maiúsculas) e
 /// terminam num delimitador de tag; senão `null`.
@@ -435,20 +690,3 @@ bool _isClosingTag(String text, int i, String name) =>
     i + 1 < text.length &&
     text.codeUnitAt(i + 1) == 0x2F &&
     _matchesName(text, i + 2, name);
-
-/// Posição do `>` que fecha a tag a partir de [i], pulando valores entre
-/// aspas; −1 se não há.
-int _tagEnd(String text, int i) {
-  var quote = 0;
-  for (var j = i; j < text.length; j++) {
-    final c = text.codeUnitAt(j);
-    if (quote != 0) {
-      if (c == quote) quote = 0;
-    } else if (c == 0x22 || c == 0x27) {
-      quote = c;
-    } else if (c == 0x3E) {
-      return j;
-    }
-  }
-  return -1;
-}

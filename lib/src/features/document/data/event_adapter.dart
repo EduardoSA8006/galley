@@ -45,7 +45,7 @@ abstract base class RepairPolicy {
 
   /// Prepara o texto (já com fins de linha normalizados) antes da leitura
   /// no modo não validante.
-  String prepare(String text) => text;
+  String prepare(EventAdapter adapter, String text) => text;
 
   /// Texto ou CDATA no modo não validante.
   void onText(EventAdapter adapter, String value) => adapter._text(value);
@@ -246,7 +246,7 @@ final class EventAdapter {
   /// `package:xml` no meio do fluxo (que já pula o caractere problemático)
   /// vira [RepairPolicy.onMarkupError] antes de seguir.
   void _runTolerant() {
-    _source = policy.prepare(_source);
+    _source = policy.prepare(this, _source);
     final withLocation = policy.withLocation;
     final iterator = parseEvents(
       _source,
@@ -359,6 +359,52 @@ final class EventAdapter {
 
   /// Fecha o elemento aberto mais interno.
   void closeElement() => _close();
+
+  /// Conta um doctype descartado pela própria política (entra em
+  /// `document.droppedNodes`).
+  void countDoctype() => _doctypes++;
+
+  /// Junta um `<html>` que chegou depois de a raiz já estar aberta: as
+  /// declarações de prefixo passam a valer na raiz (para o documento todo)
+  /// e os atributos vão para o elemento raiz. A declaração `xmlns` padrão é
+  /// ignorada (os elementos já abertos têm o namespace resolvido).
+  ///
+  /// Só é válido uma vez por documento e antes de qualquer atributo tardio
+  /// em outro elemento.
+  void mergeIntoRoot(XmlStartElementEvent event) {
+    final attributes = event.attributes;
+    final insertAt = _frames.length > 1 ? _frames[1] : _prefixes.length;
+    final prefixes = <String>[];
+    final namespaces = <int>[];
+    for (final attribute in attributes) {
+      final name = attribute.name;
+      if (!_isDeclaration(name) || name.length <= 6) continue;
+      if (attribute.value.isEmpty) continue;
+      prefixes.add(name.substring(6));
+      namespaces.add(builder.names.internNamespace(attribute.value));
+    }
+    if (prefixes.isNotEmpty) {
+      _prefixes.insertAll(insertAt, prefixes);
+      _prefixNamespaces.insertAll(insertAt, namespaces);
+      for (var k = 1; k < _frames.length; k++) {
+        _frames[k] += prefixes.length;
+      }
+    }
+    final root = builder.openNodeAt(1);
+    final ids = <int>[];
+    for (final attribute in attributes) {
+      final name = attribute.name;
+      if (_isDeclaration(name)) continue;
+      final id = _resolve(name, Namespaces.none);
+      if (ids.contains(id)) continue;
+      ids.add(id);
+      builder.lateAttribute(
+        root,
+        id,
+        _sanitize(attribute.value, attribute: true),
+      );
+    }
+  }
 
   /// Registra um diagnóstico no local do evento em curso (`caminho:linha`
   /// quando há localização). Cada código entra no máximo [reportLimit]

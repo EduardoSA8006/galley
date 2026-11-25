@@ -118,7 +118,7 @@ Política do montador no modo tolerante:
 
 Cada reparo gera um `Diagnostic` com código estável (por exemplo `document.unclosedElement`, `document.strayEndTag`, `document.recovered`) e a localização (caminho do recurso e linha).
 
-Um documento irrecuperável vira uma árvore com um único `<body>` vazio e o diagnóstico `document.unparseable` (error). O livro continua abrindo, e o capítulo aparece vazio.
+Um documento irrecuperável vira uma árvore com um único `<body>` vazio e o diagnóstico `document.unparseable` (error). O livro continua abrindo, e o capítulo aparece vazio. Irrecuperável é só o documento vazio ou só com espaços (ou sem nenhum conteúdo além de comentários, PIs e doctype); um documento só com texto, sem elementos, vira esse texto dentro de `html`/`body` virtuais, com `document.recovered`.
 
 ### 8.5 Onde a etapa se encaixa
 
@@ -146,12 +146,12 @@ Um documento irrecuperável vira uma árvore com um único `<body>` vazio e o di
 
 ## 8.8 Decisões após a revisão do construtor *(chamadas minhas)*
 
-- **Comportamento verificado do `package:xml` 6.6.1** (`parseEvents` não validante, com entidades HTML5): aceita atributo sem aspas, atributo sem valor (chega vazio), `&` solto, entidade desconhecida (fica literal), atributo duplicado (os dois chegam; o montador fica com o primeiro) e tags trocadas. **Exceção:** `<` dentro de texto lança `XmlParserException`. O montador captura, devolve o `<` ao texto, retoma a leitura e emite `document.recovered`.
+- **Comportamento verificado do `package:xml` 6.6.1** (`parseEvents` não validante, com entidades HTML5): aceita atributo sem aspas, atributo sem valor (chega vazio), `&` solto, entidade desconhecida (fica literal), atributo duplicado (os dois chegam; o montador fica com o primeiro) e tags trocadas. **Exceção:** `<` dentro de texto lança `XmlParserException`. O montador captura, devolve o `<` ao texto, retoma a leitura e emite `document.markupAsText` (código próprio do reparo; `document.recovered` sai uma vez por documento, quando o caminho estrito falha).
 - **Isolate.** O SP3 entrega uma função **pura e segura para isolate**, sem `EpubBook` nem callback: `ParsedDocument parseDocumentBytes(Uint8List bytes, {required String path})`, que devolve a árvore e a **lista de diagnósticos** como dados. A orquestração do isolate (ler bytes no isolate principal ou num isolate com o próprio `EpubBook`, repassar diagnósticos ao sink) fica para o SP6, onde nasce o pipeline de leitura. No SP3: um atalho `parseDocument(EpubBook, path, {sink})`, que roda no isolate atual e repassa os diagnósticos, e um benchmark do custo de enviar uma `ParsedDocument` entre isolates.
 - **CFI.** A árvore segue a **especificação EPUB CFI** sobre o DOM XML do documento, o que garante compatibilidade com outros leitores que seguem a especificação.
   - Elementos ocupam as posições pares.
   - Sequências contíguas de conteúdo não-elemento (texto, CDATA, e o texto em volta de comentários descartados) formam **um** bloco de texto, e a fusão é feita assim.
-  - Nós criados pela recuperação (o `<body>` sintético, elementos fechados implicitamente) são marcados **virtuais** e ficam fora da contagem do CFI.
+  - Só os nós sintéticos criados pela recuperação (o `<html>` e o `<body>` sintéticos) são marcados **virtuais** e ficam fora da contagem do CFI. Elementos fechados implicitamente existem no documento e são nós reais.
   - O índice de CFI é calculado sob demanda no SP7, não guardado.
 - **Alcance do modo tolerante:** XML com defeitos mais os "vícios de HTML" mais comuns.
   - Nomes de tag sem diferença de maiúsculas no fechamento.

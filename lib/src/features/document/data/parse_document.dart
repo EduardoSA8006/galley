@@ -45,7 +45,10 @@ ParsedDocument parseDocumentBytes(
         failure = e;
       }
     }
-    final adapter = EventAdapter(path: path, policy: TolerantRepairPolicy());
+    final adapter = EventAdapter(
+      path: path,
+      policy: TolerantRepairPolicy(html: mediaType == 'text/html'),
+    );
     return _assemble(adapter, text, path, failure);
   } on XmlException catch (e) {
     return _unparseable(path, e.message);
