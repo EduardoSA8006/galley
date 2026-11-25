@@ -92,26 +92,31 @@ final class WideRead {
 typedef WideReader = Future<WideRead> Function(File file);
 
 /// Leitor padrão: `EpubBook.open`, leitura de todos os recursos do manifest
-/// e [parse] (por padrão `parseDocumentBytes`) de cada documento do spine
-/// (cada caminho uma vez; itens que não são documento ficam de fora).
+/// (cada um uma vez) e [parse] (por padrão `parseDocumentBytes`) dos bytes
+/// já lidos de cada documento do spine (itens que não são documento ficam
+/// de fora).
+///
+/// Um documento com `internalError` (exceção inesperada capturada pelo
+/// leitor: bug do Galley) lança [WideInternalError], que [runWide] classifica
+/// como `crashed`.
 Future<WideRead> readWholeBook(
   File file, {
   DocumentBytesParser parse = parseDocumentBytes,
 }) async {
   final book = await EpubBook.open(file.path);
   try {
-    for (final item in book.manifest.values) {
-      await book.resource(item.path);
-    }
-    final seen = <String>{};
+    final spineDocuments = {
+      for (final s in book.spine.items)
+        if (documentMediaTypes.contains(s.item.mediaType)) s.item.path,
+    };
     var documents = 0;
     var tolerant = 0;
-    for (final spineItem in book.spine.items) {
-      final item = spineItem.item;
-      if (!documentMediaTypes.contains(item.mediaType)) continue;
-      if (!seen.add(item.path)) continue;
+    for (final item in book.manifest.values) {
       final bytes = await book.resource(item.path);
+      if (!spineDocuments.contains(item.path)) continue;
       final parsed = parse(bytes, path: item.path, mediaType: item.mediaType);
+      final internal = parsed.internalError;
+      if (internal != null) throw WideInternalError(item.path, internal);
       documents++;
       if (parsed.recovered) tolerant++;
     }
@@ -125,6 +130,22 @@ Future<WideRead> readWholeBook(
   } finally {
     await book.close();
   }
+}
+
+/// Um documento do spine voltou com `ParsedDocument.internalError`: o
+/// leitor do Galley capturou uma exceção inesperada (bug).
+final class WideInternalError implements Exception {
+  /// Cria o erro do documento [path] com a exceção do tipo [type].
+  const WideInternalError(this.path, this.type);
+
+  /// Caminho do documento no EPUB.
+  final String path;
+
+  /// Tipo da exceção capturada.
+  final String type;
+
+  @override
+  String toString() => 'erro interno do Galley ($type) no documento $path';
 }
 
 /// Resultados de uma execução do modo `wide`.

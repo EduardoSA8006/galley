@@ -22,7 +22,7 @@ quando fazem sentido, um relatório em Markdown com `--report`.
 | `compare` | CI noturno e local | Galley × `epubx` × `epub_plus` × `epub_pro`; e o parse de documento do Galley × DOM do `package:xml` (par à parte, `--doc-adapter`) | relatório; não bloqueia antes da 1.0 |
 | `size` | CI noturno e local | bytes que o Galley acrescenta ao APK release arm64 | teto de **2 MiB** (2.097.152 bytes); acima disso sai com 1 |
 | `wide` | CI noturno e local | robustez: abre e lê todos os recursos de 300 livros do Project Gutenberg (`corpus/pg-wide.json`), parseia todos os documentos do spine e conta por classe | sai com 1 **só** se houver `crashed` (exceção que não é `GalleyException`: bug do Galley) |
-| `docdiff` | CI noturno e local | diferencial: em cada documento do spine do corpus público, a árvore do Galley × o DOM do `package:xml` | sai com 1 se houver **divergência** (bug do montador); 70 se nenhum documento foi comparado |
+| `docdiff` | CI noturno e local | diferencial: em cada documento do spine do corpus público, a árvore do Galley × o DOM do `package:xml` | sai com 1 se houver **divergência** ou **erro interno** (bug do Galley); 70 se nenhum documento foi comparado |
 
 Exemplos:
 
@@ -41,18 +41,21 @@ dart run tool/bench.dart wide-refresh --count 300 --seed 2026   # só manual
 
 Baixa (uma vez; cache em `.corpus-cache/pg-wide/`, pausa de 2 s entre
 requisições ao espelho oficial) e abre os 300 livros de `corpus/pg-wide.json`,
-lendo todos os recursos do manifest e parseando cada documento do spine com
-`parseDocumentBytes` (cada caminho uma vez). Cada livro cai em uma classe: `ok`,
-`diagnostics-error`, `failed` (`GalleyException`), `crashed` (qualquer outra
-exceção, inclusive no parse de um documento, ou seja, bug), `drift` (o PG regerou o arquivo; `sha256` mudou) ou
-`unavailable` (404, rede, prazo). O BMF traz `wide/<classe>` com `count`, e o
-resumo lista os números dos ebooks de cada classe que importa (para `crashed`,
-com o início da stack). Os documentos que caíram no modo tolerante não
-reprovam: são contados (`wide/documents` e `wide/documents-tolerant` no BMF;
-no resumo, os livros que os têm). Só `crashed` reprova. Como e por que os 300 livros
-foram escolhidos: `corpus/README.md`. Um `Retry-After` longo (acima de 2 min)
-faz o `wide` parar de pedir ao espelho: os livros que ainda não estão no cache
-viram `unavailable`.
+lendo cada recurso do manifest uma vez e parseando com `parseDocumentBytes`
+os bytes já lidos de cada documento do spine. Cada livro cai em uma classe:
+`ok`, `diagnostics-error`, `failed` (`GalleyException`), `crashed` (qualquer
+outra exceção, ou um documento com `internalError`, a exceção inesperada que
+o leitor de documentos capturou: bug), `drift` (o PG regerou o arquivo;
+`sha256` mudou) ou `unavailable` (404, rede, prazo). O BMF traz
+`wide/<classe>` com `count`, e o resumo lista os números dos ebooks de cada
+classe que importa (para `crashed`, com o início da stack e, num
+`internalError`, o tipo da exceção e o caminho do documento). Os documentos
+que caíram no modo tolerante não reprovam: são contados (`wide/documents` e
+`wide/documents-tolerant` no BMF; no resumo, os livros que os têm). Só
+`crashed` reprova. Como e por que os 300 livros foram escolhidos:
+`corpus/README.md`. Um `Retry-After` longo (acima de 2 min) faz o `wide`
+parar de pedir ao espelho: os livros que ainda não estão no cache viram
+`unavailable`.
 
 ### O modo `docdiff`
 
@@ -62,17 +65,35 @@ mesmo do `compare`), lê cada documento do spine (cada caminho uma vez) com
 HTML5 do próprio `package:xml`, não a variante linear do Galley) e compara as
 duas sequências de eventos: entrar no elemento (URI do namespace, nome local
 e atributos ordenados por URI e nome local, sem `xmlns*`), texto (fundido,
-CDATA como texto, comentários e PIs ignorados) e sair do elemento. O lado do
-DOM reproduz as diferenças intencionais do Galley antes de comparar (CRLF →
-LF, TAB/LF/CR → espaço nos atributos, caracteres proibidos → U+FFFD,
-prefixos `xml:`/`epub:`/`xlink:` sem declaração resolvidos e os demais no
-namespace reservado, atributo repetido: vale o primeiro); a lista está no
-código (`lib/src/modes/docdiff.dart`). Documentos que caíram no modo
-tolerante ficam **fora** da comparação e são contados à parte, assim como os
-que o DOM não conseguiu ler. O relatório traz o total, quantos bateram, as
-divergências (as 10 primeiras com o caminho `<livro>/<documento>` e o
-primeiro evento divergente) e as contagens; o BMF traz `docdiff/mismatch`
-(`count`). Divergência é bug do Galley: sai com 1.
+CDATA como texto, comentários e PIs ignorados) e sair do elemento.
+
+O lado do DOM reproduz as diferenças intencionais do Galley antes de
+comparar (CRLF → LF, TAB/LF/CR → espaço nos atributos, caracteres proibidos
+→ U+FFFD, prefixos `xml:`/`epub:`/`xlink:` sem declaração resolvidos e os
+demais no namespace reservado, atributo repetido: vale o primeiro); a lista
+está no código (`lib/src/modes/docdiff.dart`). A decodificação dos bytes
+(`decodeText`) é a mesma nos dois lados e não é verificada por este
+diferencial.
+
+Cada documento cai em uma classe:
+
+- **bateu** ou **divergência** (bug do Galley; reprova);
+- **erro interno** (`internalError`: o leitor capturou uma exceção
+  inesperada; bug do Galley; reprova);
+- **tolerante**: o Galley leu pelo modo tolerante; fica fora da comparação;
+- **XHTML tolerante que o DOM leu**: `application/xhtml+xml` que o Galley
+  mandou ao modo tolerante, mas o DOM aceitou; fora da comparação e não
+  reprova, mas aparece no relatório para revelar uma regressão que mande
+  XHTML válido ao modo tolerante;
+- **DOM não leu**: o Galley leu pelo caminho estrito e o DOM lançou; fora da
+  comparação.
+
+O relatório traz as contagens e, até 10 de cada, as divergências (caminho
+`<livro>/<documento>` e primeiro evento divergente), os erros internos, o
+XHTML tolerante que o DOM leu e os que o DOM não leu. O BMF traz
+`docdiff/mismatch`, `docdiff/internal-error` e
+`docdiff/tolerant-dom-parsed` (`count`). Sai com 1 se houver divergência ou
+erro interno e com 70 se nenhum documento foi comparado.
 
 ### O modo `size`
 
@@ -148,18 +169,19 @@ bytes entre os dois APKs, gravada como `size-bytes` em
   manual): `instructions` (com a regressão gradual contra `bench-baseline`,
   10%, quando a tag existe; sem ela, mede só o head e avisa), `ab` longo (31
   rodadas, só o head), `compare` (só relatório; nunca reprova o noturno),
-  `size`, `docdiff` (diferencial de documentos; **reprova** o noturno se
-houver divergência), `wide` (job independente, prazo de 150 min por causa da primeira
-  execução sem cache; roda **só na agenda e no disparo manual**, nunca a cada
-  push) e o envio de tudo ao Bencher (`--branch main`) em jobs sem checkout:
-  instruções em `github-ubuntu-valgrind` e A/B em `github-ubuntu-ab` (os
-  mesmos testbeds do PR, para o `--start-point main` do PR trazer este
-  histórico), `compare`, `size`, `docdiff` e `wide` em
-  `github-ubuntu-nightly`. Os caches de corpus do `compare`, do `docdiff`
-  (mesmo prefixo de chave do `compare`, com sufixo próprio no save) e do
-  `wide` usam `actions/cache/restore` e
-  `actions/cache/save` com `if: always()`: são salvos mesmo se o job falhar
-  (um `crashed` ou o prazo estourado), sempre que chegaram livros novos.
+  `size`, `docdiff` (diferencial de documentos; **reprova** o noturno com
+  divergência ou erro interno), `wide` (job independente, prazo de 150 min
+  por causa da primeira execução sem cache; roda **só na agenda e no
+  disparo manual**, nunca a cada push) e o envio de tudo ao Bencher
+  (`--branch main`) em jobs sem checkout: instruções em
+  `github-ubuntu-valgrind` e A/B em `github-ubuntu-ab` (os mesmos testbeds
+  do PR, para o `--start-point main` do PR trazer este histórico),
+  `compare`, `size`, `docdiff` e `wide` em `github-ubuntu-nightly`. Os
+  caches de corpus do `compare`, do `docdiff` (mesmo prefixo de chave do
+  `compare`, com sufixo próprio no save) e do `wide` usam
+  `actions/cache/restore` e `actions/cache/save` com `if: always()`: são
+  salvos mesmo se o job falhar (um `crashed`, uma divergência ou o prazo
+  estourado), sempre que chegaram livros novos.
 
 Para medir uma fatia localmente:
 `dart run tool/bench.dart instructions --base origin/main --head HEAD --shard 2/4`.
@@ -290,8 +312,8 @@ que criar. Ao concluir um subprojeto, esta lista deve ser cumprida:
       `compare/xml-dom/parse/<doc>`. Teto de memória no pacote `galley`:
       `test/features/document/memory_counter_test.dart`
       (`retainedBytes` ÷ bytes do XHTML ≤ K). Diferencial noturno, que
-      reprova: `docdiff` (árvore × DOM do `package:xml` no corpus público);
-      o `wide` parseia todos os documentos do spine.
+      reprova: `docdiff` (árvore × DOM do `package:xml` no corpus
+      público); o `wide` parseia todos os documentos do spine.
 - [ ] **SP4, estilo:** cascata e seletores.
 - [ ] **SP5, layout:** paginação, repaginação ao mudar a fonte, medição
       fatiada.

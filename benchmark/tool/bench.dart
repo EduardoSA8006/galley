@@ -58,8 +58,10 @@ import 'package:galley_benchmark/src/modes/wide.dart';
 ///   (`corpus/manifest.json`, cache em `.corpus-cache/`): compara, em cada
 ///   documento do spine, a sequência de eventos da árvore do Galley com a do
 ///   DOM do `package:xml`. Documentos no modo tolerante ficam fora e são
-///   contados. Aceita `--out` (BMF com `docdiff/mismatch`) e `--report`. Sai
-///   com 1 se houver divergência e com 70 se nenhum documento foi comparado.
+///   contados. Aceita `--out` (BMF com `docdiff/mismatch`,
+///   `docdiff/internal-error` e `docdiff/tolerant-dom-parsed`) e `--report`.
+///   Sai com 1 se houver divergência ou erro interno do Galley e com 70 se
+///   nenhum documento foi comparado.
 /// - `wide-refresh`: escolhe `--count` (300) livros do catálogo do PG com
 ///   `Random(--seed)` (2026), baixa e grava `corpus/pg-wide.json`. Só
 ///   manualmente; faz 1 requisição a cada 2 s ao espelho oficial.

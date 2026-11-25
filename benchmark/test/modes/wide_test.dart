@@ -4,6 +4,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+// ignore_for_file: implementation_imports
+
+import 'package:galley/src/features/document/data/parse_document.dart';
+import 'package:galley/src/features/document/domain/parsed_document.dart';
 import 'package:galley_benchmark/src/corpus/fetcher.dart';
 import 'package:galley_benchmark/src/corpus/handmade.dart';
 import 'package:galley_benchmark/src/corpus/manifest.dart';
@@ -135,6 +139,29 @@ void main() {
     expect(report.exitCode, 1);
   });
 
+  test('documento com internalError: crashed com o tipo e o caminho', () async {
+    routes[11] = good;
+    final report = await run(
+      [entry(11)],
+      documentParser: (bytes, {required path, mediaType = ''}) {
+        final real = parseDocumentBytes(bytes, path: path);
+        return ParsedDocument(
+          tree: real.tree,
+          head: real.head,
+          diagnostics: real.diagnostics,
+          recovered: true,
+          internalError: 'RangeError',
+        );
+      },
+    );
+
+    final r = report.results.single;
+    expect(r.cls, WideClass.crashed);
+    expect(r.detail, contains('RangeError'));
+    expect(r.detail, contains('.xhtml'));
+    expect(report.exitCode, 1);
+  });
+
   test('livro bom: parseia todos os documentos do spine', () async {
     routes[9] = good;
     final report = await run([entry(9)]);
@@ -154,7 +181,7 @@ void main() {
     final report = await run([entry(10)]);
 
     final r = report.results.single;
-    expect(r.cls, isNot(WideClass.crashed));
+    expect(r.cls, WideClass.ok);
     expect(r.tolerantDocuments, greaterThan(0));
     expect(report.tolerantDocuments, r.tolerantDocuments);
     expect(report.exitCode, 0);

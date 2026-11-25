@@ -50,6 +50,16 @@ enum DocDiffKind {
   /// O Galley leu pelo caminho estrito, mas o DOM do `package:xml` lançou;
   /// fora da comparação (não é divergência).
   domUnparseable,
+
+  /// XHTML (`application/xhtml+xml`) que o Galley mandou ao modo tolerante
+  /// mas o DOM leu: não reprova (o DOM aceita coisas que o caminho estrito
+  /// recusa de propósito), mas fica visível no relatório e no BMF, para uma
+  /// regressão que mande XHTML válido ao modo tolerante aparecer.
+  tolerantDomParsed,
+
+  /// O leitor capturou uma exceção inesperada
+  /// (`ParsedDocument.internalError`): bug do Galley; reprova.
+  internalError,
 }
 
 /// Resultado da comparação de um documento.
@@ -61,6 +71,7 @@ final class DocDiffOutcome {
     this.index = -1,
     this.ours = '',
     this.dom = '',
+    this.detail = '',
   });
 
   /// Caminho do documento (`<livro>/<caminho no EPUB>`).
@@ -72,18 +83,22 @@ final class DocDiffOutcome {
   /// Índice do primeiro evento divergente (só em [DocDiffKind.mismatch]).
   final int index;
 
-  /// Nosso evento nesse índice (`<fim>` se a nossa sequência acabou); no
-  /// [DocDiffKind.domUnparseable], a mensagem do `package:xml`.
+  /// Nosso evento nesse índice (`<fim>` se a nossa sequência acabou).
   final String ours;
 
   /// Evento do DOM nesse índice (`<fim>` se a do DOM acabou).
   final String dom;
 
+  /// Mensagem do `package:xml` ([DocDiffKind.domUnparseable]) ou tipo da
+  /// exceção interna ([DocDiffKind.internalError]).
+  final String detail;
+
   @override
   String toString() => switch (kind) {
     DocDiffKind.mismatch =>
       '$path: evento $index: nosso ${_clip(ours)} × DOM ${_clip(dom)}',
-    DocDiffKind.domUnparseable => '$path: DOM falhou: ${_clip(ours)}',
+    DocDiffKind.domUnparseable => '$path: DOM falhou: ${_clip(detail)}',
+    DocDiffKind.internalError => '$path: erro interno do Galley ($detail)',
     _ => '$path: ${kind.name}',
   };
 }
@@ -107,6 +122,12 @@ final class DocDiffReport {
   /// Documentos que o DOM do `package:xml` não leu (fora da comparação).
   final List<DocDiffOutcome> domUnparseable = [];
 
+  /// XHTML que caiu no modo tolerante mas o DOM leu (não reprova).
+  final List<DocDiffOutcome> tolerantDomParsed = [];
+
+  /// Documentos com erro interno do Galley (reprovam).
+  final List<DocDiffOutcome> internalErrors = [];
+
   /// Livros ou documentos que não puderam ser lidos (sem download, EPUB
   /// rejeitado, recurso ausente); só informativo.
   final List<String> notes = [];
@@ -123,42 +144,52 @@ final class DocDiffReport {
         tolerant++;
       case DocDiffKind.domUnparseable:
         domUnparseable.add(outcome);
+      case DocDiffKind.tolerantDomParsed:
+        tolerantDomParsed.add(outcome);
+      case DocDiffKind.internalError:
+        internalErrors.add(outcome);
     }
   }
 
-  /// 1 se houve divergência; 0 caso contrário.
-  int get exitCode => mismatches.isEmpty ? 0 : 1;
+  /// 1 se houve divergência ou erro interno; 0 caso contrário.
+  int get exitCode => mismatches.isEmpty && internalErrors.isEmpty ? 0 : 1;
 
-  /// BMF: `docdiff/mismatch` → `count`.
+  /// BMF: `docdiff/mismatch`, `docdiff/internal-error` e
+  /// `docdiff/tolerant-dom-parsed` → `count`.
   Map<String, Object> toBmf() => bmf.toBmf({
-    'docdiff/mismatch': [
-      bmf.Measure(
-        slug: bmf.MeasureSlug.count,
-        value: mismatches.length.toDouble(),
-      ),
-    ],
+    for (final (id, n) in [
+      ('docdiff/mismatch', mismatches.length),
+      ('docdiff/internal-error', internalErrors.length),
+      ('docdiff/tolerant-dom-parsed', tolerantDomParsed.length),
+    ])
+      id: [bmf.Measure(slug: bmf.MeasureSlug.count, value: n.toDouble())],
   });
 
-  /// Resumo em texto: contagens, as primeiras [docDiffListed] divergências
-  /// (caminho e primeiro evento divergente) e os documentos que o DOM não
-  /// leu.
+  /// Resumo em texto: contagens e, até [docDiffListed] de cada, as
+  /// divergências (caminho e primeiro evento divergente), os erros internos,
+  /// o XHTML tolerante que o DOM leu e os documentos que o DOM não leu.
   String summary() {
     final b = StringBuffer()
       ..writeln('Diferencial de documentos (Galley × DOM do package:xml)')
       ..writeln('  documentos: $total')
       ..writeln('  bateram: $matched')
       ..writeln('  divergências: ${mismatches.length}')
+      ..writeln('  erros internos do Galley: ${internalErrors.length}')
       ..writeln('  modo tolerante (fora da comparação): $tolerant')
+      ..writeln(
+        '  XHTML tolerante que o DOM leu (fora da comparação): '
+        '${tolerantDomParsed.length}',
+      )
       ..writeln('  DOM não leu (fora da comparação): ${domUnparseable.length}');
-    if (mismatches.isNotEmpty) {
-      b.writeln('Divergências (primeiras $docDiffListed):');
-      for (final m in mismatches.take(docDiffListed)) {
-        b.writeln('  $m');
-      }
-    }
-    if (domUnparseable.isNotEmpty) {
-      b.writeln('DOM não leu (primeiros $docDiffListed):');
-      for (final m in domUnparseable.take(docDiffListed)) {
+    for (final (title, list) in [
+      ('Divergências', mismatches),
+      ('Erros internos do Galley', internalErrors),
+      ('XHTML tolerante que o DOM leu', tolerantDomParsed),
+      ('DOM não leu', domUnparseable),
+    ]) {
+      if (list.isEmpty) continue;
+      b.writeln('$title (até $docDiffListed):');
+      for (final m in list.take(docDiffListed)) {
         b.writeln('  $m');
       }
     }
@@ -176,8 +207,15 @@ final class DocDiffReport {
 /// `parseDocumentBytes`) com a do DOM do `package:xml` para o documento
 /// [bytes] em [path].
 ///
-/// Documento lido pelo modo tolerante (`recovered`) não é comparado
-/// ([DocDiffKind.tolerant]); se o DOM lança, [DocDiffKind.domUnparseable].
+/// `internalError` preenchido → [DocDiffKind.internalError]. Documento lido
+/// pelo modo tolerante (`recovered`) não é comparado: se é
+/// `application/xhtml+xml` e o DOM o lê, [DocDiffKind.tolerantDomParsed];
+/// senão [DocDiffKind.tolerant]. Se o DOM lança num documento que o Galley
+/// leu pelo caminho estrito, [DocDiffKind.domUnparseable].
+///
+/// A decodificação dos bytes (`decodeText`, detecção de codificação do
+/// contêiner) é a mesma nos dois lados, então **não** é verificada de forma
+/// independente por este diferencial.
 DocDiffOutcome compareDocument(
   String path,
   Uint8List bytes, {
@@ -185,15 +223,30 @@ DocDiffOutcome compareDocument(
   DocumentBytesParser parse = parseDocumentBytes,
 }) {
   final parsed = parse(bytes, path: path, mediaType: mediaType);
-  if (parsed.recovered) return DocDiffOutcome(path, DocDiffKind.tolerant);
+  final internal = parsed.internalError;
+  if (internal != null) {
+    return DocDiffOutcome(path, DocDiffKind.internalError, detail: internal);
+  }
+  XmlDocument parseDom() => XmlDocument.parse(
+    _normalizeLineEnds(decodeText(bytes)),
+    entityMapping: _entities,
+  );
+  if (parsed.recovered) {
+    if (mediaType == 'application/xhtml+xml') {
+      try {
+        parseDom();
+        return DocDiffOutcome(path, DocDiffKind.tolerantDomParsed);
+      } on XmlException {
+        // Malformado também para o DOM: tolerante de verdade.
+      }
+    }
+    return DocDiffOutcome(path, DocDiffKind.tolerant);
+  }
   final XmlDocument dom;
   try {
-    dom = XmlDocument.parse(
-      _normalizeLineEnds(decodeText(bytes)),
-      entityMapping: _entities,
-    );
+    dom = parseDom();
   } on XmlException catch (e) {
-    return DocDiffOutcome(path, DocDiffKind.domUnparseable, ours: e.message);
+    return DocDiffOutcome(path, DocDiffKind.domUnparseable, detail: e.message);
   }
   final ours = treeEvents(parsed.tree);
   final theirs = domEvents(dom);
@@ -261,7 +314,7 @@ Future<void> diffBook(
 /// [manifestPath] (cache em [cacheDir]): imprime o resumo em [log] e grava
 /// o BMF em [outPath] e o relatório em [reportPath] (se dados).
 ///
-/// Devolve 1 se houver divergência, [exitMeasurementFailure] se nenhum
+/// Devolve 1 se houver divergência ou erro interno, [exitMeasurementFailure] se nenhum
 /// documento foi comparado (corpus inteiro indisponível) e 0 caso
 /// contrário.
 Future<int> runDocDiffMode({

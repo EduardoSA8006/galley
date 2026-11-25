@@ -49,6 +49,20 @@ ParsedDocument _fakeParser(
   );
 }
 
+/// Leitura falsa que marca o documento como recuperado (e, com
+/// [internalError], como defeito interno).
+DocumentBytesParser _recoveredParser({String? internalError}) =>
+    (bytes, {required path, mediaType = 'application/xhtml+xml'}) {
+      final real = parseDocumentBytes(bytes, path: path, mediaType: mediaType);
+      return ParsedDocument(
+        tree: real.tree,
+        head: real.head,
+        diagnostics: real.diagnostics,
+        recovered: true,
+        internalError: internalError,
+      );
+    };
+
 void main() {
   group('compareDocument', () {
     test('documentos idênticos: bate, sem divergência', () {
@@ -129,12 +143,55 @@ void main() {
       }
     });
 
+    test('internalError: falha própria, exit 1, fora do tolerante', () {
+      final report = DocDiffReport()
+        ..add(
+          compareDocument(
+            'livro/cap1.xhtml',
+            _bytes(_doc('<p>um</p>')),
+            parse: _recoveredParser(internalError: 'RangeError'),
+          ),
+        );
+
+      expect(report.internalErrors, hasLength(1));
+      expect(report.internalErrors.single.kind, DocDiffKind.internalError);
+      expect(report.tolerant, 0);
+      expect(report.exitCode, 1);
+      expect((report.toBmf()['docdiff/internal-error']! as Map)['count'], {
+        'value': 1.0,
+      });
+      final summary = report.summary();
+      expect(summary, contains('RangeError'));
+      expect(summary, contains('livro/cap1.xhtml'));
+    });
+
+    test('XHTML tolerante que o DOM lê: contado à parte, não reprova', () {
+      final report = DocDiffReport()
+        ..add(
+          compareDocument(
+            'livro/cap1.xhtml',
+            _bytes(_doc('<p>um</p>')),
+            parse: _recoveredParser(),
+          ),
+        );
+
+      expect(report.tolerantDomParsed, hasLength(1));
+      expect(report.tolerant, 0);
+      expect(report.exitCode, 0);
+      expect((report.toBmf()['docdiff/tolerant-dom-parsed']! as Map)['count'], {
+        'value': 1.0,
+      });
+      expect(report.summary(), contains('livro/cap1.xhtml'));
+    });
+
     test('text/html vai ao modo tolerante e fica fora', () {
       final outcome = compareDocument(
         'h.html',
         _bytes(_doc('<p>x</p>')),
         mediaType: 'text/html',
       );
+      // Bem formado, mas text/html vai direto ao tolerante: não conta como
+      // "tolerante que o DOM lê".
       expect(outcome.kind, DocDiffKind.tolerant);
     });
   });
