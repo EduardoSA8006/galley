@@ -30,6 +30,11 @@ abstract final class Namespaces {
   /// Declarações de namespace (`http://www.w3.org/2000/xmlns/`).
   static const int xmlns = 7;
 
+  /// URI reservada para os prefixos sem declaração (exceto `epub:` e
+  /// `xml:`): o elemento ou atributo fica neste namespace, com o nome
+  /// qualificado (ex.: `foo:bar`) como nome local.
+  static const String undeclaredPrefixUri = 'urn:x-galley:undeclared-prefix';
+
   /// Primeiro id dado a uma URI desconhecida.
   static const int firstCustom = 64;
 
@@ -120,6 +125,13 @@ final class NameTable {
       _customUris.add(uri);
       return Namespaces.firstCustom + _customUris.length - 1;
     });
+  }
+
+  /// Id da [uri] sem criá-lo: o fixo de [Namespaces], o já atribuído por
+  /// [internNamespace], ou `null`. Vale também depois de congelada.
+  int? namespaceIdOf(String uri) {
+    final fixed = Namespaces.idForUri(uri);
+    return fixed >= 0 ? fixed : _customIds[uri];
   }
 
   /// URI do namespace [id], fixo ou por documento; `null` para
