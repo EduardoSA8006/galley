@@ -497,6 +497,15 @@ final class _Preparer {
   final _Finder _singleQuote;
   final _Finder _lessThan;
 
+  /// O que interrompe a leitura de um doctype antes do subconjunto interno.
+  late final List<_Finder> _doctypeStops = [
+    _greaterThan,
+    _bracketOpen,
+    _doubleQuote,
+    _singleQuote,
+    _lessThan,
+  ];
+
   StringBuffer? _out;
   int _copied = 0;
 
@@ -601,13 +610,7 @@ final class _Preparer {
   /// nenhum.
   int _firstOf(int from) {
     var best = -1;
-    for (final finder in [
-      _greaterThan,
-      _bracketOpen,
-      _doubleQuote,
-      _singleQuote,
-      _lessThan,
-    ]) {
+    for (final finder in _doctypeStops) {
       final at = finder.find(from);
       if (at >= 0 && (best < 0 || at < best)) best = at;
     }

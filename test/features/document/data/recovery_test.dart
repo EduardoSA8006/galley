@@ -4,10 +4,12 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:galley/src/core/diagnostics/diagnostic.dart';
 import 'package:galley/src/core/diagnostics/diagnostic_codes.dart';
+import 'package:galley/src/features/document/data/event_adapter.dart';
 import 'package:galley/src/features/document/data/parse_document.dart';
 import 'package:galley/src/features/document/domain/document_tree.dart';
 import 'package:galley/src/features/document/domain/names.dart';
 import 'package:galley/src/features/document/domain/parsed_document.dart';
+import 'package:xml/xml.dart';
 
 const _path = 'OEBPS/ch1.xhtml';
 const _xhtml = 'http://www.w3.org/1999/xhtml';
@@ -483,6 +485,81 @@ void main() {
       final ps = tree.elementsNamed(Namespaces.xhtml, 'p');
       expect(tree.textOf(tree.firstChildOf(ps.first)), 'x & y');
       expect(tree.textOf(tree.firstChildOf(ps.last)), 'a & b &amp;');
+    });
+
+    for (final prefix in [
+      '<?pi <![CDATA[ ?>',
+      '<?pi <!-- ?>',
+      '<p title="<!--">x</p>',
+      '<p title="<![CDATA[">x</p>',
+    ]) {
+      for (final mediaType in [null, 'text/html']) {
+        test('abridor falso "$prefix" + 100 KB de & ($mediaType)', () {
+          final body = '&' * 100000;
+          final watch = Stopwatch()..start();
+          final doc = _parse(_doc('$prefix<p>$body</p>'), mediaType: mediaType);
+          watch.stop();
+          expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+          final tree = doc.tree;
+          final last = tree.elementsNamed(Namespaces.xhtml, 'p').last;
+          expect(tree.textOf(tree.firstChildOf(last)), body);
+        });
+      }
+    }
+
+    test('doctype com "<!--" no SYSTEM + 100 KB de &', () {
+      final body = '&' * 100000;
+      final source =
+          '<!DOCTYPE x SYSTEM "<!--"><html xmlns="$_xhtml"><body>'
+          '<p>$body</p></body></html>';
+      for (final mediaType in [null, 'text/html']) {
+        final watch = Stopwatch()..start();
+        final doc = _parse(source, mediaType: mediaType);
+        watch.stop();
+        expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+        expect(textOfP(doc), body);
+      }
+    });
+
+    test('decode linear dá o mesmo texto do package:xml', () {
+      const original = XmlDefaultEntityMapping.html5();
+      for (final input in [
+        '&abc def;',
+        '&foo;',
+        '&#xZZ;',
+        '&#65',
+        '&;',
+        '&&;',
+        '&#;',
+        '&#x;',
+        '&nbsp&nbsp;',
+        '&AElig',
+        '&AElig;',
+        '&#000000000000065;',
+        '&#x41;&#X41;&#65;',
+        '&#+65; &# 65 ;',
+        'fim &',
+        'a & b &amp; c &foo; d &#65 e &#65;',
+        '&&&a&b;&c&;;',
+        'sem entidade',
+        '',
+      ]) {
+        expect(
+          EventAdapter.entities.decode(input),
+          original.decode(input),
+          reason: input,
+        );
+      }
+    });
+
+    test('& em atributo: mesmo valor do package:xml', () {
+      const value = '&abc def; &nbsp&nbsp; &#65 & &;';
+      final doc = _parse(_doc('<p title="$value">x</p>'));
+      final p = doc.tree.elementsNamed(Namespaces.xhtml, 'p').single;
+      expect(
+        doc.tree.attribute(p, Namespaces.none, 'title'),
+        const XmlDefaultEntityMapping.html5().decode(value),
+      );
     });
 
     test('marcador de CDATA dentro de comentário não protege o resto', () {
