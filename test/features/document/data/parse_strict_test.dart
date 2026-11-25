@@ -311,6 +311,93 @@ void main() {
     });
   });
 
+  group('correções da revisão', () {
+    test('CRLF, CR isolado e mistura viram LF no texto', () {
+      for (final source in ['a\r\nb', 'a\rb', 'a\nb']) {
+        final tree = _parse('<r>$source</r>').tree;
+        final r = _single(tree, Namespaces.none, 'r');
+        expect(tree.textOf(tree.firstChildOf(r)), 'a\nb', reason: source);
+      }
+      final tree = _parse('<r>a\r\n\r\rb\n\r\nc</r>').tree;
+      final r = _single(tree, Namespaces.none, 'r');
+      expect(tree.textOf(tree.firstChildOf(r)), 'a\n\n\nb\n\nc');
+    });
+
+    test('&#13; (referência) continua CR no texto', () {
+      final tree = _parse('<r>a&#13;b</r>').tree;
+      final r = _single(tree, Namespaces.none, 'r');
+      expect(tree.textOf(tree.firstChildOf(r)), 'a\rb');
+    });
+
+    test('valores de atributo: TAB, LF e CR viram espaço', () {
+      final tree = _parse('<r t="a\tb\nc\r\nd\re"/>').tree;
+      final r = _single(tree, Namespaces.none, 'r');
+      expect(tree.attribute(r, Namespaces.none, 't'), 'a b c d e');
+    });
+
+    test('caracteres proibidos viram U+FFFD no texto e nos atributos', () {
+      final tree = _parse(
+        '<r t="x&#0;y\u0001">a&#0;b\uD800c\u0008d\uDC00e\uFFFF'
+        '\u{1F600}</r>',
+      ).tree;
+      final r = _single(tree, Namespaces.none, 'r');
+      expect(tree.attribute(r, Namespaces.none, 't'), 'x\uFFFDy\uFFFD');
+      expect(
+        tree.textOf(tree.firstChildOf(r)),
+        'a\uFFFDb\uFFFDc\uFFFDd\uFFFDe\uFFFD\u{1F600}',
+      );
+    });
+
+    test('xlink: sem declaração cai em XLink, com undeclaredPrefix', () {
+      final doc = _parse(
+        '<svg xmlns="$_svg"><image xlink:href="a.png"/></svg>',
+      );
+      final image = _single(doc.tree, Namespaces.svg, 'image');
+      expect(doc.tree.attribute(image, Namespaces.xlink, 'href'), 'a.png');
+      final d = doc.diagnostics.singleWhere(
+        (d) => d.code == DiagnosticCodes.undeclaredPrefix,
+      );
+      expect(d.message, contains('xlink'));
+    });
+
+    test('xmlns:p="" e xmlns:="u" são ignorados com diagnóstico', () {
+      final doc = _parse(
+        '<r xmlns:a="urn:a"><x xmlns:a="" xmlns:="urn:b"><a:e/></x></r>',
+      );
+      final a = doc.tree.names.namespaceIdOf('urn:a');
+      expect(doc.tree.elementsNamed(a!, 'e'), hasLength(1));
+      expect(doc.tree.names.namespaceIdOf('urn:b'), isNull);
+      final invalid = doc.diagnostics
+          .where((d) => d.code == DiagnosticCodes.invalidNamespaceDeclaration)
+          .toList();
+      expect(invalid, hasLength(2));
+      expect(invalid.first.severity, DiagnosticSeverity.info);
+      final x = _single(doc.tree, Namespaces.none, 'x');
+      expect(doc.tree.attributeCountOf(x), 0);
+    });
+
+    test('xmlns="" reinicia o namespace padrão dentro do XHTML', () {
+      final tree = _parse(
+        '<html xmlns="$_xhtml"><body><x xmlns=""><y/></x><p/></body></html>',
+      ).tree;
+      _single(tree, Namespaces.none, 'x');
+      _single(tree, Namespaces.none, 'y');
+      _single(tree, Namespaces.xhtml, 'p');
+    });
+
+    test('duplicateAttribute: um diagnóstico por elemento, com contagem', () {
+      final doc = _parse('<r><p a="1" a="2" b="1" b="2" a="3"/><q c="1"/></r>');
+      final dup = doc.diagnostics
+          .where((d) => d.code == DiagnosticCodes.duplicateAttribute)
+          .toList();
+      expect(dup, hasLength(1));
+      expect(dup.single.message, contains('3'));
+      final p = _single(doc.tree, Namespaces.none, 'p');
+      expect(doc.tree.attributeCountOf(p), 2);
+      expect(doc.tree.attribute(p, Namespaces.none, 'a'), '1');
+    });
+  });
+
   group('ParsedDocument', () {
     test('head vazio, diagnósticos não modificáveis', () {
       final doc = _parse(_doc('<p/>'));

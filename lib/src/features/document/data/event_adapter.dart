@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:xml/xml.dart';
 import 'package:xml/xml_events.dart';
 
@@ -68,12 +70,20 @@ final class StrictRepairPolicy extends RepairPolicy {
 /// - Nomes viram (namespace, nome local); declarações `xmlns`/`xmlns:p`
 ///   alimentam a pilha e não viram atributos. Os prefixos são resolvidos
 ///   depois de lidas todas as declarações do elemento.
-/// - `epub:` sem declaração cai em OPS; `xml:` é sempre o namespace XML;
+/// - O texto passa por [normalizeLineEnds] (XML §2.11) antes da leitura.
+/// - `epub:` e `xlink:` sem declaração caem em OPS e XLink; `xml:` é sempre o namespace XML;
 ///   outros prefixos sem declaração ficam em
 ///   [Namespaces.undeclaredPrefixUri], com o nome qualificado. Cada
 ///   prefixo sem declaração gera um `document.undeclaredPrefix`.
 /// - Atributos sem prefixo ficam em [Namespaces.none]; com atributo
 ///   repetido, vale o primeiro (`document.duplicateAttribute`).
+/// - Valores de atributo: TAB, LF e CR viram espaço (XML §3.3.3, sem
+///   distinguir referências de caractere, já decodificadas pelo
+///   `package:xml`). Caracteres proibidos no XML 1.0 (controles, surrogate
+///   isolado, U+FFFE/U+FFFF) viram U+FFFD no texto e nos atributos, sem
+///   mudar o comprimento.
+/// - Declarações ilegais (`xmlns:p=""`, `xmlns:="…"`) são ignoradas, com
+///   `document.invalidNamespaceDeclaration`.
 /// - CDATA vira texto; comentários, PIs e doctype são descartados e
 ///   contados (`document.droppedNodes`), e o texto em volta deles é
 ///   fundido pelo montador. Espaço em branco fora da raiz é ignorado.
@@ -120,9 +130,10 @@ final class EventAdapter {
   /// Ids dos atributos do elemento em curso, para achar repetições.
   final List<int> _attributeIds = [];
 
-  /// Prefixos sem declaração já reportados (fora `epub`, à parte).
+  /// Prefixos sem declaração já reportados; os conhecidos (`epub`,
+  /// `xlink`) ficam à parte, um bit por id de namespace.
   Set<String>? _undeclared;
-  bool _epubReported = false;
+  int _wellKnownReported = 0;
   int _comments = 0;
   int _instructions = 0;
   int _doctypes = 0;
@@ -133,7 +144,7 @@ final class EventAdapter {
   /// [XmlException] do `package:xml` ou da política propaga.
   DocumentTree run(String text) {
     final events = parseEvents(
-      text,
+      text.contains('\r') ? normalizeLineEnds(text) : text,
       entityMapping: entities,
       validateNesting: policy.validating,
       validateDocument: policy.validating,
@@ -165,7 +176,7 @@ final class EventAdapter {
 
   void _text(String value) {
     if (_openNames.isNotEmpty) {
-      builder.text(value);
+      builder.text(_sanitize(value, attribute: false));
     } else if (!_isBlank(value)) {
       policy.textOutsideRoot(this, value);
     }
@@ -189,44 +200,61 @@ final class EventAdapter {
       if (!_isDeclaration(name)) continue;
       declarations++;
       final value = attribute.value;
-      final namespace = value.isEmpty
-          ? Namespaces.none
-          : builder.names.internNamespace(value);
       if (name.length == 5) {
-        defaultNamespace = namespace;
+        defaultNamespace = value.isEmpty
+            ? Namespaces.none
+            : builder.names.internNamespace(value);
+      } else if (name.length == 6 || value.isEmpty) {
+        // `xmlns:="…"` e `xmlns:p=""` são ilegais (Namespaces in XML).
+        diagnostics.add(
+          Diagnostic(
+            severity: DiagnosticSeverity.info,
+            code: DiagnosticCodes.invalidNamespaceDeclaration,
+            message: 'declaração "$name="$value"" ilegal; ignorada',
+            location: path,
+          ),
+        );
       } else {
         _prefixes.add(name.substring(6));
-        _prefixNamespaces.add(namespace);
+        _prefixNamespaces.add(builder.names.internNamespace(value));
       }
     }
     _defaults.add(defaultNamespace);
     _openNames.add(event.name);
 
     builder.startElement(_resolve(event.name, defaultNamespace));
-    if (attributes.length > declarations) _attributes(attributes);
+    if (attributes.length > declarations) {
+      _attributes(event.name, attributes);
+    }
     if (event.isSelfClosing) _close();
   }
 
-  void _attributes(List<XmlEventAttribute> attributes) {
+  void _attributes(String element, List<XmlEventAttribute> attributes) {
     final ids = _attributeIds..clear();
+    var duplicates = 0;
     for (var i = 0; i < attributes.length; i++) {
       final attribute = attributes[i];
       final name = attribute.name;
       if (_isDeclaration(name)) continue;
       final id = _resolve(name, Namespaces.none);
       if (ids.contains(id)) {
-        diagnostics.add(
-          Diagnostic(
-            severity: DiagnosticSeverity.info,
-            code: DiagnosticCodes.duplicateAttribute,
-            message: 'atributo "$name" repetido; vale o primeiro',
-            location: path,
-          ),
-        );
+        duplicates++;
         continue;
       }
       ids.add(id);
-      builder.attribute(id, attribute.value);
+      builder.attribute(id, _sanitize(attribute.value, attribute: true));
+    }
+    if (duplicates > 0) {
+      diagnostics.add(
+        Diagnostic(
+          severity: DiagnosticSeverity.info,
+          code: DiagnosticCodes.duplicateAttribute,
+          message:
+              '$duplicates atributo(s) repetido(s) em <$element>; '
+              'vale o primeiro',
+          location: path,
+        ),
+      );
     }
   }
 
@@ -279,14 +307,20 @@ final class EventAdapter {
       }
     }
     if (colon == 3 && qualified.startsWith('xml')) return Namespaces.xml;
-    if (colon == 4 && qualified.startsWith('epub')) {
-      if (!_epubReported) {
-        _epubReported = true;
+    final wellKnown = colon == 4 && qualified.startsWith('epub')
+        ? Namespaces.ops
+        : colon == 5 && qualified.startsWith('xlink')
+        ? Namespaces.xlink
+        : -1;
+    if (wellKnown >= 0) {
+      if (_wellKnownReported & (1 << wellKnown) == 0) {
+        _wellKnownReported |= 1 << wellKnown;
         _reportUndeclared(
-          'prefixo "epub" sem declaração; usado o namespace OPS',
+          'prefixo "${qualified.substring(0, colon)}" sem declaração; '
+          'usado ${Namespaces.uriOf(wellKnown)}',
         );
       }
-      return Namespaces.ops;
+      return wellKnown;
     }
     final prefix = qualified.substring(0, colon);
     if ((_undeclared ??= {}).add(prefix)) {
@@ -335,4 +369,76 @@ final class EventAdapter {
     }
     return true;
   }
+
+  /// [value] sem caracteres proibidos no XML 1.0 (trocados por U+FFFD) e,
+  /// se [attribute], com TAB, LF e CR trocados por espaço. Devolve o próprio
+  /// [value] quando não há o que trocar (o caso comum, num laço curto).
+  static String _sanitize(String value, {required bool attribute}) {
+    final length = value.length;
+    if (attribute) {
+      for (var i = 0; i < length; i++) {
+        final c = value.codeUnitAt(i);
+        if (c < 0x20 || c >= 0xD800) return _sanitizeFrom(value, i, true);
+      }
+    } else {
+      for (var i = 0; i < length; i++) {
+        final c = value.codeUnitAt(i);
+        if (c >= 0x20 ? c >= 0xD800 : c != 0x0A && c != 0x09 && c != 0x0D) {
+          return _sanitizeFrom(value, i, false);
+        }
+      }
+    }
+    return value;
+  }
+
+  /// Caminho lento de [_sanitize], a partir do índice [from].
+  static String _sanitizeFrom(String value, int from, bool attribute) {
+    final length = value.length;
+    final out = Uint16List(length);
+    for (var j = 0; j < from; j++) {
+      out[j] = value.codeUnitAt(j);
+    }
+    var changed = false;
+    for (var i = from; i < length; i++) {
+      final c = value.codeUnitAt(i);
+      var unit = c;
+      if (c < 0x20) {
+        if (c == 0x09 || c == 0x0A || c == 0x0D) {
+          if (attribute) unit = 0x20;
+        } else {
+          unit = 0xFFFD;
+        }
+      } else if (c >= 0xD800) {
+        if (c <= 0xDBFF &&
+            i + 1 < length &&
+            (value.codeUnitAt(i + 1) & 0xFC00) == 0xDC00) {
+          // Par de surrogates válido: copia os dois.
+          out[i] = c;
+          out[++i] = value.codeUnitAt(i);
+          continue;
+        }
+        if (c <= 0xDFFF || c >= 0xFFFE) unit = 0xFFFD;
+      }
+      if (unit != c) changed = true;
+      out[i] = unit;
+    }
+    return changed ? String.fromCharCodes(out) : value;
+  }
+}
+
+/// [text] com CRLF e CR isolado trocados por LF (XML 1.0 §2.11).
+String normalizeLineEnds(String text) {
+  final length = text.length;
+  final out = Uint16List(length);
+  var n = 0;
+  for (var i = 0; i < length; i++) {
+    final c = text.codeUnitAt(i);
+    if (c == 0x0D) {
+      out[n++] = 0x0A;
+      if (i + 1 < length && text.codeUnitAt(i + 1) == 0x0A) i++;
+    } else {
+      out[n++] = c;
+    }
+  }
+  return String.fromCharCodes(out, 0, n);
 }

@@ -14,7 +14,8 @@ import 'event_adapter.dart';
 /// Lê os [bytes] de um documento XHTML/SVG e monta a árvore.
 ///
 /// Função pura e segura para isolate: devolve a árvore e os diagnósticos
-/// como dados e nunca lança. [path] é o caminho do documento no EPUB, usado
+/// como dados e nunca lança (qualquer falha vira o documento
+/// irrecuperável). [path] é o caminho do documento no EPUB, usado
 /// como local dos diagnósticos. [mediaType] é o do item do manifest; por
 /// enquanto todo documento passa pelo caminho estrito.
 ///
@@ -25,8 +26,8 @@ ParsedDocument parseDocumentBytes(
   required String path,
   String mediaType = 'application/xhtml+xml',
 }) {
-  final text = decodeText(bytes);
   try {
+    final text = decodeText(bytes);
     final adapter = EventAdapter(path: path);
     final tree = adapter.run(text);
     return ParsedDocument(
@@ -37,6 +38,10 @@ ParsedDocument parseDocumentBytes(
     );
   } on XmlException catch (e) {
     return _unparseable(path, e.message);
+  } on Object catch (e) {
+    // Contrato "nunca lança": um defeito inesperado também vira capítulo
+    // vazio, em vez de exceção crua.
+    return _unparseable(path, 'erro inesperado (${e.runtimeType})');
   }
 }
 

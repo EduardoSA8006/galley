@@ -103,6 +103,11 @@ abstract final class DiagnosticCodes {
   /// OPS, os demais num namespace "desconhecido" (info).
   static const String undeclaredPrefix = 'document.undeclaredPrefix';
 
+  /// Declaração de namespace ilegal (`xmlns:p=""` ou `xmlns:="…"`),
+  /// ignorada (info).
+  static const String invalidNamespaceDeclaration =
+      'document.invalidNamespaceDeclaration';
+
   /// Documento malformado lido pelo modo tolerante (warning).
   static const String recovered = 'document.recovered';
 
