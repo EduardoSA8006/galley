@@ -72,6 +72,10 @@ final class MatchedDocument {
     required this.pageMargins,
     required this.pageWidth,
     required this.pageHeight,
+    required this.flags,
+    required this.bodyFontSize,
+    required this.publisherFamilies,
+    required this.familyTable,
     required this._mediaQueries,
     required this._mediaResults,
   });
@@ -112,6 +116,25 @@ final class MatchedDocument {
   /// valor calculado precisa ser absoluto (`font-size`).
   final double pageHeight;
 
+  /// Por nó da árvore: as marcas de `ElementFlags` (texto corrido, título,
+  /// link, monoespaçada, item de lista), calculadas uma vez no casamento
+  /// com os valores da editora (spec §8.7); 0 para nós que não são
+  /// elemento.
+  final Uint8List flags;
+
+  /// Tamanho de fonte calculado da editora (sem preferências) do primeiro
+  /// `body` XHTML, em px; sem `body`, o da raiz. Referência do texto
+  /// corrido e do tamanho "forçado".
+  final double bodyFontSize;
+
+  /// Por nó da árvore: índice em [familyTable] da família calculada da
+  /// editora; −1 para nós que não são elemento.
+  final Int32List publisherFamilies;
+
+  /// Famílias calculadas distintas da editora (já com os nomes internos do
+  /// livro).
+  final List<CssFontFamilies> familyTable;
+
   final List<MediaQueryList> _mediaQueries;
   final List<bool> _mediaResults;
 
@@ -133,6 +156,9 @@ final class MatchedDocument {
         pseudoElements.lengthInBytes +
         pseudoKinds.lengthInBytes +
         pseudoSets.lengthInBytes +
+        flags.lengthInBytes +
+        publisherFamilies.lengthInBytes +
+        familyTable.length * 8 +
         sets.length * 8 +
         fontFaces.length * 8 +
         _mediaQueries.length * 9;

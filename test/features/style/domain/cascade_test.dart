@@ -79,9 +79,8 @@ CssValue? colorOf(MatchedDocument m, String name, {int index = 0}) =>
     valuesOf(m, named(m.tree, name)[index]).valueOf(PropertyId.color);
 
 void main() {
-  test('folha padrão é vazia nesta etapa e lida uma vez', () {
-    expect(kDefaultStyleSheetCss, '');
-    expect(defaultStyleSheet.rules, isEmpty);
+  test('folha padrão lida uma vez', () {
+    expect(kDefaultStyleSheetCss, isNotEmpty);
     expect(identical(defaultStyleSheet, defaultStyleSheet), isTrue);
   });
 

@@ -20,31 +20,51 @@ const StyleEnvironment testEnvironment = StyleEnvironment(
 );
 
 /// Casa o documento com [body] dentro de `<body>` e a folha [css] num
-/// `<style>`, **sem** folha padrão (`StyleSheet.empty`), no [environment].
+/// `<style>`, no [environment]; **sem** folha padrão (`StyleSheet.empty`),
+/// a menos que [defaultSheet] peça a real.
 MatchedDocument matchCss(
   String body, {
   String css = '',
   StyleEnvironment environment = testEnvironment,
+  bool defaultSheet = false,
+}) => matchSource(
+  '<html xmlns="http://www.w3.org/1999/xhtml"><head>'
+  '<style>$css</style></head><body>$body</body></html>',
+  environment: environment,
+  defaultSheet: defaultSheet,
+);
+
+/// Casa o documento [source] inteiro (com o [mediaType] dado); **sem**
+/// folha padrão, a menos que [defaultSheet] peça a real.
+MatchedDocument matchSource(
+  String source, {
+  String mediaType = 'application/xhtml+xml',
+  StyleEnvironment environment = testEnvironment,
+  bool defaultSheet = false,
 }) {
-  final xml =
-      '<html xmlns="http://www.w3.org/1999/xhtml"><head>'
-      '<style>$css</style></head><body>$body</body></html>';
   final document = parseDocumentBytes(
-    Uint8List.fromList(utf8.encode(xml)),
+    Uint8List.fromList(utf8.encode(source)),
     path: 'OEBPS/ch.xhtml',
+    mediaType: mediaType,
   );
   final context = BookStyleContext(resolve: (_) => null, bookKey: 'livro');
   return matchDocument(
     context,
     document,
     environment,
-    userAgentSheet: StyleSheet.empty,
+    userAgentSheet: defaultSheet ? null : StyleSheet.empty,
   );
 }
 
 /// [matchCss] seguido de `restyle` sem preferências.
-StyledDocument styleCss(String body, {String css = ''}) =>
-    restyle(matchCss(body, css: css), ReaderPreferences.none);
+StyledDocument styleCss(
+  String body, {
+  String css = '',
+  bool defaultSheet = false,
+}) => restyle(
+  matchCss(body, css: css, defaultSheet: defaultSheet),
+  ReaderPreferences.none,
+);
 
 /// Elementos de nome [name], em ordem de documento.
 List<int> elementsNamed(DocumentTree tree, String name) => [

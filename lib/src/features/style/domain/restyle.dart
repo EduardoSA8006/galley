@@ -9,6 +9,7 @@ import 'properties.dart';
 import 'reader_preferences.dart';
 import 'selector.dart';
 import 'styled_document.dart';
+import 'text_run.dart';
 import 'value_computer.dart';
 
 /// Calcula os estilos do documento a partir do casamento guardado
@@ -19,7 +20,8 @@ import 'value_computer.dart';
 /// (pai antes do filho; uma pilha guarda os elementos abertos para fechar
 /// `::after` depois dos descendentes). Um memo `(estilo do pai, conjunto,
 /// tipo) → índice do estilo` evita recalcular o mesmo resultado, o que
-/// cobre o atalho de irmãos da §8.6 e também primos e níveis repetidos.
+/// cobre o atalho de irmãos da §8.6 e também primos e níveis repetidos; as
+/// marcas de [MatchedDocument.flags] também entram na chave.
 ///
 /// [preferences] ainda não age: a passada de preferências chega numa etapa
 /// seguinte; o resultado é o do livro.
@@ -37,9 +39,20 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
   final setCount = matched.sets.length;
   final memo = <int, int>{};
 
-  int styleFor(int parentStyle, int set, int kind, {required bool isRoot}) {
+  int styleFor(
+    int parentStyle,
+    int set,
+    int kind,
+    int flags, {
+    required bool isRoot,
+  }) {
     // kind: 0 = elemento, 1 + PseudoElement.index para pseudo-elementos.
-    final key = ((parentStyle + 1) * setCount + set) * 5 + kind;
+    // As marcas de texto corrido entram na chave: elementos com marcas
+    // diferentes nunca compartilham o cálculo (a passada de preferências
+    // depende delas).
+    final key =
+        (((parentStyle + 1) * setCount + set) * 5 + kind) * ElementFlags.limit +
+        flags;
     final known = memo[key];
     if (known != null) return known;
     final values = computer.compute(
@@ -87,10 +100,12 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
     }
     final parentStyle = parent >= 0 ? elementStyles[parent] : -1;
     final isRoot = parentStyle < 0;
+    final flags = matched.flags[n];
     final style = styleFor(
       parentStyle,
       matched.elementSets[n],
       0,
+      flags,
       isRoot: isRoot,
     );
     elementStyles[n] = style;
@@ -110,6 +125,7 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
         style,
         pseudoSetsIn[cursor],
         kind.index + 1,
+        flags,
         isRoot: false,
       );
       final isBeforeOrAfter =

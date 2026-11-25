@@ -7,6 +7,7 @@ import 'rule_index.dart';
 import 'selector.dart';
 import 'selector_matcher.dart';
 import 'stylesheet.dart';
+import 'text_run.dart';
 
 /// Declarações de `style=` do [element]; `null` se não houver.
 typedef InlineStyleOf = List<Declaration>? Function(int element);
@@ -79,17 +80,31 @@ MatchedDocument cascadeDocument({
     matcher.pushAncestor(n);
     open.add(n);
   }
+  final sets = List<CascadedValues>.unmodifiable(cascade.sets);
+  final environment = media.environment;
+  final marks = classifyTextRuns(
+    tree: tree,
+    sets: sets,
+    elementSets: elementSets,
+    fontFaces: fontFaces,
+    pageWidth: environment.pageWidth,
+    pageHeight: environment.pageHeight,
+  );
   return MatchedDocument(
     tree: tree,
-    sets: List.unmodifiable(cascade.sets),
+    sets: sets,
     elementSets: elementSets,
     pseudoElements: Int32List.fromList(pseudoElements),
     pseudoKinds: Uint8List.fromList(pseudoKinds),
     pseudoSets: Int32List.fromList(pseudoSets),
     fontFaces: List.unmodifiable(fontFaces),
     pageMargins: pageMargins,
-    pageWidth: media.environment.pageWidth,
-    pageHeight: media.environment.pageHeight,
+    pageWidth: environment.pageWidth,
+    pageHeight: environment.pageHeight,
+    flags: marks.flags,
+    bodyFontSize: marks.bodyFontSize,
+    publisherFamilies: marks.publisherFamilies,
+    familyTable: marks.familyTable,
     mediaQueries: List.unmodifiable(media.queries),
     mediaResults: List.unmodifiable(media.results),
   );
