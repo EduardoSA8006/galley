@@ -18,7 +18,7 @@ Levantamento em 372 livros: 20 do corpus público, 300 do Gutenberg amplo e 52 p
 
 - **Origem do CSS:** folhas ligadas em quase todos; `style=` inline em 92,5% dos livros (100% do Gutenberg, que centraliza com `style="text-align: center"`); blocos `<style>` em 54% dos privados.
 - **Seletores:** tipo, classe, id e descendente dominam. Filho `>` 24%, irmão adjacente `+` 19%, universal 3%, irmão geral `~` 0%. Atributo quase só `[href]`. Pseudo-classes: `:hover`/`:link`/`:visited`/`:active` 8–12%, `:first-child` 4%, `:not` 1%; `:nth-child` 0%. Pseudo-elementos: `::first-letter` 8%, `::after` 5%, `::before` 2%.
-- **Propriedades:** 120 distintas no total; as 108 mais usadas cobrem 99% dos livros. Prefixos `-epub-`, `-webkit-`, `-moz-` e `adobe-` aparecem entre as 85 mais usadas.
+- **Propriedades:** 115 a 120 distintas no total (conforme a contagem de aliases); as 108 mais usadas cobrem 99% dos livros. Prefixos `-epub-`, `-webkit-`, `-moz-` e `adobe-` aparecem entre as 85 mais usadas.
 - **At-rules:** `@media` 20% (`all`, `print`, `screen`, `prefers-color-scheme`, `max-width`), `@page` 2%, `@font-face` 1% (mais nos privados), `@namespace` 1%, `@supports` 1%, `@import` 0%.
 - **Valores:** `!important` em 51% dos livros não-Gutenberg; `calc()` 1%; `var()` 0%; unidades dominantes `em` e `%`; `rem` e `vw` 0%.
 - **Layout:** `display:none` 36%, `inline-block` 19%, `float` 7%, `display:table*` 7%, `position:absolute` 2%, flex 3%, `writing-mode` 1%, grid e colunas 0%.
@@ -131,7 +131,7 @@ Cada preferência é opcional (nula = vale a editora) e tem uma política (`edit
 | Espaçamento entre linhas | multiplicador no texto corrido; títulos recebem metade do acréscimo (`1 + (m − 1)/2`) | o valor em tudo |
 | Espaçamento entre parágrafos | no texto corrido, `margin-top` vira 0 e `margin-bottom` vira o valor escolhido (em `em`), de modo que o colapso de margens do layout produza exatamente esse espaço entre parágrafos consecutivos; títulos, citações, listas e figuras mantêm as da editora | em todos os blocos |
 | Recuo da primeira linha | `text-indent` do texto corrido; controle separado, o app decide se liga ao espaçamento entre parágrafos | em todos os blocos |
-| Alinhamento | só texto corrido cujo alinhamento da editora seja início/fim/justificado; centralizados e à direita ficam | em tudo |
+| Alinhamento | só texto corrido cujo alinhamento da editora seja o do início da linha (`start`/`left` em LTR, `right` em RTL) ou justificado; centralizados e alinhados ao fim (`end`, à direita em LTR) ficam | em tudo |
 | Hifenização | liga/desliga `hyphens` no texto corrido | em tudo |
 | Espaço entre palavras e letras | acréscimo relativo no texto corrido | em tudo |
 | Margens da página | não é estilo de elemento: o SP4 entrega as margens do `@page` da editora e o SP5/SP6 combina com a preferência (fator sobre a margem da editora) | o valor |
