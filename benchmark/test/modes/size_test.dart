@@ -81,6 +81,52 @@ void main() {
     });
   });
 
+  group('bencherCommand com hash', () {
+    test('--hash entra depois do branch', () {
+      final cmd = bencherCommand(
+        testbed: 'local-dev',
+        bmf: File('b.json'),
+        branch: 'feat-x',
+        hash: 'a' * 40,
+      );
+      expect(cmd.sublist(cmd.length - 4), [
+        '--branch',
+        'feat-x',
+        '--hash',
+        'a' * 40,
+      ]);
+    });
+  });
+
+  group('sanitizeBencherBranch', () {
+    test('mantém nomes comuns', () {
+      expect(sanitizeBencherBranch('main'), 'main');
+      expect(sanitizeBencherBranch('sp2/benchmark'), 'sp2/benchmark');
+      expect(sanitizeBencherBranch('fix_1.2-a'), 'fix_1.2-a');
+    });
+
+    test('troca caracteres fora de [A-Za-z0-9._/-] por hífen', () {
+      expect(sanitizeBencherBranch(r'feat/a b$`x'), 'feat/a-b--x');
+      expect(sanitizeBencherBranch('ação'), 'a--o');
+    });
+
+    test('limita a 64 caracteres', () {
+      expect(sanitizeBencherBranch('x' * 100), 'x' * 64);
+    });
+
+    test('vazio, só símbolos ou HEAD (destacado) viram main', () {
+      expect(sanitizeBencherBranch(''), 'main');
+      expect(sanitizeBencherBranch('   '), 'main');
+      expect(sanitizeBencherBranch('HEAD'), 'main');
+      expect(sanitizeBencherBranch('-'), 'main');
+    });
+
+    test('não começa com hífen nem ponto (não vira opção da CLI)', () {
+      expect(sanitizeBencherBranch('--token=x'), 'token-x');
+      expect(sanitizeBencherBranch('.oculto'), 'oculto');
+    });
+  });
+
   group('bencherRun', () {
     final bmf = File('/tmp/x.json');
 

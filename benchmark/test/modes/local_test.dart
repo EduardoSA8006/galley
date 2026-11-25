@@ -95,6 +95,47 @@ void main() {
     });
   });
 
+  group('readLocalGitState', () {
+    late Directory repo;
+
+    Future<void> git(List<String> args) async {
+      final r = await Process.run('git', args, workingDirectory: repo.path);
+      expect(r.exitCode, 0, reason: '${r.stdout}${r.stderr}');
+    }
+
+    setUp(() async {
+      repo = Directory.systemTemp.createTempSync('galley-gitstate-');
+      await git(['init', '-q', '-b', 'feat/x']);
+      await git(['config', 'user.email', 't@example.com']);
+      await git(['config', 'user.name', 't']);
+      await git(['config', 'commit.gpgsign', 'false']);
+      File('${repo.path}/a.txt').writeAsStringSync('1');
+      await git(['add', '.']);
+      await git(['commit', '-q', '-m', 'c']);
+    });
+    tearDown(() => repo.deleteSync(recursive: true));
+
+    test('árvore limpa: sha do HEAD, branch atual e dirty falso', () async {
+      final s = await readLocalGitState(repo);
+      expect(s.sha, matches(RegExp(r'^[0-9a-f]{40}$')));
+      expect(s.branch, 'feat/x');
+      expect(s.dirty, isFalse);
+    });
+
+    test('arquivo modificado ou novo deixa a árvore suja', () async {
+      File('${repo.path}/a.txt').writeAsStringSync('2');
+      expect((await readLocalGitState(repo)).dirty, isTrue);
+      await git(['checkout', '-q', '--', 'a.txt']);
+      File('${repo.path}/novo.txt').writeAsStringSync('n');
+      expect((await readLocalGitState(repo)).dirty, isTrue);
+    });
+
+    test('HEAD destacado: branch HEAD', () async {
+      await git(['checkout', '-q', '--detach']);
+      expect((await readLocalGitState(repo)).branch, 'HEAD');
+    });
+  });
+
   group('parseMeasureOpen', () {
     test('lê ns, rss e checksum', () {
       final m = parseMeasureOpen('ns=10\nrss=2048\nchecksum=-7\n');
@@ -212,11 +253,78 @@ void main() {
         runnerExe: exe,
         environment: const {},
         upload: true,
+        gitState: (_) async => _clean,
         log: log,
         echoReport: false,
       );
       expect(code, 0, reason: '$log');
       expect('$log', contains('BENCHER_API_KEY'));
     });
+
+    Future<({int code, String log, List<String>? command})> upload(
+      LocalGitState state, {
+      bool allowDirty = false,
+    }) async {
+      final out = File('${work.path}/upload.json');
+      if (out.existsSync()) out.deleteSync();
+      final log = StringBuffer();
+      List<String>? command;
+      final code = await runLocal(
+        outPath: out.path,
+        runs: 1,
+        syntheticSizes: const [],
+        includePublic: false,
+        runnerExe: exe,
+        environment: const {'BENCHER_API_KEY': 'k'},
+        upload: true,
+        allowDirty: allowDirty,
+        gitState: (_) async => state,
+        bencherRunner: (cmd, env) async {
+          command = cmd;
+          return 0;
+        },
+        log: log,
+        echoReport: false,
+      );
+      // O BMF sai sempre, com ou sem envio.
+      expect(out.existsSync(), isTrue);
+      return (code: code, log: '$log', command: command);
+    }
+
+    test('--upload envia o commit medido e o branch atual', () async {
+      final r = await upload(
+        LocalGitState(sha: 'b' * 40, branch: r'feat/a b$', dirty: false),
+      );
+      expect(r.code, 0, reason: r.log);
+      final cmd = r.command!;
+      String arg(String flag) => cmd[cmd.indexOf(flag) + 1];
+      expect(arg('--testbed'), 'local-dev');
+      expect(arg('--hash'), 'b' * 40);
+      expect(arg('--branch'), 'feat/a-b-');
+    });
+
+    test('--upload com árvore suja recusa o envio, com aviso', () async {
+      final r = await upload(
+        LocalGitState(sha: 'c' * 40, branch: 'main', dirty: true),
+      );
+      expect(r.code, 0, reason: r.log);
+      expect(r.command, isNull);
+      expect(r.log, contains('--allow-dirty'));
+    });
+
+    test('--upload com árvore suja e --allow-dirty envia', () async {
+      final r = await upload(
+        LocalGitState(sha: 'c' * 40, branch: 'main', dirty: true),
+        allowDirty: true,
+      );
+      expect(r.code, 0, reason: r.log);
+      expect(r.command, contains('c' * 40));
+    });
   });
 }
+
+const LocalGitState _clean = LocalGitState(
+  sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  branch: 'main',
+  dirty: false,
+);

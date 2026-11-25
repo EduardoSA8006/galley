@@ -9,13 +9,17 @@ const String bencherProject = 'galley';
 /// criados.
 const String bencherKeyVariable = 'BENCHER_API_KEY';
 
-/// Testbed do job de PR com contagem de instruções (Valgrind).
+/// Testbed da contagem de instruções (Valgrind), no PR e no noturno.
+///
+/// PR e noturno usam o mesmo testbed por tipo de medida: o histórico do
+/// Bencher é indexado por branch × testbed, e só assim o `--start-point main`
+/// do PR traz os pontos da `main`.
 const String testbedValgrind = 'github-ubuntu-valgrind';
 
-/// Testbed do job de PR com A/B de tempo de parede.
+/// Testbed do A/B de tempo de parede, no PR e no noturno.
 const String testbedAb = 'github-ubuntu-ab';
 
-/// Testbed do job noturno (compare, size, instruções e A/B longo).
+/// Testbed das medidas só do noturno (compare, size e wide).
 const String testbedNightly = 'github-ubuntu-nightly';
 
 /// Testbed das medições manuais da máquina do mantenedor.
@@ -54,15 +58,39 @@ typedef BencherProcessRunner = Future<int> Function(
   Map<String, String> environment,
 );
 
+/// Tamanho máximo do nome de branch enviado ao Bencher.
+const int maxBencherBranchLength = 64;
+
+final RegExp _branchUnsafe = RegExp(r'[^A-Za-z0-9._/-]');
+final RegExp _branchLeading = RegExp(r'^[-.]+');
+
+/// Normaliza [raw] (nome de branch do git) para um branch do Bencher.
+///
+/// Troca cada caractere fora de `[A-Za-z0-9._/-]` por `-`, remove hífens e
+/// pontos iniciais (o nome nunca vira uma opção da CLI) e corta em
+/// [maxBencherBranchLength] caracteres. Vazio, ou `HEAD` (checkout
+/// destacado), vira `main`.
+String sanitizeBencherBranch(String raw) {
+  if (raw.trim() == 'HEAD') return 'main';
+  var name = raw
+      .replaceAll(_branchUnsafe, '-')
+      .replaceFirst(_branchLeading, '');
+  if (name.length > maxBencherBranchLength) {
+    name = name.substring(0, maxBencherBranchLength);
+  }
+  return name.isEmpty ? 'main' : name;
+}
+
 /// Monta o comando `bencher run` do BMF [bmf] no testbed [testbed].
 ///
-/// [branch] e [startPoint] são opcionais. A chave nunca entra na linha de
-/// comando: a CLI a lê de `BENCHER_API_KEY`.
+/// [branch], [startPoint] e [hash] (o commit medido) são opcionais. A chave
+/// nunca entra na linha de comando: a CLI a lê de `BENCHER_API_KEY`.
 List<String> bencherCommand({
   required String testbed,
   required File bmf,
   String? branch,
   String? startPoint,
+  String? hash,
 }) => [
   'bencher',
   'run',
@@ -76,6 +104,7 @@ List<String> bencherCommand({
   bmf.path,
   if (branch != null) ...['--branch', branch],
   if (startPoint != null) ...['--start-point', startPoint],
+  if (hash != null) ...['--hash', hash],
 ];
 
 Future<int> _defaultRunner(
@@ -91,7 +120,8 @@ Future<int> _defaultRunner(
   return p.exitCode;
 }
 
-/// Envia o BMF [bmf] ao Bencher (`bencher run`) no testbed [testbed].
+/// Envia o BMF [bmf] ao Bencher (`bencher run`) no testbed [testbed], com
+/// [branch], [startPoint] e o commit [hash] opcionais.
 ///
 /// Sem `BENCHER_API_KEY` em [environment] (padrão: o ambiente do processo)
 /// não executa nada e devolve [BencherStatus.skipped] com um aviso. [runner]
@@ -101,8 +131,9 @@ Future<BencherOutcome> bencherRun({
   required File bmf,
   String? branch,
   String? startPoint,
+  String? hash,
   Map<String, String>? environment,
-  BencherProcessRunner runner = _defaultRunner,
+  BencherProcessRunner? runner,
 }) async {
   final env = environment ?? Platform.environment;
   final key = env[bencherKeyVariable];
@@ -118,9 +149,13 @@ Future<BencherOutcome> bencherRun({
     bmf: bmf,
     branch: branch,
     startPoint: startPoint,
+    hash: hash,
   );
   try {
-    final code = await runner(command, {...env, bencherKeyVariable: key});
+    final code = await (runner ?? _defaultRunner)(command, {
+      ...env,
+      bencherKeyVariable: key,
+    });
     return code == 0
         ? const BencherOutcome(BencherStatus.uploaded, 0, 'enviado ao Bencher')
         : BencherOutcome(

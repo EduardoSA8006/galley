@@ -29,9 +29,10 @@ import 'package:galley_benchmark/src/modes/wide.dart';
 /// - `local`: mede o checkout atual na máquina do mantenedor (tempo absoluto,
 ///   RSS de pico e instruções nativas com `perf`) em livros sintéticos de 50 e
 ///   300 MiB, no corpus público e no privado (`GALLEY_PRIVATE_CORPUS`,
-///   anonimizado). Aceita `--out`, `--report` e `--upload` (envia ao
-///   Bencher; sem `BENCHER_API_KEY` pula com aviso). Sai com 70 se algum
-///   livro falha.
+///   anonimizado). Aceita `--out`, `--report`, `--upload` (envia ao
+///   Bencher com o commit e o branch atuais; sem `BENCHER_API_KEY` pula com
+///   aviso; com a árvore suja recusa com aviso) e `--allow-dirty`. Sai com
+///   70 se algum livro falha.
 /// - `compare`: Galley contra `epubx`, `epub_plus` e `epub_pro` (abrir, ler o
 ///   spine inteiro, ler um recurso do livro de 50 MiB e RSS de pico) nos
 ///   livros escritos à mão, no sintético de 50 MiB e no corpus público.
@@ -123,7 +124,14 @@ Future<void> main(List<String> args) async {
     ..addFlag(
       'upload',
       negatable: false,
-      help: 'Envia o BMF ao Bencher (testbed local-dev).',
+      help:
+          'Envia o BMF ao Bencher (testbed local-dev, com o commit e o '
+          'branch atuais).',
+    )
+    ..addFlag(
+      'allow-dirty',
+      negatable: false,
+      help: 'Permite o --upload com mudanças não commitadas.',
     );
   final compare = ArgParser()
     ..addOption('out', help: 'Arquivo BMF (JSON) de saída.')
@@ -201,6 +209,7 @@ Future<void> main(List<String> args) async {
         outPath: command.option('out'),
         reportPath: command.option('report'),
         upload: command.flag('upload'),
+        allowDirty: command.flag('allow-dirty'),
       );
     } else if (command.name == 'ab') {
       final rounds = int.parse(command.option('rounds')!);

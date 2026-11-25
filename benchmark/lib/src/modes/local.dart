@@ -314,6 +314,41 @@ String renderLocalReport(
   return b.toString();
 }
 
+/// Estado do checkout medido pelo modo `local`, enviado ao Bencher.
+final class LocalGitState {
+  /// Cria o estado.
+  const LocalGitState({
+    required this.sha,
+    required this.branch,
+    required this.dirty,
+  });
+
+  /// Sha completo do `HEAD`.
+  final String sha;
+
+  /// Branch atual (`HEAD` se o checkout estiver destacado).
+  final String branch;
+
+  /// Se há mudanças não commitadas ou arquivos não rastreados.
+  final bool dirty;
+}
+
+Future<String> _gitOut(Directory repo, List<String> args) async {
+  final r = await Process.run('git', args, workingDirectory: repo.path);
+  if (r.exitCode != 0) {
+    throw BuildFailure('git ${args.join(' ')} falhou:\n${r.stderr}');
+  }
+  return (r.stdout as String).trim();
+}
+
+/// Lê o sha do `HEAD`, o branch atual e se a árvore de [repo] está suja
+/// (`git status --porcelain` não vazio, contando arquivos não rastreados).
+Future<LocalGitState> readLocalGitState(Directory repo) async => LocalGitState(
+  sha: await _gitOut(repo, ['rev-parse', 'HEAD']),
+  branch: await _gitOut(repo, ['rev-parse', '--abbrev-ref', 'HEAD']),
+  dirty: (await _gitOut(repo, ['status', '--porcelain'])).isNotEmpty,
+);
+
 /// Executa o modo `local`: mede o checkout ATUAL (sem base/head) na máquina
 /// do mantenedor.
 ///
@@ -325,13 +360,21 @@ String renderLocalReport(
 /// o privado de `GALLEY_PRIVATE_CORPUS` em [environment], que só aparece
 /// anonimizado. Escreve o BMF em [outPath] e o relatório em [reportPath];
 /// [echoReport] também imprime o relatório. Com [upload], e sem falhas,
-/// chama [bencherRun] (sem `BENCHER_API_KEY` pula com aviso). Devolve 0, ou
+/// chama [bencherRun] (sem `BENCHER_API_KEY` pula com aviso) com o commit
+/// medido (`--hash`) e o branch atual normalizado
+/// ([sanitizeBencherBranch]), lidos por [gitState] (padrão:
+/// [readLocalGitState]) antes de medir. Com a árvore suja, o envio é recusado
+/// com aviso (os arquivos saem assim mesmo), salvo com [allowDirty].
+/// [bencherRunner] injeta a execução da CLI nos testes. Devolve 0, ou
 /// [exitMeasurementFailure] se algum livro falhou (os arquivos saem assim
 /// mesmo).
 Future<int> runLocal({
   String? outPath,
   String? reportPath,
   bool upload = false,
+  bool allowDirty = false,
+  Future<LocalGitState> Function(Directory repo)? gitState,
+  BencherProcessRunner? bencherRunner,
   int runs = defaultLocalRuns,
   Duration timeout = defaultLocalTimeout,
   List<int> syntheticSizes = const [kSynthetic50MiB, kSynthetic300MiB],
@@ -347,6 +390,8 @@ Future<int> runLocal({
     final root = await repoRoot();
     final workDir = Directory('${root.path}/benchmark');
     final notes = <String>[];
+    // Lido antes de compilar e medir: é a árvore que será medida.
+    final git = upload ? await (gitState ?? readLocalGitState)(root) : null;
     final exe =
         runnerExe ??
         await () async {
@@ -430,10 +475,21 @@ Future<int> runLocal({
 
     final failed = results.any((r) => !r.ok);
     if (upload && !failed && outPath != null) {
+      if (git!.dirty && !allowDirty) {
+        logSink.writeln(
+          'Aviso: árvore de trabalho com mudanças não commitadas; envio ao '
+          'Bencher recusado (o BMF não corresponderia ao commit ${git.sha}). '
+          'Commite as mudanças ou use --allow-dirty.',
+        );
+        return 0;
+      }
       final outcome = await bencherRun(
         testbed: localTestbed,
         bmf: File(outPath),
+        branch: sanitizeBencherBranch(git.branch),
+        hash: git.sha,
         environment: environment,
+        runner: bencherRunner,
       );
       logSink.writeln(outcome.message);
       return outcome.exitCode;
