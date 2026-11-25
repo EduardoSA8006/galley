@@ -7,6 +7,7 @@ import 'package:galley_benchmark/src/modes/compare.dart';
 import 'package:galley_benchmark/src/modes/instructions.dart';
 import 'package:galley_benchmark/src/modes/build.dart' show repoRoot;
 import 'package:galley_benchmark/src/modes/local.dart';
+import 'package:galley_benchmark/src/modes/orchestration.dart' show Shard;
 import 'package:galley_benchmark/src/modes/size.dart';
 import 'package:galley_benchmark/src/modes/wide.dart';
 
@@ -15,19 +16,21 @@ import 'package:galley_benchmark/src/modes/wide.dart';
 /// Modos:
 /// - `instructions`: gate de instruções entre `--base` e `--head` (refs git),
 ///   com `--counter valgrind|perf`, `--out` (BMF), `--report` (Markdown) e
-///   `--bench` (repetível, restringe os ids) e `--threshold` (fração; padrão
+///   `--bench` (repetível, restringe os ids), `--shard i/n` (só a fatia i de
+///   n do catálogo, para jobs paralelos) e `--threshold` (fração; padrão
 ///   0.005). Sai com 1 em regressão acima do limite (0,5% no PR; o noturno
-///   usa `--base bench-baseline --threshold 0.10`) e com 2 se os checksums da base e do head divergirem.
+///   usa `--base bench-baseline --threshold 0.10`) e com 2 se os checksums
+///   da base e do head divergirem.
 /// - `ab`: comparação de tempo de parede entre `--base` e `--head`, em
 ///   `--rounds` rodadas intercaladas (padrão 15) e IC 95% bootstrap da razão
-///   das medianas. Aceita `--out`, `--report` e `--bench`. Sai com 1 se o IC
-///   de algum benchmark fica inteiro acima de +5%, com 2 se os checksums
-///   divergem e com 70 em falha.
+///   das medianas. Aceita `--out`, `--report`, `--bench` e `--shard i/n`.
+///   Sai com 1 se o IC de algum benchmark fica inteiro acima de +5%, com 2
+///   se os checksums divergem e com 70 em falha.
 /// - `local`: mede o checkout atual na máquina do mantenedor (tempo absoluto,
 ///   RSS de pico e instruções nativas com `perf`) em livros sintéticos de 50 e
 ///   300 MiB, no corpus público e no privado (`GALLEY_PRIVATE_CORPUS`,
 ///   anonimizado). Aceita `--out`, `--report` e `--upload` (envia ao
-///   Bencher; sem `BENCHER_API_TOKEN` pula com aviso). Sai com 70 se algum
+///   Bencher; sem `BENCHER_API_KEY` pula com aviso). Sai com 70 se algum
 ///   livro falha.
 /// - `compare`: Galley contra `epubx`, `epub_plus` e `epub_pro` (abrir, ler o
 ///   spine inteiro, ler um recurso do livro de 50 MiB e RSS de pico) nos
@@ -67,6 +70,11 @@ Future<void> main(List<String> args) async {
     ..addOption('report', help: 'Relatório em Markdown.')
     ..addMultiOption('bench', help: 'Restringe aos ids dados.')
     ..addOption(
+      'shard',
+      defaultsTo: '1/1',
+      help: 'Mede só a fatia i/n do catálogo (jobs paralelos do CI).',
+    )
+    ..addOption(
       'threshold',
       defaultsTo: '$defaultThreshold',
       help:
@@ -99,6 +107,11 @@ Future<void> main(List<String> args) async {
     ..addOption('out', help: 'Arquivo BMF (JSON) de saída.')
     ..addOption('report', help: 'Relatório em Markdown.')
     ..addMultiOption('bench', help: 'Restringe aos ids dados.')
+    ..addOption(
+      'shard',
+      defaultsTo: '1/1',
+      help: 'Mede só a fatia i/n do catálogo (jobs paralelos do CI).',
+    )
     ..addOption(
       'timeout-minutes',
       defaultsTo: '${defaultAbTimeout.inMinutes}',
@@ -201,6 +214,7 @@ Future<void> main(List<String> args) async {
         outPath: command.option('out'),
         reportPath: command.option('report'),
         only: command.multiOption('bench'),
+        shard: Shard.parse(command.option('shard')!),
         timeout: Duration(minutes: minutes),
       );
     } else {
@@ -220,6 +234,7 @@ Future<void> main(List<String> args) async {
         outPath: command.option('out'),
         reportPath: command.option('report'),
         only: command.multiOption('bench'),
+        shard: Shard.parse(command.option('shard')!),
         threshold: parseThreshold(command.option('threshold')!),
         lowIterations: low,
         highIterations: high,

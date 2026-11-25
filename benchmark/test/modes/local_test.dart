@@ -216,7 +216,7 @@ void main() {
         echoReport: false,
       );
       expect(code, 0, reason: '$log');
-      expect('$log', contains('BENCHER_API_TOKEN'));
+      expect('$log', contains('BENCHER_API_KEY'));
     });
   });
 }

@@ -627,11 +627,12 @@ const int exitInstructionsFailure = exitMeasurementFailure;
 /// Cada ref vira um `git worktree` temporário com o `bench_runner` compilado
 /// em AOT; os benchmarks rodam intercalados (base, head) por benchmark. Os
 /// ids `harness/*` ficam fora. [only], se não vazio, restringe aos ids
-/// dados. Escreve o BMF em [outPath] e o relatório em [reportPath] (quando
-/// dados). [threshold] é a regressão que reprova (padrão 0,5%). Cada
-/// execução sob o contador tem o limite [timeout]. Devolve o
-/// código de saída: 0 aprovado, 1 regressão, 2 checksums
-/// divergentes, [exitCounterUnavailable] ou [exitInstructionsFailure].
+/// dados, e [shard] mede só a sua fatia (ver [Shard]). Escreve o BMF em
+/// [outPath] e o relatório em [reportPath] (quando dados). [threshold] é a
+/// regressão que reprova (padrão 0,5%). Cada execução sob o contador tem o
+/// limite [timeout]. Devolve o código de saída: 0 aprovado, 1 regressão,
+/// 2 checksums divergentes, [exitCounterUnavailable] ou
+/// [exitInstructionsFailure].
 Future<int> runInstructions({
   required String baseRef,
   required String headRef,
@@ -639,6 +640,7 @@ Future<int> runInstructions({
   String? outPath,
   String? reportPath,
   List<String> only = const [],
+  Shard shard = Shard.all,
   double threshold = defaultThreshold,
   int lowIterations = defaultLowIterations,
   int highIterations = defaultHighIterations,
@@ -653,6 +655,7 @@ Future<int> runInstructions({
         baseRef: baseRef,
         headRef: headRef,
         only: only,
+        shard: shard,
       );
       final base = <String, InstructionCount>{};
       final head = <String, InstructionCount>{};

@@ -96,6 +96,52 @@ Future<List<String>?> listBenches(File exe) async {
       .toList();
 }
 
+/// Fatia `index/count` do catálogo, para repartir um modo entre jobs
+/// paralelos do CI (`--shard i/n`).
+///
+/// Os ids são ordenados e repartidos em rodízio: a fatia `i` fica com as
+/// posições `i − 1`, `i − 1 + n`, … As `n` fatias cobrem o catálogo sem
+/// repetir ids.
+final class Shard {
+  /// Cria a fatia [index] (de 1 a [count]) de [count].
+  const Shard(this.index, this.count)
+    : assert(count >= 1 && index >= 1 && index <= count);
+
+  /// O catálogo inteiro (`1/1`).
+  static const Shard all = Shard(1, 1);
+
+  /// Lê `i/n` de [text]; lança [FormatException] se o formato ou a faixa
+  /// (1 ≤ i ≤ n) for inválido.
+  static Shard parse(String text) {
+    final m = RegExp(r'^(\d+)/(\d+)$').firstMatch(text.trim());
+    final index = m == null ? null : int.tryParse(m[1]!);
+    final count = m == null ? null : int.tryParse(m[2]!);
+    if (index == null ||
+        count == null ||
+        count < 1 ||
+        index < 1 ||
+        index > count) {
+      throw FormatException('shard deve ser i/n com 1 ≤ i ≤ n: "$text"');
+    }
+    return Shard(index, count);
+  }
+
+  /// Posição desta fatia, de 1 a [count].
+  final int index;
+
+  /// Quantidade de fatias.
+  final int count;
+
+  /// Ids de [ids] que pertencem a esta fatia, ordenados.
+  List<String> select(Iterable<String> ids) {
+    final sorted = ids.toSet().toList()..sort();
+    return [for (var i = index - 1; i < sorted.length; i += count) sorted[i]];
+  }
+
+  @override
+  String toString() => '$index/$count';
+}
+
 /// Base e head prontos para medir: checkouts, `bench_runner` compilados e
 /// ids selecionados.
 final class Versions {
@@ -179,13 +225,15 @@ final class Session {
   /// `bench_runner` e seleção dos ids.
   ///
   /// Ids `harness/*` ficam fora; [only], se não vazio, restringe aos ids
-  /// dados (que precisam existir no head). Base sem `benchmark/` não é erro:
+  /// dados (que precisam existir no head) e [shard] fica só com a sua fatia
+  /// da união base ∪ head (ver [Shard]). Base sem `benchmark/` não é erro:
   /// vira uma nota e todos os ids do head entram como `added`. Lança
   /// [BuildFailure] se o head não tem `bench_runner` ou `--list`.
   Future<Versions> prepare({
     required String baseRef,
     required String headRef,
     List<String> only = const [],
+    Shard shard = Shard.all,
   }) async {
     final headDir = await checkout(headRef);
     if (!hasBenchRunner(headDir)) {
@@ -215,17 +263,25 @@ final class Session {
 
     bool selected(String id) =>
         !id.startsWith('harness/') && (only.isEmpty || only.contains(id));
-    final headIds = (await listBenches(headExe))?.where(selected).toList();
-    if (headIds == null) {
+    final listed = (await listBenches(headExe))?.where(selected).toList();
+    if (listed == null) {
       throw const BuildFailure('o bench_runner do head não aceitou --list');
     }
-    final unknown = only.where((id) => !headIds.contains(id)).toList();
+    var headIds = listed;
+    final unknown = only.where((id) => !listed.contains(id)).toList();
     if (unknown.isNotEmpty) {
       throw BuildFailure('benchmarks desconhecidos no head: $unknown');
     }
-    final baseIds = baseExe == null
+    var baseIds = baseExe == null
         ? const <String>[]
         : (await listBenches(baseExe))?.where(selected).toList();
+    if (shard.count > 1) {
+      final mine = shard.select({...headIds, ...?baseIds}).toSet();
+      final total = {...headIds, ...?baseIds}.length;
+      headIds = headIds.where(mine.contains).toList();
+      baseIds = baseIds?.where(mine.contains).toList();
+      notes.add('Fatia $shard: ${mine.length} de $total benchmarks.');
+    }
     return Versions(
       headDir: headDir,
       baseDir: baseDir,

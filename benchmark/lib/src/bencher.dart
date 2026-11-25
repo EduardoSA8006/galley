@@ -3,8 +3,11 @@ import 'dart:io';
 /// Projeto do Galley no Bencher.
 const String bencherProject = 'galley';
 
-/// Variável de ambiente com o token da API do Bencher (lida pela própria CLI).
-const String bencherTokenVariable = 'BENCHER_API_TOKEN';
+/// Variável de ambiente com a chave de API do Bencher (lida pela própria
+/// CLI). É a autenticação atual do Bencher: os antigos tokens
+/// (`BENCHER_API_TOKEN`, `--token`) estão obsoletos e não podem mais ser
+/// criados.
+const String bencherKeyVariable = 'BENCHER_API_KEY';
 
 /// Testbed do job de PR com contagem de instruções (Valgrind).
 const String testbedValgrind = 'github-ubuntu-valgrind';
@@ -23,7 +26,7 @@ enum BencherStatus {
   /// O `bencher run` terminou com sucesso.
   uploaded,
 
-  /// Não havia token: nada foi executado (não é falha).
+  /// Não havia chave: nada foi executado (não é falha).
   skipped,
 
   /// A CLI falhou, não está instalada ou saiu com código diferente de 0.
@@ -53,8 +56,8 @@ typedef BencherProcessRunner = Future<int> Function(
 
 /// Monta o comando `bencher run` do BMF [bmf] no testbed [testbed].
 ///
-/// [branch] e [startPoint] são opcionais. O token nunca entra na linha de
-/// comando: a CLI o lê de `BENCHER_API_TOKEN`.
+/// [branch] e [startPoint] são opcionais. A chave nunca entra na linha de
+/// comando: a CLI a lê de `BENCHER_API_KEY`.
 List<String> bencherCommand({
   required String testbed,
   required File bmf,
@@ -90,7 +93,7 @@ Future<int> _defaultRunner(
 
 /// Envia o BMF [bmf] ao Bencher (`bencher run`) no testbed [testbed].
 ///
-/// Sem `BENCHER_API_TOKEN` em [environment] (padrão: o ambiente do processo)
+/// Sem `BENCHER_API_KEY` em [environment] (padrão: o ambiente do processo)
 /// não executa nada e devolve [BencherStatus.skipped] com um aviso. [runner]
 /// permite injetar a execução do processo nos testes.
 Future<BencherOutcome> bencherRun({
@@ -102,12 +105,12 @@ Future<BencherOutcome> bencherRun({
   BencherProcessRunner runner = _defaultRunner,
 }) async {
   final env = environment ?? Platform.environment;
-  final token = env[bencherTokenVariable];
-  if (token == null || token.isEmpty) {
+  final key = env[bencherKeyVariable];
+  if (key == null || key.isEmpty) {
     return const BencherOutcome(
       BencherStatus.skipped,
       0,
-      'upload ao Bencher pulado: $bencherTokenVariable não está definido',
+      'upload ao Bencher pulado: $bencherKeyVariable não está definido',
     );
   }
   final command = bencherCommand(
@@ -117,7 +120,7 @@ Future<BencherOutcome> bencherRun({
     startPoint: startPoint,
   );
   try {
-    final code = await runner(command, {...env, bencherTokenVariable: token});
+    final code = await runner(command, {...env, bencherKeyVariable: key});
     return code == 0
         ? const BencherOutcome(BencherStatus.uploaded, 0, 'enviado ao Bencher')
         : BencherOutcome(

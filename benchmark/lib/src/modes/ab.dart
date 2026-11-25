@@ -346,9 +346,10 @@ Future<bool> baseSupportsTiming(
 /// (a mesma `k` nos dois lados) e cada rodada roda a base e depois o head.
 /// Cada amostra é o tempo de relógio das iterações 2 a `k`, medido dentro do
 /// `bench_runner` (`--timing`): partida do processo, `setUp` e a iteração de
-/// aquecimento ficam fora, então não há `noop` a descontar. Escreve o BMF
-/// `wall-time-ns` em [outPath] e o relatório em [reportPath]. Devolve 0
-/// (aprovado), 1 (regressão), 2 (checksums divergentes) ou 70 (falha).
+/// aquecimento ficam fora, então não há `noop` a descontar. [shard] mede só
+/// a sua fatia do catálogo (ver [Shard]). Escreve o BMF `wall-time-ns` em
+/// [outPath] e o relatório em [reportPath]. Devolve 0 (aprovado),
+/// 1 (regressão), 2 (checksums divergentes) ou 70 (falha).
 Future<int> runAb({
   required String baseRef,
   required String headRef,
@@ -356,6 +357,7 @@ Future<int> runAb({
   String? outPath,
   String? reportPath,
   List<String> only = const [],
+  Shard shard = Shard.all,
   Duration timeout = defaultAbTimeout,
   StringSink? log,
 }) {
@@ -368,6 +370,7 @@ Future<int> runAb({
       baseRef: baseRef,
       headRef: headRef,
       only: only,
+      shard: shard,
     );
     final notes = [...v.notes];
     var baseExe = v.baseExe;

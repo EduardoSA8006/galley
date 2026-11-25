@@ -76,13 +76,40 @@ bytes entre os dois APKs, gravada como `size-bytes` em
   agregados (`private/aggregate`: mediana e p95). Sem a variável, o modo
   `local` segue sem o corpus privado e avisa.
 - **Quando rodar `local`:** após mudanças que mexam em desempenho e antes de
-  cada release. Com `--upload` (e `BENCHER_API_TOKEN` definido) o resultado vai
-  ao Bencher no testbed `local-dev`; sem o token o upload é pulado com aviso.
+  cada release. Com `--upload` (e `BENCHER_API_KEY` definido) o resultado vai
+  ao Bencher no testbed `local-dev`; sem a chave o upload é pulado com aviso.
 - **Cache do corpus público:** `.corpus-cache/` (na raiz do repositório, fora
   do git) guarda os livros baixados, verificados por `sha256`. Enquanto os
   arquivos não forem baixados novamente do espelho da release `corpus-v1`
   (já publicada), esse cache guarda a **única cópia local dos bytes exatos**.
   Não o apague sem necessidade.
+
+## CI (`.github/workflows/`)
+
+- **`bench-pr.yml`** (`pull_request`, sem secrets): o gate `instructions`
+  (Valgrind) roda em 4 fatias paralelas e o `ab` (15 rodadas) em 2, com
+  `--shard i/n` (os ids do catálogo, ordenados, repartidos em rodízio). A
+  base é o `merge-base` entre a base do PR e o head. Os jobs finais
+  **`instructions`** e **`ab`** juntam as fatias (BMF, relatório no resumo do
+  job e `pr-number.txt` em artefato) e reprovam se alguma fatia reprovou:
+  são eles os checks obrigatórios. O catálogo usa só livros escritos à mão e
+  sintéticos: não há rede nos gates.
+- **`bench-pr-upload.yml`** (`workflow_run` do `bench-pr`): baixa os
+  artefatos, sem checkout nem execução de código do PR, valida o número do
+  PR e envia ao Bencher (`--branch` do PR vindo do evento, `--start-point
+  main`, comentário no PR). Sem `BENCHER_API_KEY`, pula com aviso. O GitHub
+  só dispara `workflow_run` a partir da cópia do arquivo na branch padrão: o
+  envio começa a valer depois do merge.
+- **`bench-nightly.yml`** (diário às 06:00 UTC, a cada push na `main` e
+  manual): `instructions` (com a regressão gradual contra `bench-baseline`,
+  10%, quando a tag existe; sem ela, mede só o head e avisa), `ab` longo (31
+  rodadas, só o head), `compare` (só relatório; nunca reprova o noturno),
+  `size`, `wide` (job independente, prazo de 150 min por causa da primeira
+  execução sem cache) e o envio de tudo ao Bencher (`--branch main`, testbed
+  `github-ubuntu-nightly`) em jobs sem checkout.
+
+Para medir uma fatia localmente:
+`dart run tool/bench.dart instructions --base origin/main --head HEAD --shard 2/4`.
 
 ## Bencher
 
@@ -95,8 +122,10 @@ harness (base e head medidos no mesmo job, com o mesmo toolchain).
 bencher run --project galley --testbed <testbed> --adapter json --file <bmf> [--branch <b>] [--start-point <p>]
 ```
 
-O token é lido de `BENCHER_API_TOKEN` pela própria CLI (não entra na linha de
-comando). Sem o token, o envio é pulado com aviso e não falha.
+A chave de API é lida de `BENCHER_API_KEY` pela própria CLI (não entra na
+linha de comando). Sem a chave, o envio é pulado com aviso e não falha. (Os
+antigos tokens, `BENCHER_API_TOKEN`/`--token`, estão obsoletos no Bencher e
+não podem mais ser criados.)
 
 Testbeds: `github-ubuntu-valgrind` (instruções no PR), `github-ubuntu-ab`
 (A/B no PR), `github-ubuntu-nightly` (noturno: compare, size, instruções, A/B
@@ -108,8 +137,9 @@ Nada disto é feito pelo código; exige a sua conta.
 
 1. Criar a conta em <https://bencher.dev> e, nela, o projeto **`galley`**
    (slug `galley`, público ou privado, a seu critério).
-2. Gerar um token de API (Console > Tokens) e cadastrá-lo como secret do
-   repositório no GitHub com o nome **`BENCHER_API_TOKEN`**
+2. Gerar uma chave de API (API key; a de projeto, `bencher_run_*`, basta,
+   pois o projeto já existe) e cadastrá-la como secret do
+   repositório no GitHub com o nome **`BENCHER_API_KEY`**
    (Settings > Secrets and variables > Actions). Para rodar `local --upload`,
    exporte a mesma variável no seu shell.
 3. Criar os testbeds (o primeiro `bencher run` também os cria sozinho):

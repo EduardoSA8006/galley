@@ -365,6 +365,17 @@ void main() {
       }
     }, timeout: const Timeout(Duration(minutes: 15)));
 
+    test('--shard 2/2 mede só a segunda fatia (rodízio por id)', () async {
+      final r = await cli(['--base', 'd4ef38a', '--shard', '2/2']);
+      expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
+      final bmf = jsonDecode(
+        File('${tmp.path}/bmf.json').readAsStringSync(),
+      ) as Map<String, Object?>;
+      expect(bmf.keys, {'container/deobfuscate-idpf'});
+      final report = File('${tmp.path}/report.md').readAsStringSync();
+      expect(report, contains('Fatia 2/2: 1 de 2 benchmarks.'));
+    }, timeout: const Timeout(Duration(minutes: 15)));
+
     test('base sem benchmark/ marca tudo como added e sai com 0', () async {
       final r = await cli(['--base', 'd4ef38a']);
       expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');

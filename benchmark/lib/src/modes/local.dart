@@ -325,7 +325,7 @@ String renderLocalReport(
 /// o privado de `GALLEY_PRIVATE_CORPUS` em [environment], que só aparece
 /// anonimizado. Escreve o BMF em [outPath] e o relatório em [reportPath];
 /// [echoReport] também imprime o relatório. Com [upload], e sem falhas,
-/// chama [bencherRun] (sem `BENCHER_API_TOKEN` pula com aviso). Devolve 0, ou
+/// chama [bencherRun] (sem `BENCHER_API_KEY` pula com aviso). Devolve 0, ou
 /// [exitMeasurementFailure] se algum livro falhou (os arquivos saem assim
 /// mesmo).
 Future<int> runLocal({

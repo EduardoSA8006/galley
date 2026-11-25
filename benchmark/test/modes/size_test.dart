@@ -84,7 +84,7 @@ void main() {
   group('bencherRun', () {
     final bmf = File('/tmp/x.json');
 
-    test('sem BENCHER_API_TOKEN pula com aviso e não executa nada', () async {
+    test('sem BENCHER_API_KEY pula com aviso e não executa nada', () async {
       var calls = 0;
       final r = await bencherRun(
         testbed: 'local-dev',
@@ -98,27 +98,27 @@ void main() {
       expect(r.status, BencherStatus.skipped);
       expect(r.exitCode, 0);
       expect(calls, 0);
-      expect(r.message, contains('BENCHER_API_TOKEN'));
+      expect(r.message, contains('BENCHER_API_KEY'));
     });
 
-    test('token vazio também pula', () async {
+    test('chave vazia também pula', () async {
       final r = await bencherRun(
         testbed: 'local-dev',
         bmf: bmf,
-        environment: const {'BENCHER_API_TOKEN': ''},
+        environment: const {'BENCHER_API_KEY': ''},
         runner: (cmd, env) async => fail('não deveria executar'),
       );
       expect(r.status, BencherStatus.skipped);
     });
 
-    test('com token executa o comando exato; token só no ambiente', () async {
+    test('com a chave executa o comando exato; chave só no ambiente', () async {
       List<String>? seen;
       Map<String, String>? seenEnv;
       final r = await bencherRun(
         testbed: 'github-ubuntu-ab',
         bmf: bmf,
         branch: 'main',
-        environment: const {'BENCHER_API_TOKEN': 's3cr3t'},
+        environment: const {'BENCHER_API_KEY': 's3cr3t'},
         runner: (cmd, env) async {
           seen = cmd;
           seenEnv = env;
@@ -131,14 +131,14 @@ void main() {
         bencherCommand(testbed: 'github-ubuntu-ab', bmf: bmf, branch: 'main'),
       );
       expect(seen!.join(' '), isNot(contains('s3cr3t')));
-      expect(seenEnv!['BENCHER_API_TOKEN'], 's3cr3t');
+      expect(seenEnv!['BENCHER_API_KEY'], 's3cr3t');
     });
 
     test('código de saída diferente de 0 vira failed', () async {
       final r = await bencherRun(
         testbed: 'local-dev',
         bmf: bmf,
-        environment: const {'BENCHER_API_TOKEN': 't'},
+        environment: const {'BENCHER_API_KEY': 't'},
         runner: (cmd, env) async => 3,
       );
       expect(r.status, BencherStatus.failed);
@@ -149,7 +149,7 @@ void main() {
       final r = await bencherRun(
         testbed: 'local-dev',
         bmf: bmf,
-        environment: const {'BENCHER_API_TOKEN': 't'},
+        environment: const {'BENCHER_API_KEY': 't'},
         runner: (cmd, env) async =>
             throw const ProcessException('bencher', [], 'not found'),
       );
