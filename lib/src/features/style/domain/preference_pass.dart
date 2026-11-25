@@ -23,32 +23,50 @@ import 'text_run.dart';
 final class PreferencePass {
   /// Prepara a passada de [preferences] para o documento [matched]. As
   /// preferências com política "editora" são ignoradas.
+  ///
+  /// **Saneamento.** Valores numéricos não finitos (NaN, ±∞) são ignorados
+  /// como se a preferência não existisse (sem diagnóstico: quem monta as
+  /// preferências é o app, não o livro), assim como fator de fonte e
+  /// entrelinha ≤ 0. Os finitos ficam limitados a ±[kCssMaxMagnitude], o
+  /// mesmo teto dos valores lidos do CSS.
   factory PreferencePass(
     ReaderPreferences preferences,
     MatchedDocument matched,
   ) {
     Preference<T>? active<T>(Preference<T>? p) =>
         p == null || p.policy == PreferencePolicy.publisher ? null : p;
+    Preference<double>? number(Preference<double>? p, {bool positive = false}) {
+      final a = active(p);
+      if (a == null) return null;
+      final v = a.value;
+      if (!v.isFinite || (positive && v <= 0)) return null;
+      if (v.abs() <= kCssMaxMagnitude) return a;
+      return Preference(
+        v.isNegative ? -kCssMaxMagnitude : kCssMaxMagnitude,
+        policy: a.policy,
+      );
+    }
 
-    final size = active(preferences.fontSize);
+    final size = number(preferences.fontSize, positive: true);
     var scale = 1.0;
     if (size != null) {
       scale = size.policy == PreferencePolicy.force
           ? (matched.bodyFontSize > 0 ? size.value / matched.bodyFontSize : 1)
           : size.value;
       if (!scale.isFinite || scale <= 0) scale = 1;
+      if (scale > kCssMaxMagnitude) scale = kCssMaxMagnitude;
     }
     return PreferencePass._(
       fontScale: scale,
       family: active(preferences.fontFamily),
       preserveHeadingFonts: preferences.preserveHeadingFonts,
-      lineHeight: active(preferences.lineHeight),
-      paragraphSpacing: active(preferences.paragraphSpacing),
-      textIndent: active(preferences.textIndent),
+      lineHeight: number(preferences.lineHeight, positive: true),
+      paragraphSpacing: number(preferences.paragraphSpacing),
+      textIndent: number(preferences.textIndent),
       textAlign: active(preferences.textAlign),
       hyphenation: active(preferences.hyphenation),
-      wordSpacing: active(preferences.wordSpacing),
-      letterSpacing: active(preferences.letterSpacing),
+      wordSpacing: number(preferences.wordSpacing),
+      letterSpacing: number(preferences.letterSpacing),
       theme: active(preferences.theme)?.value,
       genericFamilies: preferences.genericFamilies,
     );

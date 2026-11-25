@@ -4,6 +4,7 @@ import 'package:galley/src/features/document/domain/names.dart';
 import 'package:galley/src/features/style/domain/computed_style.dart';
 import 'package:galley/src/features/style/domain/css_value.dart';
 import 'package:galley/src/features/style/domain/matched_document.dart';
+import 'package:galley/src/features/style/domain/preference_pass.dart';
 import 'package:galley/src/features/style/domain/properties.dart';
 import 'package:galley/src/features/style/domain/reader_preferences.dart';
 import 'package:galley/src/features/style/domain/styled_document.dart';
@@ -675,5 +676,91 @@ void main() {
         expect(() => restyleChecked(m, _all(policy)), returnsNormally);
       });
     }
+  });
+
+  group('saneamento das preferências numéricas', () {
+    ReaderPreferences only(String name, double v, PreferencePolicy policy) {
+      final p = Preference(v, policy: policy);
+      return switch (name) {
+        'fontSize' => ReaderPreferences(fontSize: p),
+        'lineHeight' => ReaderPreferences(lineHeight: p),
+        'paragraphSpacing' => ReaderPreferences(paragraphSpacing: p),
+        'textIndent' => ReaderPreferences(textIndent: p),
+        'wordSpacing' => ReaderPreferences(wordSpacing: p),
+        _ => ReaderPreferences(letterSpacing: p),
+      };
+    }
+
+    const names = [
+      'fontSize',
+      'lineHeight',
+      'paragraphSpacing',
+      'textIndent',
+      'wordSpacing',
+      'letterSpacing',
+    ];
+
+    test('NaN e ±∞ são ignorados como preferência ausente', () {
+      final m = _match();
+      final none = restyleChecked(m, ReaderPreferences.none);
+      for (final name in names) {
+        for (final v in [
+          double.nan,
+          double.infinity,
+          double.negativeInfinity,
+        ]) {
+          for (final policy in [_adjust, _force]) {
+            final prefs = only(name, v, policy);
+            expect(
+              PreferencePass(prefs, m).isActive,
+              isFalse,
+              reason: '$name $v $policy',
+            );
+            _expectSame(restyleChecked(m, prefs), none);
+          }
+        }
+      }
+    });
+
+    test('fator e entrelinha ≤ 0 são ignorados', () {
+      final m = _match();
+      for (final name in ['fontSize', 'lineHeight']) {
+        for (final v in [0.0, -1.0]) {
+          for (final policy in [_adjust, _force]) {
+            expect(
+              PreferencePass(only(name, v, policy), m).isActive,
+              isFalse,
+              reason: '$name $v $policy',
+            );
+          }
+        }
+      }
+    });
+
+    test('finitos enormes ficam limitados e os valores, finitos', () {
+      final m = _match();
+      for (final name in names) {
+        for (final policy in [_adjust, _force]) {
+          final styled = restyleChecked(m, only(name, 1e300, policy));
+          for (final style in styled.styles) {
+            for (var p = 0; p < kPropertyCount; p++) {
+              final v = style[p];
+              if (v is CssLength) {
+                expect(v.px.isFinite, isTrue, reason: '$name $policy $p');
+              } else if (v is CssNumber) {
+                expect(v.value.isFinite, isTrue, reason: '$name $policy $p');
+              }
+            }
+          }
+        }
+      }
+      final pass = PreferencePass(only('fontSize', 1e300, _adjust), m);
+      expect(pass.fontScale, kCssMaxMagnitude);
+    });
+
+    test('negativos finitos de espaçamento continuam valendo', () {
+      final d = _doc(const ReaderPreferences(letterSpacing: Preference(-.05)));
+      expect(d.px('p', PropertyId.letterSpacing, cls: 'a'), closeTo(-.8, 1e-9));
+    });
   });
 }

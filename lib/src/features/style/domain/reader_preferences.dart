@@ -92,6 +92,8 @@ enum ReaderTextAlign {
 /// livro.
 ///
 /// Só o modelo: a passada que aplica as preferências é feita no `restyle`.
+/// Ela ignora valores numéricos não finitos (NaN, ±∞), fator de fonte e
+/// entrelinha ≤ 0, e limita os demais a ±1e9 (ver `PreferencePass`).
 @immutable
 final class ReaderPreferences {
   /// Cria as preferências.
