@@ -8,12 +8,18 @@ retomar. Ao resolver um item, apague-o deste arquivo no mesmo commit.
 
 - **Remover `LinearHtml5EntityMapping`** (`lib/src/features/document/data/event_adapter.dart`)
   quando uma versão oficial do `package:xml` trouxer a decodificação linear de
-  entidades (issue renggli/dart-xml#221, PR #222). Manter os testes de
-  equivalência e de tempo. Exige migrar `xml` 6.6.1 → 7.x.
+  entidades (issue renggli/dart-xml#221, PR #222, mergeado em 2026-11-25 e ainda
+  não lançado). Manter os testes de equivalência e de tempo. Exige migrar `xml`
+  6.6.1 → 7.x.
 - **Remover a normalização de CRLF** do mesmo arquivo quando a correção do
-  upstream (dart-xml#220, ainda não lançada) sair numa versão. Mesma migração.
-- **`&#10;`/`&#9;` em atributos viram espaço** (limitação do `package:xml`,
-  documentada no adaptador e no `docdiff`). Rever junto com a migração acima.
+  upstream (dart-xml#220, mergeada e ainda não lançada) sair numa versão. Mesma
+  migração.
+- **Normalização de espaço em atributos (§3.3.3):** hoje `&#10;`/`&#9;` em
+  atributos viram espaço (limitação do `package:xml`, documentada no adaptador e
+  no `docdiff`). O PR renggli/dart-xml#225 faz a normalização correta no parser;
+  se entrar, remover a nossa e ajustar o `docdiff` na mesma migração.
+- **PR renggli/dart-xml#224** (parser de nomes, +10–30 % nos eventos): ganho
+  automático ao migrar, se for aceito.
 - **Velocidade do `package:xml`:** o perfil (2026-11-25) mostra ~25 % do tempo
   em `substring`. Patches upstream (parser de nome com tabela ASCII, cache de
   nomes, bitmap no petitparser) dão +10–39 %, com teto ~1,5×. Um tokenizador
