@@ -3,9 +3,10 @@
 #
 # Roda no contexto da `main` (workflow_run), com acesso ao secret
 # BENCHER_API_KEY, e por isso NUNCA faz checkout nem executa código do PR:
-# só baixa os artefatos (BMF em JSON) e valida o que usa. O branch do Bencher
-# vem do payload confiável do evento, nunca de um artefato. Sem a chave, o
-# envio é pulado com aviso.
+# só baixa o BMF (JSON, lido pela CLI do Bencher como dado). O PR alvo do
+# comentário e o branch do Bencher (`pr-<número>`) vêm só do evento e da API
+# do GitHub (PR aberto cujo head é o commit medido), nunca do artefato. Sem
+# PR verificado ou sem a chave, o envio é pulado com aviso.
 #
 # Atenção: o GitHub só dispara workflow_run a partir da cópia deste arquivo
 # na branch padrão; ele passa a valer depois do merge.
@@ -30,6 +31,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       actions: read # baixar artefatos de outra execução
+      contents: read # API commits/{sha}/pulls (sem checkout)
       checks: write # check do Bencher
       pull-requests: write # comentário do Bencher no PR
     strategy:
@@ -59,44 +61,47 @@ jobs:
           path: artifact
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
-      - name: Validar as entradas
+      - name: Identificar o PR (dados confiáveis)
         id: inputs
         if: steps.key.outputs.present == 'true'
         env:
-          # Do payload do evento (confiável), nunca do artefato.
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          # Tudo do payload do evento ou da API do GitHub; nada do artefato.
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          # Vazio em PRs de fork; quando existe, precisa bater com o artefato.
-          PAYLOAD_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          KIND: ${{ matrix.kind }}
         run: |
-          pr=$(head -c 32 artifact/pr-number.txt | tr -d '[:space:]')
-          if ! [[ "$pr" =~ ^[0-9]{1,10}$ ]]; then
-            echo "::error::pr-number.txt não é numérico"
-            exit 1
-          fi
-          if [ -n "$PAYLOAD_PR" ] && [ "$PAYLOAD_PR" != "$pr" ]; then
-            echo "::error::pr-number.txt ($pr) diverge do evento ($PAYLOAD_PR)"
-            exit 1
-          fi
           if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::head_sha inválido"
             exit 1
           fi
-          # Nome de branch restrito a [A-Za-z0-9._/-]; um PR vindo de uma
-          # branch `main` (ex.: de fork) não pode escrever no histórico da main.
-          branch="$HEAD_BRANCH"
-          if ! [[ "$branch" =~ ^[A-Za-z0-9._/-]{1,200}$ ]] || [ "$branch" = main ]; then
-            branch="pr-$pr"
+          # PR aberto deste repositório cujo head é exatamente o commit medido.
+          filter='[.[] | select(.state == "open" and .head.sha == env.HEAD_SHA and .base.repo.full_name == env.REPO) | .number] | first // empty'
+          pr=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" --jq "$filter" || true)
+          if [ -z "$pr" ]; then
+            # PRs de fork nem sempre aparecem pelo commit: procura pelo head
+            # owner:branch e confere o sha do mesmo jeito.
+            pr=$(gh api -X GET "repos/$REPO/pulls" -f state=open \
+              -f head="$HEAD_OWNER:$HEAD_BRANCH" --jq "$filter" || true)
           fi
-          if ! [ -s artifact/bmf.json ]; then
-            echo "::notice::Sem bmf.json no artefato bench-${{ matrix.kind }}: nada a enviar."
+          if ! [[ "$pr" =~ ^[0-9]{1,10}$ ]]; then
+            echo "::notice::Nenhum PR aberto com head $HEAD_SHA: envio ao Bencher pulado."
             echo "upload=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if ! [ -s artifact/bmf.json ]; then
+            echo "::notice::Sem bmf.json no artefato bench-$KIND: nada a enviar."
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Branch do Bencher derivado só do número verificado: único e sem
+          # colisão com branches reais (nunca o head_branch cru).
           {
             echo "upload=true"
             echo "pr=$pr"
-            echo "branch=$branch"
+            echo "branch=pr-$pr"
             echo "sha=$HEAD_SHA"
           } >> "$GITHUB_OUTPUT"
       - uses: bencherdev/bencher@b2484bc6734c8e6da4fad141bd13527a11da3988 # v0.6.17

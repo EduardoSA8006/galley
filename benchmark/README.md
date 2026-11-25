@@ -90,14 +90,15 @@ bytes entre os dois APKs, gravada como `size-bytes` em
   (Valgrind) roda em 4 fatias paralelas e o `ab` (15 rodadas) em 2, com
   `--shard i/n` (os ids do catálogo, ordenados, repartidos em rodízio). A
   base é o `merge-base` entre a base do PR e o head. Os jobs finais
-  **`instructions`** e **`ab`** juntam as fatias (BMF, relatório no resumo do
-  job e `pr-number.txt` em artefato) e reprovam se alguma fatia reprovou:
+  **`instructions`** e **`ab`** juntam as fatias (BMF em artefato e
+  relatório no resumo do job) e reprovam se alguma fatia reprovou:
   são eles os checks obrigatórios. O catálogo usa só livros escritos à mão e
   sintéticos: não há rede nos gates.
 - **`bench-pr-upload.yml`** (`workflow_run` do `bench-pr`): baixa os
-  artefatos, sem checkout nem execução de código do PR, valida o número do
-  PR e envia ao Bencher (`--branch` do PR vindo do evento, `--start-point
-  main`, comentário no PR). Sem `BENCHER_API_KEY`, pula com aviso. O GitHub
+  artefatos, sem checkout nem execução de código do PR, identifica o PR pela
+  API do GitHub (PR aberto cujo head é o commit medido; nada vem do
+  artefato além do BMF) e envia ao Bencher (`--branch pr-<número>`,
+  `--start-point main`, comentário no PR). Sem `BENCHER_API_KEY`, pula com aviso. O GitHub
   só dispara `workflow_run` a partir da cópia do arquivo na branch padrão: o
   envio começa a valer depois do merge.
 - **`bench-nightly.yml`** (diário às 06:00 UTC, a cada push na `main` e
@@ -149,7 +150,7 @@ Nada disto é feito pelo código; exige a sua conta.
    rulesets): **`bench-pr / instructions`** e **`bench-pr / ab`**.
 
 O Bencher é **só histórico**: o noturno envia para `--branch main`, e os PRs
-para `--branch <pr> --start-point main`. Não há thresholds a configurar nele:
+para `--branch pr-<número> --start-point main`. Não há thresholds a configurar nele:
 todos os limites são verificados pelo próprio harness.
 
 ### Regressão gradual: a tag `bench-baseline`
