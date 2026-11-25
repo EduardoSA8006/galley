@@ -59,5 +59,22 @@ void main() {
       );
       expect(decodeText(Uint8List(0)), '');
     });
+
+    test('UTF-16 preserva pares substitutos e ignora o byte ímpar final', () {
+      // 'é😀' + byte solto.
+      expect(
+        decodeText(
+          Uint8List.fromList([
+            0xFF, 0xFE, 0xE9, 0x00, 0x3D, 0xD8, 0x00, 0xDE, 0x41, //
+          ]),
+        ),
+        'é😀',
+      );
+      expect(
+        decodeText(Uint8List.fromList([0xFE, 0xFF, 0x20, 0xAC, 0xD8, 0x3D])),
+        '€\uD83D',
+      );
+      expect(decodeText(Uint8List.fromList([0xFF, 0xFE])), '');
+    });
   });
 }
