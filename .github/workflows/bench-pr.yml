@@ -5,10 +5,17 @@
 # e são os checks obrigatórios da `main` (`bench-pr / instructions` e
 # `bench-pr / ab`). O envio ao Bencher fica no `bench-pr-upload.yml`
 # (workflow_run), que nunca executa código do PR.
+#
+# Regressão ou checksum divergente intencional: o rótulo
+# `perf-regression-accepted` (só quem tem acesso de escrita aplica) faz os
+# agregadores aprovarem com aviso, listando o que foi aceito no resumo. O
+# rótulo vem do evento `pull_request` (via env), nunca do código do PR.
+# Aplicar ou tirar o rótulo roda o workflow de novo.
 name: bench-pr
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -20,8 +27,6 @@ concurrency:
 env:
   # Os jobs de benchmark usam Flutter/Dart fixos (Dart 3.13.4).
   FLUTTER_VERSION: '3.47.5'
-  INSTRUCTIONS_SHARDS: '4'
-  AB_SHARDS: '2'
   # Rodadas do A/B no PR: cabe no orçamento de ~15 min com 2 fatias.
   AB_ROUNDS: '15'
 
@@ -33,7 +38,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Mantenha igual a INSTRUCTIONS_SHARDS (matrix não lê env).
+        # Só o número de entradas importa: índice e total da fatia vêm de
+        # strategy.job-index/job-total, e o agregador confere a cobertura.
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,16 +65,23 @@ jobs:
         working-directory: benchmark
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          SHARD: ${{ matrix.shard }}
+          SHARD_INDEX: ${{ strategy.job-index }}
+          SHARD_TOTAL: ${{ strategy.job-total }}
         run: |
           base=$(git merge-base "$BASE_SHA" HEAD)
           echo "Base (merge-base): $base"
           mkdir -p "$RUNNER_TEMP/out"
+          shard="$((SHARD_INDEX + 1))/$SHARD_TOTAL"
+          echo "$shard" > "$RUNNER_TEMP/out/shard"
+          set +e
           dart run tool/bench.dart instructions \
             --base "$base" --head HEAD --counter valgrind \
-            --shard "$SHARD/$INSTRUCTIONS_SHARDS" \
+            --shard "$shard" \
             --out "$RUNNER_TEMP/out/bmf.json" \
             --report "$RUNNER_TEMP/out/report.md"
+          code=$?
+          echo "$code" > "$RUNNER_TEMP/out/exit-code"
+          exit "$code"
       - name: Resumo
         if: always()
         run: |
@@ -78,7 +91,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: bench-instructions-shard-${{ matrix.shard }}
+          name: bench-instructions-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/out/
           if-no-files-found: warn
           retention-days: 7
@@ -89,38 +102,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Só o script do agregador (sem secrets: é um job de pull_request).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          sparse-checkout: .github/scripts
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: bench-instructions-shard-*
           path: shards
         # Sem nenhuma fatia com artefato, o veredito abaixo ainda decide.
         continue-on-error: true
-      - name: Juntar as fatias
-        run: |
-          mkdir -p out
-          shopt -s nullglob
-          bmfs=(shards/*/bmf.json)
-          if [ ${#bmfs[@]} -gt 0 ]; then
-            jq -s 'add' "${bmfs[@]}" > out/bmf.json
-          fi
-          for r in shards/*/report.md; do
-            cat "$r" >> out/report.md
-            printf '\n---\n\n' >> out/report.md
-          done
-          if [ -f out/report.md ]; then
-            cat out/report.md >> "$GITHUB_STEP_SUMMARY"
-          fi
+      - name: Juntar as fatias e decidir
+        env:
+          # Rótulo lido do evento (metadado do PR), nunca do código.
+          ACCEPT_REGRESSION: ${{ contains(github.event.pull_request.labels.*.name, 'perf-regression-accepted') }}
+          NEEDS_RESULT: ${{ needs.instructions-shard.result }}
+        run: bash .github/scripts/bench-aggregate.sh shards out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        # Gate reprovado também vira histórico no Bencher.
+        if: always()
         with:
           name: bench-instructions
           path: out/
+          if-no-files-found: warn
           retention-days: 7
-      - name: Resultado das fatias
-        env:
-          RESULT: ${{ needs.instructions-shard.result }}
-        run: |
-          echo "Fatias: $RESULT"
-          [ "$RESULT" = success ]
 
   ab-shard:
     name: ab-shard (${{ matrix.shard }})
@@ -129,7 +136,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Mantenha igual a AB_SHARDS (matrix não lê env).
+        # Só o número de entradas importa: índice e total da fatia vêm de
+        # strategy.job-index/job-total, e o agregador confere a cobertura.
         shard: [1, 2]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -149,16 +157,23 @@ jobs:
         working-directory: benchmark
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          SHARD: ${{ matrix.shard }}
+          SHARD_INDEX: ${{ strategy.job-index }}
+          SHARD_TOTAL: ${{ strategy.job-total }}
         run: |
           base=$(git merge-base "$BASE_SHA" HEAD)
           echo "Base (merge-base): $base"
           mkdir -p "$RUNNER_TEMP/out"
+          shard="$((SHARD_INDEX + 1))/$SHARD_TOTAL"
+          echo "$shard" > "$RUNNER_TEMP/out/shard"
+          set +e
           dart run tool/bench.dart ab \
             --base "$base" --head HEAD --rounds "$AB_ROUNDS" \
-            --shard "$SHARD/$AB_SHARDS" \
+            --shard "$shard" \
             --out "$RUNNER_TEMP/out/bmf.json" \
             --report "$RUNNER_TEMP/out/report.md"
+          code=$?
+          echo "$code" > "$RUNNER_TEMP/out/exit-code"
+          exit "$code"
       - name: Resumo
         if: always()
         run: |
@@ -168,7 +183,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: bench-ab-shard-${{ matrix.shard }}
+          name: bench-ab-shard-${{ strategy.job-index }}
           path: ${{ runner.temp }}/out/
           if-no-files-found: warn
           retention-days: 7
@@ -179,35 +194,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Só o script do agregador (sem secrets: é um job de pull_request).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          sparse-checkout: .github/scripts
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: bench-ab-shard-*
           path: shards
         # Sem nenhuma fatia com artefato, o veredito abaixo ainda decide.
         continue-on-error: true
-      - name: Juntar as fatias
-        run: |
-          mkdir -p out
-          shopt -s nullglob
-          bmfs=(shards/*/bmf.json)
-          if [ ${#bmfs[@]} -gt 0 ]; then
-            jq -s 'add' "${bmfs[@]}" > out/bmf.json
-          fi
-          for r in shards/*/report.md; do
-            cat "$r" >> out/report.md
-            printf '\n---\n\n' >> out/report.md
-          done
-          if [ -f out/report.md ]; then
-            cat out/report.md >> "$GITHUB_STEP_SUMMARY"
-          fi
+      - name: Juntar as fatias e decidir
+        env:
+          # Rótulo lido do evento (metadado do PR), nunca do código.
+          ACCEPT_REGRESSION: ${{ contains(github.event.pull_request.labels.*.name, 'perf-regression-accepted') }}
+          NEEDS_RESULT: ${{ needs.ab-shard.result }}
+        run: bash .github/scripts/bench-aggregate.sh shards out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        # Gate reprovado também vira histórico no Bencher.
+        if: always()
         with:
           name: bench-ab
           path: out/
+          if-no-files-found: warn
           retention-days: 7
-      - name: Resultado das fatias
-        env:
-          RESULT: ${{ needs.ab-shard.result }}
-        run: |
-          echo "Fatias: $RESULT"
-          [ "$RESULT" = success ]
