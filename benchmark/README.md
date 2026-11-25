@@ -247,15 +247,17 @@ Cada subprojeto acrescenta ao benchmark as métricas e comparações das etapas
 que criar. Ao concluir um subprojeto, esta lista deve ser cumprida:
 
 - [x] **SP3, documento:** parsing de XHTML. Catálogo (cada ciclo de 10–50 ms
-      nativos): `document/build-large-2mib` (XHTML sintético de 2 MiB com
-      tabelas, *ruby*, MathML, `style=` e `epub:type`),
+      nativos): `document/build-large-1mib` (XHTML sintético textual de 1 MiB, um
+      capítulo de romance, com tabelas, *ruby*, MathML, `style=` e
+      `epub:type`), `document/build-dense-256kib` (denso em marcação, pouco
+      texto: pega regressão por elemento/atributo),
       `document/query-id-class`, `document/build-tolerant` (documento
       malformado), `document/transfer-large` (`Isolate.run` devolvendo a
-      árvore de 2 MiB) e `document/parse-spine-hm-<livro>` (todos os
+      árvore de 1 MiB) e `document/parse-spine-hm-<livro>` (todos os
       documentos do spine de cada livro `hm/*` não malformado). Comparação
       informativa, sem gate, no `compare`: `parseDocumentBytes` ×
-      `XmlDocument.parse` (entidades HTML5) em cada livro `hm/*` e no XHTML
-      de 2 MiB (`synthetic/xhtml-2mib`), com `wall-time-ns` e
+      `XmlDocument.parse` (entidades HTML5) em cada livro `hm/*`, no XHTML
+      textual (`synthetic/xhtml-1mib`) e no denso (`synthetic/dense-256kib`), com `wall-time-ns` e
       `peak-rss-bytes` em `compare/galley-document/parse/<doc>` e
       `compare/xml-dom/parse/<doc>`. Teto de memória no pacote `galley`:
       `test/features/document/memory_counter_test.dart`

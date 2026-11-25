@@ -12,8 +12,12 @@ import 'package:galley/src/features/document/domain/parsed_document.dart';
 import '../bench.dart';
 import '../corpus/handmade.dart';
 
-/// Tamanho do XHTML sintético grande (2 MiB).
-const int kLargeXhtmlBytes = 2 * 1024 * 1024;
+/// Tamanho do XHTML sintético grande, textual (1 MiB: um capítulo longo de
+/// romance).
+const int kLargeXhtmlBytes = 1024 * 1024;
+
+/// Tamanho do XHTML sintético denso em marcação.
+const int kDenseXhtmlBytes = 256 * 1024;
 
 /// Tamanho do documento malformado sintético.
 const int _tolerantBytes = 256 * 1024;
@@ -55,7 +59,8 @@ Uint8List buildLargeXhtml(int targetBytes) {
     b.write(
       '<section epub:type="chapter" id="s$i" class="cap c${i % 7}">'
       '<h2 id="h$i">Capítulo $i</h2>'
-      '<p class="texto" style="margin:0 ${i % 5}em;color:#${(i * 37) % 900 + 100}">'
+      '<p class="texto" '
+      'style="margin:0 ${i % 5}em;color:#${(i * 37) % 900 + 100}">'
       'Um parágrafo com <em class="e">ênfase</em>, <a href="#s${i + 1}" '
       'epub:type="noteref">um link</a> &amp; texto &eacute;pico número $i, '
       'com <span style="font-weight:bold">negrito</span> e mais palavras '
@@ -69,6 +74,41 @@ Uint8List buildLargeXhtml(int targetBytes) {
       '<math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac>'
       '<mi>x</mi><mn>$i</mn></mfrac></math>'
       '</section>',
+    );
+    i++;
+  }
+  b.write('</body></html>');
+  return Uint8List.fromList(utf8.encode(b.toString()));
+}
+
+/// Gera um XHTML determinístico denso em marcação, de pelo menos
+/// [targetBytes] bytes: muitos elementos aninhados com atributos (`class`,
+/// `id`, `style`, `epub:type`, `data-*`), tabelas, *ruby* e MathML, com
+/// pouquíssimo texto.
+Uint8List buildDenseXhtml(int targetBytes) {
+  final b = StringBuffer()
+    ..write(
+      '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>\n'
+      '<html xmlns="http://www.w3.org/1999/xhtml" '
+      'xmlns:epub="http://www.idpf.org/2007/ops" lang="pt-BR">'
+      '<head><title>Denso</title></head><body>',
+    );
+  var i = 0;
+  while (b.length < targetBytes) {
+    b.write(
+      '<div id="d$i" class="a${i % 5} b${i % 3}" epub:type="bodymatter" '
+      'data-n="$i"><div class="l1"><div class="l2" style="margin:${i % 4}px">'
+      '<span class="s" id="x$i" title="t$i">$i</span>'
+      '<em class="e">a</em><b class="b">b</b><i>c</i><a href="#d$i" '
+      'epub:type="noteref" class="n${i % 9}">d</a>'
+      '<table class="t" id="t$i"><tr><td class="c" colspan="2">$i</td>'
+      '<td class="c">${i * 3}</td></tr><tr><td>x</td><td>y</td><td>z</td></tr>'
+      '</table>'
+      '<ruby class="r">字<rt>じ</rt></ruby>'
+      '<math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><mi>x</mi>'
+      '<mo>+</mo><mn>$i</mn></mrow></math>'
+      '<img src="i$i.png" alt="" class="im" width="1" height="1"/><br/>'
+      '</div></div></div>',
     );
     i++;
   }
@@ -136,23 +176,20 @@ const List<String> _books = <String>[
 
 /// Repetições do parse do spine por livro, para o ciclo cair em 10–50 ms.
 const Map<String, int> _spineRepeats = {
-  'typography': 424,
-  'publisher-css': 566,
-  'tables': 541,
-  'notes': 469,
-  'images': 537,
-  'cjk': 378,
-  'rtl-bidi': 451,
-  'fonts-idpf': 1485,
-  'fonts-adobe': 1394,
-  'epub2-ncx': 757,
+  'typography': 300,
+  'publisher-css': 290,
+  'tables': 320,
+  'notes': 320,
+  'images': 600,
+  'cjk': 400,
+  'rtl-bidi': 380,
+  'fonts-idpf': 1100,
+  'fonts-adobe': 1000,
+  'epub2-ncx': 550,
 };
 
 /// Repetições de consultas por `run` do `query-id-class`.
-const int _queryRepeats = 150000;
-
-/// Repetições do parse tolerante por `run`.
-const int _tolerantRepeats = 1;
+const int _queryRepeats = 100000;
 
 Future<Map<String, Uint8List>>? _corpus;
 
@@ -173,10 +210,15 @@ Future<List<(Uint8List, String)>> _spineDocuments(String name) async {
 /// tolerante, transferência entre isolates e parse do spine dos livros
 /// `hm/*`.
 List<Bench> documentBenches() => <Bench>[
-  _DocBench('document/build-large-2mib', () async {
+  _DocBench('document/build-large-1mib', () async {
     final bytes = buildLargeXhtml(kLargeXhtmlBytes);
     return () =>
         _checksum(parseDocumentBytes(bytes, path: 'OEBPS/grande.xhtml'));
+  }),
+  _DocBench('document/build-dense-256kib', () async {
+    final bytes = buildDenseXhtml(kDenseXhtmlBytes);
+    return () =>
+        _checksum(parseDocumentBytes(bytes, path: 'OEBPS/denso.xhtml'));
   }),
   _DocBench('document/query-id-class', () async {
     final document = parseDocumentBytes(
@@ -197,13 +239,9 @@ List<Bench> documentBenches() => <Bench>[
   _DocBench('document/build-tolerant', () async {
     final bytes = buildMalformedXhtml(_tolerantBytes);
     return () {
-      var sum = 0;
-      for (var i = 0; i < _tolerantRepeats; i++) {
-        final d = parseDocumentBytes(bytes, path: 'OEBPS/ruim.xhtml');
-        if (!d.recovered) throw StateError('o documento deveria ser tolerante');
-        sum += _checksum(d);
-      }
-      return sum;
+      final d = parseDocumentBytes(bytes, path: 'OEBPS/ruim.xhtml');
+      if (!d.recovered) throw StateError('o documento deveria ser tolerante');
+      return _checksum(d);
     };
   }),
   _DocBench('document/transfer-large', () async {

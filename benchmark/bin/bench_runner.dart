@@ -80,6 +80,12 @@ Future<void> main(List<String> args) async {
         '--bench, --measure-open, --adapter ou --doc-adapter é obrigatório',
       );
     }
+    if (parsed.option('adapter') != null &&
+        parsed.option('doc-adapter') != null) {
+      throw const FormatException(
+        '--adapter e --doc-adapter não podem ser usados juntos',
+      );
+    }
     if ((parsed.option('adapter') != null ||
             parsed.option('doc-adapter') != null) &&
         (parsed.option('measure') == null || parsed.rest.length != 1)) {

@@ -99,6 +99,20 @@ void main() {
     expect(r.exitCode, 70);
   });
 
+  test('--adapter e --doc-adapter juntos saem com 64', () async {
+    final r = await _run([
+      '--adapter',
+      'galley',
+      '--doc-adapter',
+      'xml-dom',
+      '--measure',
+      'parse',
+      'x.epub',
+    ]);
+    expect(r.exitCode, 64);
+    expect(r.stderr as String, contains('não podem ser usados juntos'));
+  });
+
   test('rss= não herda o pico de um pai grande', () async {
     final dir = Directory.systemTemp.createTempSync('galley-parent-');
     addTearDown(() => dir.deleteSync(recursive: true));

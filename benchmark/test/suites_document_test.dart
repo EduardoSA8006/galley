@@ -22,7 +22,8 @@ const _books = <String>[
 
 void main() {
   final ids = <String>[
-    'document/build-large-2mib',
+    'document/build-large-1mib',
+    'document/build-dense-256kib',
     'document/query-id-class',
     'document/build-tolerant',
     'document/transfer-large',
@@ -54,11 +55,23 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 1)));
   }
 
-  test('o XHTML de 2 MiB é determinístico e tem o tamanho pedido', () {
-    final a = buildLargeXhtml(2 * 1024 * 1024);
-    final b = buildLargeXhtml(2 * 1024 * 1024);
-    expect(a.length, greaterThanOrEqualTo(2 * 1024 * 1024));
+  test('o XHTML de 1 MiB é determinístico e tem o tamanho pedido', () {
+    final a = buildLargeXhtml(kLargeXhtmlBytes);
+    final b = buildLargeXhtml(kLargeXhtmlBytes);
+    expect(a.length, greaterThanOrEqualTo(kLargeXhtmlBytes));
     expect(a, b);
+  });
+
+  test('o XHTML denso é determinístico e tem mais elementos por byte', () {
+    final dense = buildDenseXhtml(kDenseXhtmlBytes);
+    expect(buildDenseXhtml(kDenseXhtmlBytes), dense);
+    expect(dense.length, greaterThanOrEqualTo(kDenseXhtmlBytes));
+    final large = buildLargeXhtml(kDenseXhtmlBytes);
+    final parser = GalleyDocumentParser();
+    expect(
+      parser.parseAll([dense]) / dense.length,
+      greaterThan(2 * parser.parseAll([large]) / large.length),
+    );
   });
 
   group('adaptadores de documento', () {

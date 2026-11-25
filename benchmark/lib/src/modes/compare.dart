@@ -430,7 +430,7 @@ const List<String> documentAdapterNames = ['galley-document', 'xml-dom'];
 
 /// Seção do relatório: o parse do Galley (`parseDocumentBytes`) contra o DOM
 /// do `package:xml` (`XmlDocument.parse`, entidades HTML5), por documento
-/// (livro `hm/*`: todos os documentos do spine; `synthetic/xhtml-2mib`: o
+/// (livro `hm/*`: todos os documentos do spine; `synthetic/xhtml-1mib`: o
 /// XHTML sintético). Só informativa: nunca reprova.
 String renderDocumentCompareReport(
   List<CompareCell> cells, {
@@ -586,12 +586,16 @@ Future<int> runCompare({
     );
 
     // Comparação informativa de documentos: parse do Galley × DOM do xml.
-    final docFile = File('${session.workDir.path}/synthetic-xhtml-2mib.xhtml')
+    final docFile = File('${session.workDir.path}/synthetic-xhtml-1mib.xhtml')
       ..writeAsBytesSync(buildLargeXhtml(kLargeXhtmlBytes));
+    final denseFile = File(
+      '${session.workDir.path}/synthetic-dense-256kib.xhtml',
+    )..writeAsBytesSync(buildDenseXhtml(kDenseXhtmlBytes));
     final docBooks = <CompareBook>[
       for (final b in books)
         if (b.key.startsWith('hm/') && !b.key.contains('malformed')) b,
-      CompareBook('synthetic/xhtml-2mib', docFile),
+      CompareBook('synthetic/xhtml-1mib', docFile),
+      CompareBook('synthetic/dense-256kib', denseFile),
     ];
     final docCells = await compareBooks(
       adapters: [
