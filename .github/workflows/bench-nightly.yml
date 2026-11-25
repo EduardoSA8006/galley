@@ -5,6 +5,14 @@
 # Os jobs de medição não têm secrets. Só os jobs `upload*` recebem
 # BENCHER_API_KEY, e eles não fazem checkout nem executam código do
 # repositório: baixam os BMFs e chamam a CLI do Bencher.
+#
+# Testbeds no Bencher (branch main): instruções em `github-ubuntu-valgrind`
+# e A/B em `github-ubuntu-ab`, os mesmos do PR, para que o
+# `--start-point main` do PR traga este histórico; compare, size e wide (só
+# do noturno) em `github-ubuntu-nightly`.
+#
+# O `wide` (corpus amplo, downloads longos) roda só no agendamento e no
+# disparo manual, nunca a cada push.
 name: bench-nightly
 
 on:
@@ -137,10 +145,19 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # restore + save explícitos: o cache é salvo mesmo se a comparação
+      # falhar (o save implícito do actions/cache só roda em sucesso). A
+      # chave leva o run_id e restaura pelo prefixo; só salva se chegaram
+      # livros novos, então uma carga parcial é completada nas seguintes.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: corpus-cache
         with:
           path: .corpus-cache/*.epub
-          key: corpus-${{ hashFiles('corpus/manifest.json') }}
+          key: corpus-${{ hashFiles('corpus/manifest.json') }}-${{ github.run_id }}
+          restore-keys: corpus-${{ hashFiles('corpus/manifest.json') }}-
+      - name: Livros no cache (antes)
+        id: corpus-cache-before
+        run: echo "n=$(find .corpus-cache -maxdepth 1 -name '*.epub' 2>/dev/null | wc -l || true)" >> "$GITHUB_OUTPUT"
       - name: Dependências do benchmark
         working-directory: benchmark
         run: dart pub get
@@ -151,6 +168,22 @@ jobs:
           dart run tool/bench.dart compare \
             --out "$RUNNER_TEMP/out/bmf.json" \
             --report "$RUNNER_TEMP/out/report.md"
+      - name: Livros no cache (depois)
+        id: corpus-cache-after
+        if: always()
+        env:
+          BEFORE: ${{ steps.corpus-cache-before.outputs.n }}
+        run: |
+          n=$(find .corpus-cache -maxdepth 1 -name '*.epub' 2>/dev/null | wc -l || true)
+          echo "Livros no cache: ${BEFORE:-0} -> $n"
+          if [ "$n" -gt "${BEFORE:-0}" ]; then
+            echo "grew=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.corpus-cache-after.outputs.grew == 'true'
+        with:
+          path: .corpus-cache/*.epub
+          key: corpus-${{ hashFiles('corpus/manifest.json') }}-${{ github.run_id }}
       - name: Resumo
         if: always()
         run: |
@@ -213,6 +246,9 @@ jobs:
   # cache cobre. Só `crashed` reprova. Job independente: não atrasa os demais
   # nem o envio deles.
   wide:
+    # Só no agendamento e no disparo manual: a cada push na `main`, a
+    # primeira carga a frio sobrecarregaria o espelho.
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -224,10 +260,20 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # restore + save explícitos: um `crashed` (exit 1) ou o estouro de
+      # prazo não podem impedir o save, senão toda execução baixa tudo de
+      # novo. A chave leva o run_id e restaura pelo prefixo; só salva se
+      # chegaram livros novos, então uma carga parcial é completada nas
+      # execuções seguintes sem salvar cópias iguais.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: wide-cache
         with:
           path: .corpus-cache/pg-wide
-          key: pg-wide-${{ hashFiles('corpus/pg-wide.json') }}
+          key: pg-wide-${{ hashFiles('corpus/pg-wide.json') }}-${{ github.run_id }}
+          restore-keys: pg-wide-${{ hashFiles('corpus/pg-wide.json') }}-
+      - name: Livros no cache (antes)
+        id: wide-cache-before
+        run: echo "n=$(find .corpus-cache/pg-wide -name '*.epub' 2>/dev/null | wc -l || true)" >> "$GITHUB_OUTPUT"
       - name: Dependências do benchmark
         working-directory: benchmark
         run: dart pub get
@@ -238,6 +284,22 @@ jobs:
           dart run tool/bench.dart wide \
             --out "$RUNNER_TEMP/out/bmf.json" \
             --report "$RUNNER_TEMP/out/report.md"
+      - name: Livros no cache (depois)
+        id: wide-cache-after
+        if: always()
+        env:
+          BEFORE: ${{ steps.wide-cache-before.outputs.n }}
+        run: |
+          n=$(find .corpus-cache/pg-wide -name '*.epub' 2>/dev/null | wc -l || true)
+          echo "Livros no cache: ${BEFORE:-0} -> $n"
+          if [ "$n" -gt "${BEFORE:-0}" ]; then
+            echo "grew=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.wide-cache-after.outputs.grew == 'true'
+        with:
+          path: .corpus-cache/pg-wide
+          key: pg-wide-${{ hashFiles('corpus/pg-wide.json') }}-${{ github.run_id }}
       - name: Resumo
         if: always()
         run: |
@@ -252,8 +314,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  # Envio ao Bencher (branch main, testbed github-ubuntu-nightly), sem
-  # checkout nem execução de código do repositório.
+  # Envio ao Bencher (branch main), sem checkout nem execução de código do
+  # repositório. Instruções e A/B nos mesmos testbeds do PR.
   upload:
     name: upload (${{ matrix.kind }})
     needs: [instructions, ab, compare, size]
@@ -263,7 +325,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kind: [instructions, ab, compare, size]
+        include:
+          - kind: instructions
+            testbed: github-ubuntu-valgrind
+          - kind: ab
+            testbed: github-ubuntu-ab
+          - kind: compare
+            testbed: github-ubuntu-nightly
+          - kind: size
+            testbed: github-ubuntu-nightly
     env:
       BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
     steps:
@@ -299,10 +369,11 @@ jobs:
         if: steps.bmf.outputs.upload == 'true'
         env:
           SHA: ${{ github.sha }}
+          TESTBED: ${{ matrix.testbed }}
         run: |
           bencher run \
             --project galley \
-            --testbed github-ubuntu-nightly \
+            --testbed "$TESTBED" \
             --branch main \
             --hash "$SHA" \
             --adapter json \
@@ -310,7 +381,8 @@ jobs:
 
   upload-wide:
     needs: wide
-    if: always()
+    # Sem `wide` (push na main), nada a enviar.
+    if: always() && needs.wide.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
