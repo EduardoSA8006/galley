@@ -131,10 +131,14 @@ final class BookStyleContext {
       }
       return out;
     } finally {
-      _limiter.flush();
       _limiter.target = const NullDiagnosticSink();
     }
   }
+
+  /// Emite em [sink], para cada código que passou do limite, o total exato
+  /// de ocorrências omitidas no livro desde o último [flush]. Opcional: o
+  /// orquestrador chama no fim do livro. Sem nada omitido, não emite nada.
+  void flush({required DiagnosticSink sink}) => _limiter.flush(sink);
 
   /// Folha em [path], lida na primeira vez; `null` se ausente.
   StyleSheet? _sheetAt(String path) {
@@ -246,40 +250,55 @@ String _fnv1a32Hex(String text) {
 }
 
 /// Limite de [kDiagnosticReportLimit] diagnósticos por código no livro
-/// inteiro, repassando ao sink da chamada em curso ([target]). O resumo do
-/// que foi omitido sai em [flush], ao fim de cada chamada; a contagem
-/// continua valendo para as próximas.
+/// inteiro, repassando ao sink da chamada em curso ([target]). Na primeira
+/// ocorrência além do limite sai um único aviso por código no livro; depois
+/// o código fica em silêncio. [flush] emite o total omitido.
 final class _BookLimiter implements DiagnosticSink {
   DiagnosticSink target = const NullDiagnosticSink();
 
+  /// Ocorrências por código no livro inteiro.
   final Map<String, int> _counts = {};
 
-  /// Omitidos na chamada em curso, com o primeiro omitido de cada código.
+  /// Omitidos ainda não totalizados por [flush], com o primeiro omitido.
   final Map<String, (int, Diagnostic)> _omitted = {};
 
   @override
   void report(Diagnostic diagnostic) {
-    final count = (_counts[diagnostic.code] ?? 0) + 1;
-    _counts[diagnostic.code] = count;
+    final code = diagnostic.code;
+    final count = (_counts[code] ?? 0) + 1;
+    _counts[code] = count;
     if (count <= kDiagnosticReportLimit) {
       target.report(diagnostic);
       return;
     }
-    final previous = _omitted[diagnostic.code];
-    _omitted[diagnostic.code] = previous == null
+    if (count == kDiagnosticReportLimit + 1) {
+      target.report(
+        Diagnostic(
+          severity: diagnostic.severity,
+          code: code,
+          message:
+              'limite de $kDiagnosticReportLimit ocorrências de $code '
+              'atingido; demais diagnósticos deste código serão omitidos '
+              'neste livro',
+          location: diagnostic.location,
+        ),
+      );
+    }
+    final previous = _omitted[code];
+    _omitted[code] = previous == null
         ? (1, diagnostic)
         : (previous.$1 + 1, previous.$2);
   }
 
-  void flush() {
+  void flush(DiagnosticSink sink) {
     for (final MapEntry(key: code, value: (n, first)) in _omitted.entries) {
-      target.report(
+      sink.report(
         Diagnostic(
           severity: first.severity,
           code: code,
           message:
-              'mais $n ocorrência(s) de $code omitida(s) '
-              '(total ${_counts[code]} no livro)',
+              '$n ocorrência(s) de $code omitida(s) neste livro '
+              '(total ${_counts[code]})',
           location: first.location,
         ),
       );

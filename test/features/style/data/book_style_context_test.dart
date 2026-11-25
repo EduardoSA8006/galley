@@ -258,32 +258,61 @@ void main() {
     expect(entries.single.sheet.rules.single.declarations, isNotEmpty);
   });
 
-  test('limite por código no livro inteiro: 20 e um resumo', () {
-    final r = MapResolver({
-      for (var i = 0; i < 3; i++)
-        's$i.css': [for (var j = 0; j < 10; j++) 'p { colr$j: red }'].join(),
-    });
-    final ctx = BookStyleContext(resolve: r.call, bookKey: 'k');
-    ctx.sheetsFor(
-      DocumentHead(
-        styleSheets: [
-          for (var i = 0; i < 3; i++) LinkedStyleSheet(path: 's$i.css'),
-        ],
-      ),
-      documentPath: 'd.xhtml',
-      sink: sink,
-    );
+  test('limite por código no livro: N chamadas dão 20 + 1 aviso', () {
+    final ctx = BookStyleContext(resolve: MapResolver({}).call, bookKey: 'k');
+    // Cada capítulo tem um <style> próprio com 3 propriedades fora do escopo.
+    for (var i = 0; i < 30; i++) {
+      ctx.sheetsFor(
+        DocumentHead(
+          styleSheets: [InlineStyleSheet(css: 'p { a$i: 1; b$i: 1; c$i: 1 }')],
+        ),
+        documentPath: 'c$i.xhtml',
+        sink: sink,
+      );
+    }
     final unsupported = withCode(DiagnosticCodes.cssUnsupportedProperty);
     expect(unsupported, hasLength(21));
-    expect(unsupported.last.message, contains('10'));
-    // Em outra chamada, o código já esgotou a cota do livro.
-    r.bytes['t.css'] = Uint8List.fromList(utf8.encode('p { zz: 1 }'));
-    final sink2 = CollectingDiagnosticSink();
-    ctx.sheetsFor(linkHead('t.css'), documentPath: 'e.xhtml', sink: sink2);
-    final again = sink2.diagnostics
-        .where((d) => d.code == DiagnosticCodes.cssUnsupportedProperty)
-        .toList();
-    expect(again, hasLength(1));
-    expect(again.single.message, contains('omitida'));
+    expect(unsupported.last.message, contains('serão omitidos neste livro'));
+    expect(
+      unsupported.where((d) => d.message.contains('omitid')),
+      hasLength(1),
+    );
+  });
+
+  test('flush emite o total exato omitido por código', () {
+    final ctx = BookStyleContext(resolve: MapResolver({}).call, bookKey: 'k');
+    for (var i = 0; i < 10; i++) {
+      ctx.sheetsFor(
+        DocumentHead(
+          styleSheets: [InlineStyleSheet(css: 'p { a$i: 1; b$i: 1; c$i: 1 }')],
+        ),
+        documentPath: 'c$i.xhtml',
+        sink: sink,
+      );
+    }
+    final end = CollectingDiagnosticSink();
+    ctx.flush(sink: end);
+    // 30 ocorrências, 20 repassadas: 10 omitidas.
+    expect(end.diagnostics, hasLength(1));
+    final summary = end.diagnostics.single;
+    expect(summary.code, DiagnosticCodes.cssUnsupportedProperty);
+    expect(summary.message, contains('10 ocorrência(s)'));
+    expect(summary.message, contains('total 30'));
+    // Sem nada novo, flush não repete.
+    final again = CollectingDiagnosticSink();
+    ctx.flush(sink: again);
+    expect(again.diagnostics, isEmpty);
+  });
+
+  test('flush sem excedente não emite nada', () {
+    final ctx = BookStyleContext(resolve: MapResolver({}).call, bookKey: 'k');
+    ctx.sheetsFor(
+      const DocumentHead(styleSheets: [InlineStyleSheet(css: 'p { zz: 1 }')]),
+      documentPath: 'c.xhtml',
+      sink: sink,
+    );
+    final end = CollectingDiagnosticSink();
+    ctx.flush(sink: end);
+    expect(end.diagnostics, isEmpty);
   });
 }
