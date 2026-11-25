@@ -4,6 +4,7 @@ import 'package:args/args.dart';
 import 'package:galley_benchmark/src/corpus/pg_wide.dart';
 import 'package:galley_benchmark/src/modes/ab.dart';
 import 'package:galley_benchmark/src/modes/compare.dart';
+import 'package:galley_benchmark/src/modes/docdiff.dart';
 import 'package:galley_benchmark/src/modes/instructions.dart';
 import 'package:galley_benchmark/src/modes/build.dart' show repoRoot;
 import 'package:galley_benchmark/src/modes/local.dart';
@@ -47,11 +48,18 @@ import 'package:galley_benchmark/src/modes/wide.dart';
 ///
 /// - `wide`: robustez no corpus amplo do Project Gutenberg
 ///   (`corpus/pg-wide.json`, 300 livros; cache em `.corpus-cache/pg-wide/`):
-///   abre cada livro e lê todos os recursos do manifest, classificando em
+///   abre cada livro, lê todos os recursos do manifest e parseia os
+///   documentos do spine (os do modo tolerante são contados), classificando em
 ///   `ok`, `diagnostics-error`, `failed`, `crashed`, `drift` e `unavailable`.
 ///   Aceita `--out` (BMF com `wide/<classe>`) e `--report`. Sai com 1
 ///   **só** se houver `crashed` (bug do Galley) e com 70 em falha de
 ///   preparação.
+/// - `docdiff`: diferencial de documentos no corpus público
+///   (`corpus/manifest.json`, cache em `.corpus-cache/`): compara, em cada
+///   documento do spine, a sequência de eventos da árvore do Galley com a do
+///   DOM do `package:xml`. Documentos no modo tolerante ficam fora e são
+///   contados. Aceita `--out` (BMF com `docdiff/mismatch`) e `--report`. Sai
+///   com 1 se houver divergência e com 70 se nenhum documento foi comparado.
 /// - `wide-refresh`: escolhe `--count` (300) livros do catálogo do PG com
 ///   `Random(--seed)` (2026), baixa e grava `corpus/pg-wide.json`. Só
 ///   manualmente; faz 1 requisição a cada 2 s ao espelho oficial.
@@ -146,11 +154,15 @@ Future<void> main(List<String> args) async {
   final wide = ArgParser()
     ..addOption('out', help: 'Arquivo BMF (JSON) de saída.')
     ..addOption('report', help: 'Relatório em texto (Markdown).');
+  final docdiff = ArgParser()
+    ..addOption('out', help: 'Arquivo BMF (JSON) de saída.')
+    ..addOption('report', help: 'Relatório em texto (Markdown).');
   final wideRefresh = ArgParser()
     ..addOption('count', defaultsTo: '300', help: 'Livros a escolher.')
     ..addOption('seed', defaultsTo: '2026', help: 'Semente do sorteio.');
   final parser = ArgParser()
     ..addCommand('wide', wide)
+    ..addCommand('docdiff', docdiff)
     ..addCommand('wide-refresh', wideRefresh)
     ..addCommand('size', size)
     ..addCommand('compare', compare)
@@ -158,13 +170,24 @@ Future<void> main(List<String> args) async {
     ..addCommand('instructions', instructions)
     ..addCommand('ab', ab);
 
+  final usages = {
+    'instructions': instructions,
+    'ab': ab,
+    'local': local,
+    'compare': compare,
+    'size': size,
+    'wide': wide,
+    'docdiff': docdiff,
+  };
+
   final int code;
   try {
     final parsed = parser.parse(args);
     final command = parsed.command;
     if (command == null) {
       throw const FormatException(
-        'informe o modo (instructions, ab, local, compare, size, wide ou wide-refresh)',
+        'informe o modo (instructions, ab, local, compare, size, wide, '
+        'docdiff ou wide-refresh)',
       );
     }
     if (command.name == 'wide') {
@@ -172,6 +195,14 @@ Future<void> main(List<String> args) async {
       code = await runWideMode(
         manifestPath: '${root.path}/corpus/pg-wide.json',
         cacheDir: Directory('${root.path}/.corpus-cache/pg-wide'),
+        outPath: command.option('out'),
+        reportPath: command.option('report'),
+      );
+    } else if (command.name == 'docdiff') {
+      final root = await repoRoot();
+      code = await runDocDiffMode(
+        manifestPath: '${root.path}/corpus/manifest.json',
+        cacheDir: Directory('${root.path}/.corpus-cache'),
         outPath: command.option('out'),
         reportPath: command.option('report'),
       );
@@ -251,38 +282,27 @@ Future<void> main(List<String> args) async {
       );
     }
   } on FormatException catch (e) {
-    await _invalidArgs(e.message, instructions, ab, local, compare, size, wide);
+    await _invalidArgs(e.message, usages);
   } on ArgumentError catch (e) {
     // Opção obrigatória ausente ou valor fora da lista permitida.
-    await _invalidArgs(
-      '${e.message}',
-      instructions,
-      ab,
-      local,
-      compare,
-      size,
-      wide,
-    );
+    await _invalidArgs('${e.message}', usages);
   }
   await stdout.flush();
   await stderr.flush();
   exit(code);
 }
 
-/// Escreve o erro de argumentos e o uso no stderr e sai com 64.
+/// Escreve o erro de argumentos e o uso de cada modo de [usages] no stderr
+/// e sai com 64.
 Future<Never> _invalidArgs(
   String message,
-  ArgParser a,
-  ArgParser b,
-  ArgParser c,
-  ArgParser d,
-  ArgParser e,
-  ArgParser f,
+  Map<String, ArgParser> usages,
 ) async {
   stderr.writeln(
     'Argumentos inválidos: $message\n'
-    'Uso: dart run tool/bench.dart <instructions|ab|local|compare|size|wide|wide-refresh> [opções]\n'
-    'instructions:\n${a.usage}\nab:\n${b.usage}\nlocal:\n${c.usage}\ncompare:\n${d.usage}\nsize:\n${e.usage}\nwide:\n${f.usage}',
+    'Uso: dart run tool/bench.dart '
+    '<instructions|ab|local|compare|size|wide|docdiff|wide-refresh> [opções]\n'
+    '${[for (final e in usages.entries) '${e.key}:\n${e.value.usage}'].join('\n')}',
   );
   await stderr.flush();
   exit(64);

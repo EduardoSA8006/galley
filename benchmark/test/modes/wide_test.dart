@@ -8,8 +8,12 @@ import 'package:galley_benchmark/src/corpus/fetcher.dart';
 import 'package:galley_benchmark/src/corpus/handmade.dart';
 import 'package:galley_benchmark/src/corpus/manifest.dart';
 import 'package:galley_benchmark/src/corpus/pg_wide.dart';
+import 'package:galley_benchmark/src/modes/docdiff.dart'
+    show DocumentBytesParser;
 import 'package:galley_benchmark/src/modes/wide.dart';
 import 'package:test/test.dart';
+
+import '../support/mini_epub.dart';
 
 String _sha(List<int> b) => sha256.convert(b).toString();
 
@@ -31,6 +35,7 @@ void main() {
   Future<WideReport> run(
     List<PgWideEntry> entries, {
     WideReader? reader,
+    DocumentBytesParser? documentParser,
   }) async {
     final fetcher = CorpusFetcher(cacheDir: cacheDir);
     addTearDown(fetcher.close);
@@ -39,6 +44,7 @@ void main() {
       cacheDir: cacheDir,
       fetcher: fetcher,
       reader: reader,
+      documentParser: documentParser,
       log: StringBuffer(),
     );
   }
@@ -115,9 +121,54 @@ void main() {
     expect(report.exitCode, 1);
   });
 
+  test('parser de documento que lança StateError: crashed, exit 1', () async {
+    routes[8] = good;
+    final report = await run(
+      [entry(8)],
+      documentParser: (bytes, {required path, mediaType = ''}) =>
+          throw StateError('bug no montador'),
+    );
+
+    final r = report.results.single;
+    expect(r.cls, WideClass.crashed);
+    expect(r.detail, contains('bug no montador'));
+    expect(report.exitCode, 1);
+  });
+
+  test('livro bom: parseia todos os documentos do spine', () async {
+    routes[9] = good;
+    final report = await run([entry(9)]);
+
+    final r = report.results.single;
+    expect(r.cls, WideClass.ok);
+    expect(r.documents, greaterThan(0));
+    expect(r.tolerantDocuments, 0);
+    expect(report.summary(), contains('documentos do spine'));
+  });
+
+  test('documento no modo tolerante: contado, não reprova', () async {
+    routes[10] = buildMiniEpub([
+      '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>ok</p></body></html>',
+      '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>aberto</div></body></html>',
+    ]);
+    final report = await run([entry(10)]);
+
+    final r = report.results.single;
+    expect(r.cls, isNot(WideClass.crashed));
+    expect(r.tolerantDocuments, greaterThan(0));
+    expect(report.tolerantDocuments, r.tolerantDocuments);
+    expect(report.exitCode, 0);
+    final bmf = report.toBmf();
+    expect((bmf['wide/documents-tolerant']! as Map)['count'], {
+      'value': r.tolerantDocuments.toDouble(),
+    });
+  });
+
   test('diagnóstico error: diagnostics-error, não reprova', () async {
     routes[6] = good;
-    final report = await run([entry(6)], reader: (file) async => true);
+    final report = await run([
+      entry(6),
+    ], reader: (file) async => const WideRead(hasError: true));
 
     expect(report.results.single.cls, WideClass.diagnosticsError);
     expect(report.exitCode, 0);
