@@ -8,6 +8,15 @@
 # do GitHub (PR aberto cujo head é o commit medido), nunca do artefato. Sem
 # PR verificado ou sem a chave, o envio é pulado com aviso.
 #
+# O BMF é produzido por código do PR (num fork, até o bench-pr.yml é o do
+# fork): antes de a chave entrar em qualquer passo, ele é validado com jq
+# (ids e medidas conhecidos, valores numéricos finitos, tamanho limitado).
+# Se não passar, o envio é pulado com aviso.
+#
+# Os testbeds são os mesmos do noturno por tipo de medida
+# (`github-ubuntu-valgrind` e `github-ubuntu-ab`), para que o
+# `--start-point main` traga o histórico da `main` ao PR.
+#
 # Atenção: o GitHub só dispara workflow_run a partir da cópia deste arquivo
 # na branch padrão; ele passa a valer depois do merge.
 name: bench-pr-upload
@@ -42,11 +51,11 @@ jobs:
             testbed: github-ubuntu-valgrind
           - kind: ab
             testbed: github-ubuntu-ab
-    env:
-      BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
     steps:
       - name: Verificar a chave do Bencher
         id: key
+        env:
+          BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
         run: |
           if [ -z "$BENCHER_API_KEY" ]; then
             echo "::notice::Envio ao Bencher pulado: o secret BENCHER_API_KEY não está definido."
@@ -56,6 +65,9 @@ jobs:
           fi
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.key.outputs.present == 'true'
+        # Sem artefato (agregador não chegou a gravar), o passo seguinte
+        # pula o envio com aviso em vez de deixar o workflow vermelho.
+        continue-on-error: true
         with:
           name: bench-${{ matrix.kind }}
           path: artifact
@@ -96,6 +108,32 @@ jobs:
             echo "upload=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Validação do BMF (não confiável): sem a chave no ambiente.
+          size=$(stat -c %s artifact/bmf.json)
+          if [ "$size" -gt 524288 ]; then
+            echo "::notice::bmf.json com $size bytes (máximo 512 KiB): envio ao Bencher pulado."
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Ids como os do catálogo, medidas conhecidas, só value/lower/upper
+          # e números finitos; no máximo 2000 benchmarks.
+          validate='type == "object" and length >= 1 and length <= 2000
+            and all(to_entries[];
+              (.key | test("^[a-z0-9][a-z0-9/._-]{0,127}$"))
+              and (.value | type == "object" and length >= 1 and length <= 6
+                and all(to_entries[];
+                  (.key | IN("instructions", "wall-time-ns", "peak-rss-bytes",
+                    "bytes-read", "size-bytes", "count"))
+                  and (.value | type == "object" and has("value")
+                    and all(to_entries[];
+                      (.key | IN("value", "lower_value", "upper_value"))
+                      and (.value | type == "number"
+                        and (isinfinite | not) and (isnan | not)))))))'
+          if ! jq -e "$validate" artifact/bmf.json > /dev/null 2>&1; then
+            echo "::notice::bmf.json fora do formato esperado (ids, medidas ou valores): envio ao Bencher pulado."
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Branch do Bencher derivado só do número verificado: único e sem
           # colisão com branches reais (nunca o head_branch cru).
           {
@@ -109,6 +147,7 @@ jobs:
       - name: Enviar ao Bencher
         if: steps.inputs.outputs.upload == 'true'
         env:
+          BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
           TESTBED: ${{ matrix.testbed }}
           KIND: ${{ matrix.kind }}
