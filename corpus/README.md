@@ -195,7 +195,9 @@ classifica o resultado. Não serve para medir desempenho.
   (`galley-benchmark-corpus-fetcher/1 (+https://github.com/EduardoSA8006/galley)`),
   pausa de 2 s entre requisições de rede, prazo de conexão de 30 s e de 5 min por
   requisição, e honram `Retry-After` (esperam até 2 min uma vez; pedidos maiores
-  abortam o `wide-refresh` e viram `unavailable` no `wide`).
+  abortam o `wide-refresh`; no `wide`, o livro vira `unavailable` e as
+  requisições ao espelho param: os livros restantes que não estão no cache
+  também viram `unavailable`, e os já em cache continuam sendo lidos).
 
 Classes: `ok`, `diagnostics-error` (abriu, mas com diagnóstico `error`),
 `failed` (lançou `GalleyException`: rejeição controlada), `crashed` (lançou

@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:galley_benchmark/src/corpus/fetcher.dart';
 import 'package:galley_benchmark/src/corpus/handmade.dart';
+import 'package:galley_benchmark/src/corpus/manifest.dart';
 import 'package:galley_benchmark/src/corpus/pg_wide.dart';
 import 'package:galley_benchmark/src/modes/wide.dart';
 import 'package:test/test.dart';
@@ -194,4 +195,59 @@ void main() {
     expect(entries.single.ebookNo, 84);
     expect(entries.single.sha256, 'ab' * 32);
   });
+
+  test(
+    'Retry-After longo: para de pedir; cache continua, resto unavailable',
+    () async {
+      routes[1] = good;
+      routes[2] = good;
+      // 1 entra no cache; 3 devolve 503 com Retry-After longo; 4 e 5 não podem
+      // chegar ao servidor.
+      final fetcher = CorpusFetcher(cacheDir: cacheDir);
+      addTearDown(fetcher.close);
+      await fetcher.fetch(
+        CorpusEntry(
+          id: 'x',
+          url: uri(1),
+          mirrorUrl: null,
+          sha256: _sha(good),
+          license: '',
+          source: '',
+          tags: const {},
+          mirrorable: false,
+        ),
+      );
+      var hits = 0;
+      await server.close(force: true);
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((r) async {
+        hits++;
+        r.response.statusCode = HttpStatus.serviceUnavailable;
+        r.response.headers.set('retry-after', '21600');
+        await r.response.close();
+      });
+      final entries = [
+        PgWideEntry(ebookNo: 3, url: uri(3), sha256: '3' * 64),
+        PgWideEntry(ebookNo: 4, url: uri(4), sha256: '4' * 64),
+        PgWideEntry(ebookNo: 1, url: uri(1), sha256: _sha(good)),
+        PgWideEntry(ebookNo: 5, url: uri(5), sha256: '5' * 64),
+      ];
+
+      final report = await runWide(
+        entries,
+        cacheDir: cacheDir,
+        fetcher: fetcher,
+        log: StringBuffer(),
+      );
+
+      expect(hits, 1);
+      expect(report.results.map((r) => r.cls), [
+        WideClass.unavailable,
+        WideClass.unavailable,
+        WideClass.ok,
+        WideClass.unavailable,
+      ]);
+      expect(report.exitCode, 0);
+    },
+  );
 }

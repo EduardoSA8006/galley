@@ -45,9 +45,9 @@ exceção, ou seja, bug), `drift` (o PG regerou o arquivo; `sha256` mudou) ou
 `unavailable` (404, rede, prazo). O BMF traz `wide/<classe>` com `count`, e o
 resumo lista os números dos ebooks de cada classe que importa (para `crashed`,
 com o início da stack). Só `crashed` reprova. Como e por que os 300 livros
-foram escolhidos: `corpus/README.md`.
-
-```
+foram escolhidos: `corpus/README.md`. Um `Retry-After` longo (acima de 2 min)
+faz o `wide` parar de pedir ao espelho: os livros que ainda não estão no cache
+viram `unavailable`.
 
 ### O modo `size`
 

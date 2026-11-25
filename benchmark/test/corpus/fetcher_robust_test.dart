@@ -210,4 +210,62 @@ void main() {
     );
     expect(await target.readAsBytes(), bytes);
   });
+
+  test('Retry-After como data HTTP é interpretado', () async {
+    handler = (r) async {
+      r.response.statusCode = HttpStatus.serviceUnavailable;
+      r.response.headers.set(
+        'retry-after',
+        HttpDate.format(DateTime.now().add(const Duration(hours: 3))),
+      );
+      await r.response.close();
+    };
+    final fetcher = CorpusFetcher(cacheDir: cacheDir);
+    addTearDown(fetcher.close);
+
+    final error = await fetcher
+        .fetch(_entry(uri('/x.epub'), bytes))
+        .then<Object>((_) => 'sem erro', onError: (Object e) => e);
+
+    expect(hits, hasLength(1));
+    final wait = (error as CorpusFetchException).retryAfter!;
+    expect(wait, greaterThan(const Duration(hours: 2, minutes: 55)));
+  });
+
+  test(
+    'temporários: nome único, sem .part.part, e limpeza de antigos',
+    () async {
+      final stale = File('${cacheDir.path}/velho.part')..writeAsStringSync('x');
+      stale.setLastModifiedSync(
+        DateTime.now().subtract(const Duration(hours: 5)),
+      );
+      final fresh = File('${cacheDir.path}/novo.part')..writeAsStringSync('x');
+      final names = <String>[];
+      handler = (r) async {
+        r.response.add(bytes.sublist(0, 100));
+        await r.response.flush();
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        names.addAll(cacheDir.listSync().map((f) => f.uri.pathSegments.last));
+        r.response.add(bytes.sublist(100));
+        await r.response.close();
+      };
+      final fetcher = CorpusFetcher(cacheDir: cacheDir);
+      addTearDown(fetcher.close);
+
+      await fetcher.pin(uri('/a.epub'), id: 'a');
+      await fetcher.pin(uri('/b.epub'), id: 'b');
+
+      expect(stale.existsSync(), isFalse);
+      expect(fresh.existsSync(), isTrue);
+      expect(names.where((n) => n.startsWith('download-')), isNotEmpty);
+      expect(names.any((n) => n.contains('.part.part')), isFalse);
+      expect(
+        cacheDir
+            .listSync()
+            .map((f) => f.uri.pathSegments.last)
+            .where((n) => n.startsWith('download-')),
+        isEmpty,
+      );
+    },
+  );
 }

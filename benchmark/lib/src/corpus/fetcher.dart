@@ -92,6 +92,10 @@ final class CorpusFetcher {
   final HttpClient _client;
   final bool _ownsClient;
   DateTime? _lastRequestEnd;
+  bool _swept = false;
+  static int _tempCounter = 0;
+  static const String _tempPrefix = 'download-';
+  static const String _tempSuffix = '.part';
 
   /// Encerra o cliente HTTP (se foi criado aqui); pode ser chamado de novo.
   void close() {
@@ -141,14 +145,9 @@ final class CorpusFetcher {
     required String id,
   }) async {
     await cacheDir.create(recursive: true);
-    final partial = File(
-      '${cacheDir.path}/pin-${uri.toString().hashCode}.part',
-    );
     try {
-      final sha = await _download(uri, partial, expected: null);
-      final target = File('${cacheDir.path}/$sha.epub');
-      await partial.rename(target.path);
-      return (file: target, sha256: sha);
+      final sha = await _download(uri, null, expected: null);
+      return (file: File('${cacheDir.path}/$sha.epub'), sha256: sha);
     } on _Failure catch (f) {
       throw CorpusFetchException(
         id,
@@ -182,7 +181,7 @@ final class CorpusFetcher {
   /// lança [_Failure] com a causa. Aplica pausa, prazo e `Retry-After`.
   Future<String> _download(
     Uri uri,
-    File target, {
+    File? target, {
     required String? expected,
     Duration? timeout,
   }) async {
@@ -204,7 +203,7 @@ final class CorpusFetcher {
 
   Future<String> _attempt(
     Uri uri,
-    File target,
+    File? target,
     String? expected,
     Duration timeout,
   ) async {
@@ -213,7 +212,11 @@ final class CorpusFetcher {
       final wait = pause - DateTime.now().difference(last);
       if (!wait.isNegative) await Future<void>.delayed(wait);
     }
-    final partial = File('${target.path}.part');
+    await _sweepStaleTemps();
+    final dir = target?.parent ?? cacheDir;
+    final partial = File(
+      '${dir.path}/$_tempPrefix${pid}_${_tempCounter++}$_tempSuffix',
+    );
     HttpClientRequest? request;
     try {
       return await Future<String>(() async {
@@ -224,10 +227,9 @@ final class CorpusFetcher {
           Duration? retry;
           if (response.statusCode == HttpStatus.tooManyRequests ||
               response.statusCode == HttpStatus.serviceUnavailable) {
-            final seconds = int.tryParse(
-              response.headers.value(HttpHeaders.retryAfterHeader) ?? '',
+            retry = _parseRetryAfter(
+              response.headers.value(HttpHeaders.retryAfterHeader),
             );
-            if (seconds != null) retry = Duration(seconds: seconds);
           }
           throw _Failure(
             'HTTP ${response.statusCode}'
@@ -243,7 +245,7 @@ final class CorpusFetcher {
             mismatch: true,
           );
         }
-        await partial.rename(target.path);
+        await partial.rename(target?.path ?? '${cacheDir.path}/$actual.epub');
         return actual;
       }).timeout(timeout);
     } on TimeoutException {
@@ -266,6 +268,39 @@ final class CorpusFetcher {
           // Será sobrescrito na próxima tentativa.
         }
       }
+    }
+  }
+
+  /// Apaga `*.part` de execuções interrompidas (com mais de 2 h) do cache;
+  /// roda uma vez por fetcher.
+  Future<void> _sweepStaleTemps() async {
+    if (_swept) return;
+    _swept = true;
+    try {
+      final limit = DateTime.now().subtract(const Duration(hours: 2));
+      await for (final e in cacheDir.list()) {
+        if (e is File &&
+            e.path.endsWith(_tempSuffix) &&
+            (await e.lastModified()).isBefore(limit)) {
+          await e.delete();
+        }
+      }
+    } on Object {
+      // Limpeza é só higiene.
+    }
+  }
+
+  /// `Retry-After` em segundos ou como data HTTP; `null` se ausente ou
+  /// inválido. Datas no passado viram zero.
+  static Duration? _parseRetryAfter(String? value) {
+    if (value == null) return null;
+    final seconds = int.tryParse(value.trim());
+    if (seconds != null) return Duration(seconds: seconds < 0 ? 0 : seconds);
+    try {
+      final wait = HttpDate.parse(value.trim()).difference(DateTime.now());
+      return wait.isNegative ? Duration.zero : wait;
+    } on Object {
+      return null;
     }
   }
 

@@ -140,8 +140,27 @@ Future<WideReport> runWide(
   final read = reader ?? readWholeBook;
   final results = <WideResult>[];
   try {
+    var suspended = false; // o servidor pediu Retry-After: sem mais rede
     for (final (i, e) in entries.indexed) {
-      final r = await _classify(e, f, read);
+      final WideResult r;
+      if (suspended &&
+          !File('${cacheDir.path}/${e.sha256}.epub').existsSync()) {
+        r = WideResult(
+          e,
+          WideClass.unavailable,
+          'requisições suspensas após Retry-After do servidor',
+        );
+      } else {
+        final c = await _classify(e, f, read);
+        r = c.result;
+        if (c.retryAfter != null && !suspended) {
+          suspended = true;
+          out.writeln(
+            'O servidor pediu Retry-After de ${c.retryAfter!.inSeconds} s: '
+            'sem novas requisições; livros fora do cache viram unavailable.',
+          );
+        }
+      }
       results.add(r);
       if (r.cls != WideClass.ok) {
         out.writeln(
@@ -157,7 +176,7 @@ Future<WideReport> runWide(
   return WideReport(results);
 }
 
-Future<WideResult> _classify(
+Future<({WideResult result, Duration? retryAfter})> _classify(
   PgWideEntry e,
   CorpusFetcher fetcher,
   WideReader read,
@@ -177,22 +196,40 @@ Future<WideResult> _classify(
       ),
     );
   } on CorpusFetchException catch (x) {
-    return WideResult(
-      e,
-      x.digestMismatch ? WideClass.drift : WideClass.unavailable,
-      x.causes.join('; '),
+    return (
+      result: WideResult(
+        e,
+        x.digestMismatch ? WideClass.drift : WideClass.unavailable,
+        x.causes.join('; '),
+      ),
+      retryAfter: x.retryAfter,
     );
   } on Object catch (x) {
-    return WideResult(e, WideClass.unavailable, '$x');
+    return (
+      result: WideResult(e, WideClass.unavailable, '$x'),
+      retryAfter: null,
+    );
   }
   try {
     final hasError = await read(file);
-    return WideResult(e, hasError ? WideClass.diagnosticsError : WideClass.ok);
+    return (
+      result: WideResult(
+        e,
+        hasError ? WideClass.diagnosticsError : WideClass.ok,
+      ),
+      retryAfter: null,
+    );
   } on GalleyException catch (x) {
-    return WideResult(e, WideClass.failed, '${x.runtimeType}: $x');
+    return (
+      result: WideResult(e, WideClass.failed, '${x.runtimeType}: $x'),
+      retryAfter: null,
+    );
   } on Object catch (x, stack) {
     final head = stack.toString().split('\n').take(8).join('\n');
-    return WideResult(e, WideClass.crashed, '${x.runtimeType}: $x\n$head');
+    return (
+      result: WideResult(e, WideClass.crashed, '${x.runtimeType}: $x\n$head'),
+      retryAfter: null,
+    );
   }
 }
 
