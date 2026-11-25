@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import '../../../core/diagnostics/diagnostic.dart';
 import '../../../core/diagnostics/diagnostic_codes.dart';
 import '../../../core/diagnostics/diagnostic_sink.dart';
+import '../../../core/diagnostics/limited_diagnostic_sink.dart';
 import '../../container/data/path/epub_path.dart';
 import '../domain/document_head.dart';
 import '../domain/document_tree.dart';
@@ -18,7 +19,7 @@ final RegExp _whitespace = RegExp(r'\s+');
 /// `<link>`/`<style>` dentro do `<body>` também são coletados, com
 /// `document.headInBody`; hrefs externos ou que escapam do zip são
 /// ignorados com `document.externalStyleSheet`. Como no [EventAdapter],
-/// cada código entra no máximo [EventAdapter.reportLimit] vezes; o
+/// cada código entra no máximo [kDiagnosticReportLimit] vezes; o
 /// excedente vira um resumo com o total.
 ///
 /// Linear no tamanho da árvore: "dentro do `<body>`/`<head>`" sai de uma
@@ -38,7 +39,7 @@ DocumentHead extractHead(
     ...tree.elementsNamed(xhtml, 'style'),
   ]..sort();
 
-  final limited = _LimitedSink(sink, documentPath);
+  final limited = LimitedDiagnosticSink(sink);
   _Containment? containment;
   _Containment within() => containment ??= _Containment(tree);
 
@@ -48,9 +49,12 @@ DocumentHead extractHead(
     if (isLink && !_isStyleSheetLink(tree, n)) continue;
     if (within().inBody(n)) {
       limited.report(
-        DiagnosticSeverity.info,
-        DiagnosticCodes.headInBody,
-        '<${tree.localNameOf(n)}> dentro do <body>; coletado',
+        Diagnostic(
+          severity: DiagnosticSeverity.info,
+          code: DiagnosticCodes.headInBody,
+          message: '<${tree.localNameOf(n)}> dentro do <body>; coletado',
+          location: documentPath,
+        ),
       );
     }
     final media = tree.attribute(n, Namespaces.none, 'media');
@@ -63,9 +67,12 @@ DocumentHead extractHead(
     final resolved = resolveHref(documentPath, href.trim());
     if (resolved == null) {
       limited.report(
-        DiagnosticSeverity.info,
-        DiagnosticCodes.externalStyleSheet,
-        'folha de estilo externa ou fora do zip ignorada: $href',
+        Diagnostic(
+          severity: DiagnosticSeverity.info,
+          code: DiagnosticCodes.externalStyleSheet,
+          message: 'folha de estilo externa ou fora do zip ignorada: $href',
+          location: documentPath,
+        ),
       );
       continue;
     }
@@ -155,48 +162,6 @@ final class _Containment {
 
   /// [n] tem um ancestral `<head>` XHTML?
   bool inHead(int n) => _marks[n] & _head != 0;
-}
-
-/// Repassa a [sink] no máximo [EventAdapter.reportLimit] diagnósticos de
-/// cada código; [flush] acrescenta o resumo do excedente.
-final class _LimitedSink {
-  _LimitedSink(this._sink, this._location);
-
-  final DiagnosticSink _sink;
-  final String _location;
-  final Map<String, int> _counts = {};
-  final Map<String, DiagnosticSeverity> _severities = {};
-
-  void report(DiagnosticSeverity severity, String code, String message) {
-    final count = (_counts[code] ?? 0) + 1;
-    _counts[code] = count;
-    if (count > EventAdapter.reportLimit) return;
-    _severities[code] = severity;
-    _sink.report(
-      Diagnostic(
-        severity: severity,
-        code: code,
-        message: message,
-        location: _location,
-      ),
-    );
-  }
-
-  void flush() {
-    for (final MapEntry(key: code, value: count) in _counts.entries) {
-      if (count <= EventAdapter.reportLimit) continue;
-      _sink.report(
-        Diagnostic(
-          severity: _severities[code]!,
-          code: code,
-          message:
-              'mais ${count - EventAdapter.reportLimit} ocorrência(s) de '
-              '$code omitida(s) (total $count)',
-          location: _location,
-        ),
-      );
-    }
-  }
 }
 
 String _textContent(DocumentTree tree, int element) {

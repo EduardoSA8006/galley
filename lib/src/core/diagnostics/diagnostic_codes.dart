@@ -138,4 +138,8 @@ abstract final class DiagnosticCodes {
   /// `<link rel="stylesheet">` com href externo ou que escapa do zip;
   /// ignorado (info).
   static const String externalStyleSheet = 'document.externalStyleSheet';
+
+  /// Ponto de recuperação de erro na sintaxe CSS (declaração inválida, bloco
+  /// sem fechamento, aninhamento excessivo); o trecho é descartado (warning).
+  static const String cssParseError = 'css.parseError';
 }

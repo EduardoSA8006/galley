@@ -5,6 +5,7 @@ import 'package:xml/xml_events.dart';
 
 import '../../../core/diagnostics/diagnostic.dart';
 import '../../../core/diagnostics/diagnostic_codes.dart';
+import '../../../core/diagnostics/limited_diagnostic_sink.dart';
 import '../domain/document_tree.dart';
 import '../domain/names.dart';
 import '../domain/tree_builder.dart';
@@ -151,7 +152,7 @@ final class EventAdapter {
 
   /// Quantas ocorrências de cada código entram em [diagnostics]; as demais
   /// viram um único diagnóstico de resumo no fim, com o total.
-  static const int reportLimit = 20;
+  static const int reportLimit = kDiagnosticReportLimit;
 
   /// Entidades HTML5 completas, nos dois caminhos. Instância `const` única:
   /// o `package:xml` guarda o parser compilado por mapeamento.
