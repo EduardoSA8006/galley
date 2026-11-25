@@ -14,6 +14,11 @@ retomar. Ao resolver um item, apague-o deste arquivo no mesmo commit.
   upstream (dart-xml#220, ainda não lançada) sair numa versão. Mesma migração.
 - **`&#10;`/`&#9;` em atributos viram espaço** (limitação do `package:xml`,
   documentada no adaptador e no `docdiff`). Rever junto com a migração acima.
+- **Velocidade do `package:xml`:** o perfil (2026-11-25) mostra ~25 % do tempo
+  em `substring`. Patches upstream (parser de nome com tabela ASCII, cache de
+  nomes, bitmap no petitparser) dão +10–39 %, com teto ~1,5×. Um tokenizador
+  próprio que guarde posições em vez de strings curtas chegaria a 5–10× o
+  `parseEvents`. Retomar se a leitura do documento virar gargalo medido.
 - **Layout fora do isolate raiz:** quando flutter/flutter#30604 for resolvida
   (o teste-canário em `example/integration_test` avisa), reescrever a etapa de
   layout para rodar em isolate (hoje: plano B, layout fatiado no raiz).
