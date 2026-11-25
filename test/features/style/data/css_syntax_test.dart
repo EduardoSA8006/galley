@@ -1,10 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:galley/src/core/diagnostics/diagnostic_codes.dart';
 import 'package:galley/src/core/diagnostics/diagnostic_sink.dart';
+import 'package:galley/src/core/diagnostics/limited_diagnostic_sink.dart';
 import 'package:galley/src/features/style/data/css_syntax.dart';
 import 'package:galley/src/features/style/data/css_tokenizer.dart';
 
-ParsedCss parse(String css, [CollectingDiagnosticSink? sink]) =>
+ParsedCss parse(String css, [DiagnosticSink? sink]) =>
     parseCss(css, location: 'a.css', sink: sink ?? CollectingDiagnosticSink());
 
 int errors(CollectingDiagnosticSink s) =>
@@ -144,6 +145,18 @@ void main() {
     });
   });
 
+  test('sem limitador interno: um limitador do chamador soma o total', () {
+    final sink = CollectingDiagnosticSink();
+    final limited = LimitedDiagnosticSink(sink);
+    final css = 'p{${'a;' * 25}}';
+    for (var i = 0; i < 3; i++) {
+      parse(css, limited);
+    }
+    expect(errors(sink), 20);
+    limited.flush();
+    expect(sink.diagnostics.last.message, contains('total 75'));
+  });
+
   test('CRLF: valueStart/valueEnd recortam source', () {
     final parsed = parse('p{\r\n  unicode-range: U+0-7F,\r\n U+80;\r\n}');
     final d = (parsed.rules.single as QualifiedRule).declarations.single;
@@ -155,10 +168,12 @@ void main() {
     void stress(String name, String css) {
       test(name, () {
         final sink = CollectingDiagnosticSink();
+        final limited = LimitedDiagnosticSink(sink);
         final sw = Stopwatch()..start();
-        parse(css, sink);
+        parse(css, limited);
         sw.stop();
         expect(sw.elapsedMilliseconds, lessThan(2000));
+        limited.flush();
         expect(errors(sink), lessThanOrEqualTo(21));
       });
     }

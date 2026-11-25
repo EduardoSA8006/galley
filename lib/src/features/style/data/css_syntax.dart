@@ -3,7 +3,6 @@ import 'package:meta/meta.dart';
 import '../../../core/diagnostics/diagnostic.dart';
 import '../../../core/diagnostics/diagnostic_codes.dart';
 import '../../../core/diagnostics/diagnostic_sink.dart';
-import '../../../core/diagnostics/limited_diagnostic_sink.dart';
 import 'css_tokenizer.dart';
 
 /// Nível máximo de at-rules aninhadas (`@media` dentro de `@media`...); o
@@ -120,9 +119,9 @@ final class ParsedCss {
 
 /// Lê a folha [source] (CSS Syntax Level 3, §5, sem aninhamento de CSS).
 ///
-/// Erros de sintaxe viram `css.parseError` em [sink] (no máximo
-/// [kDiagnosticReportLimit] por chamada, mais um resumo), com `location` =
-/// `'<location>:<linha>'`; o trecho inválido é descartado. Linear no
+/// Erros de sintaxe viram `css.parseError` em [sink], com `location` =
+/// `'<location>:<linha>'`; o trecho inválido é descartado. O limite de
+/// relatos é do chamador (embrulhe [sink] num `LimitedDiagnosticSink`). Linear no
 /// tamanho da entrada e sem recursão: blocos usam pilha explícita e
 /// at-rules aninhadas além de 32 níveis têm o bloco descartado.
 ParsedCss parseCss(
@@ -131,11 +130,8 @@ ParsedCss parseCss(
   required DiagnosticSink sink,
 }) {
   final text = preprocessCss(source);
-  final limited = LimitedDiagnosticSink(sink);
-  final parser = _Parser(tokenizeCss(text), text, location, limited);
-  final rules = parser.parseStylesheet();
-  limited.flush();
-  return ParsedCss(rules, text);
+  final parser = _Parser(tokenizeCss(text), text, location, sink);
+  return ParsedCss(parser.parseStylesheet(), text);
 }
 
 /// Lê uma lista de declarações (o valor de um atributo `style=`).
@@ -148,12 +144,13 @@ List<RawDeclaration> parseCssDeclarations(
   required DiagnosticSink sink,
 }) {
   final text = preprocessCss(source);
-  final limited = LimitedDiagnosticSink(sink);
   final tokens = tokenizeCss(text);
-  final parser = _Parser(tokens, text, location, limited);
-  final out = parser.parseDeclarations(0, tokens.length);
-  limited.flush();
-  return out;
+  return _Parser(
+    tokens,
+    text,
+    location,
+    sink,
+  ).parseDeclarations(0, tokens.length);
 }
 
 /// Índice de inícios de linha, para `lineOf` em O(log n).
