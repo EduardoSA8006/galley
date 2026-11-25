@@ -19,7 +19,7 @@ quando fazem sentido, um relatório em Markdown com `--report`.
 | `instructions` | CI (Valgrind) e local (`--counter perf`) | instruções por benchmark curto, base × head no mesmo job | **gate do PR**: reprova com regressão > 0,5% (`--threshold`); o noturno usa 0.10 contra a tag `bench-baseline` |
 | `ab` | CI | tempo de parede base × head, rodadas intercaladas, IC 95% bootstrap da razão das medianas | **gate do PR**: reprova se o IC fica inteiro acima de +5% |
 | `local` | máquina do mantenedor | tempo absoluto, RSS de pico, `perf` nativo, livros de 50 e 300 MiB, corpus público e privado | registro manual (`local-dev`); rode depois de mudanças de desempenho e antes de releases |
-| `compare` | CI noturno e local | Galley × `epubx` × `epub_plus` × `epub_pro` | relatório; não bloqueia antes da 1.0 |
+| `compare` | CI noturno e local | Galley × `epubx` × `epub_plus` × `epub_pro`; e o parse de documento do Galley × DOM do `package:xml` (par à parte, `--doc-adapter`) | relatório; não bloqueia antes da 1.0 |
 | `size` | CI noturno e local | bytes que o Galley acrescenta ao APK release arm64 | teto de **2 MiB** (2.097.152 bytes); acima disso sai com 1 |
 | `wide` | CI noturno e local | robustez: abre e lê todos os recursos de 300 livros do Project Gutenberg (`corpus/pg-wide.json`) e conta por classe | sai com 1 **só** se houver `crashed` (exceção que não é `GalleyException`: bug do Galley) |
 
@@ -246,7 +246,20 @@ resolver `bench-baseline`.
 Cada subprojeto acrescenta ao benchmark as métricas e comparações das etapas
 que criar. Ao concluir um subprojeto, esta lista deve ser cumprida:
 
-- [ ] **SP3, documento:** parsing de XHTML.
+- [x] **SP3, documento:** parsing de XHTML. Catálogo (cada ciclo de 10–50 ms
+      nativos): `document/build-large-2mib` (XHTML sintético de 2 MiB com
+      tabelas, *ruby*, MathML, `style=` e `epub:type`),
+      `document/query-id-class`, `document/build-tolerant` (documento
+      malformado), `document/transfer-large` (`Isolate.run` devolvendo a
+      árvore de 2 MiB) e `document/parse-spine-hm-<livro>` (todos os
+      documentos do spine de cada livro `hm/*` não malformado). Comparação
+      informativa, sem gate, no `compare`: `parseDocumentBytes` ×
+      `XmlDocument.parse` (entidades HTML5) em cada livro `hm/*` e no XHTML
+      de 2 MiB (`synthetic/xhtml-2mib`), com `wall-time-ns` e
+      `peak-rss-bytes` em `compare/galley-document/parse/<doc>` e
+      `compare/xml-dom/parse/<doc>`. Teto de memória no pacote `galley`:
+      `test/features/document/memory_counter_test.dart`
+      (`retainedBytes` ÷ bytes do XHTML ≤ K).
 - [ ] **SP4, estilo:** cascata e seletores.
 - [ ] **SP5, layout:** paginação, repaginação ao mudar a fonte, medição
       fatiada.
