@@ -1,0 +1,125 @@
+# Envio dos resultados do bench-pr ao Bencher (só histórico e comentário no
+# PR).
+#
+# Roda no contexto da `main` (workflow_run), com acesso ao secret
+# BENCHER_API_KEY, e por isso NUNCA faz checkout nem executa código do PR:
+# só baixa os artefatos (BMF em JSON) e valida o que usa. O branch do Bencher
+# vem do payload confiável do evento, nunca de um artefato. Sem a chave, o
+# envio é pulado com aviso.
+#
+# Atenção: o GitHub só dispara workflow_run a partir da cópia deste arquivo
+# na branch padrão; ele passa a valer depois do merge.
+name: bench-pr-upload
+
+on:
+  workflow_run:
+    workflows: [bench-pr]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  upload:
+    name: upload (${{ matrix.kind }})
+    # Gate reprovado também é histórico; cancelado ou pulado não tem dados.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion != 'cancelled' &&
+      github.event.workflow_run.conclusion != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read # baixar artefatos de outra execução
+      checks: write # check do Bencher
+      pull-requests: write # comentário do Bencher no PR
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: instructions
+            testbed: github-ubuntu-valgrind
+          - kind: ab
+            testbed: github-ubuntu-ab
+    env:
+      BENCHER_API_KEY: ${{ secrets.BENCHER_API_KEY }}
+    steps:
+      - name: Verificar a chave do Bencher
+        id: key
+        run: |
+          if [ -z "$BENCHER_API_KEY" ]; then
+            echo "::notice::Envio ao Bencher pulado: o secret BENCHER_API_KEY não está definido."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.key.outputs.present == 'true'
+        with:
+          name: bench-${{ matrix.kind }}
+          path: artifact
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Validar as entradas
+        id: inputs
+        if: steps.key.outputs.present == 'true'
+        env:
+          # Do payload do evento (confiável), nunca do artefato.
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          # Vazio em PRs de fork; quando existe, precisa bater com o artefato.
+          PAYLOAD_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          pr=$(head -c 32 artifact/pr-number.txt | tr -d '[:space:]')
+          if ! [[ "$pr" =~ ^[0-9]{1,10}$ ]]; then
+            echo "::error::pr-number.txt não é numérico"
+            exit 1
+          fi
+          if [ -n "$PAYLOAD_PR" ] && [ "$PAYLOAD_PR" != "$pr" ]; then
+            echo "::error::pr-number.txt ($pr) diverge do evento ($PAYLOAD_PR)"
+            exit 1
+          fi
+          if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::head_sha inválido"
+            exit 1
+          fi
+          # Nome de branch restrito a [A-Za-z0-9._/-]; um PR vindo de uma
+          # branch `main` (ex.: de fork) não pode escrever no histórico da main.
+          branch="$HEAD_BRANCH"
+          if ! [[ "$branch" =~ ^[A-Za-z0-9._/-]{1,200}$ ]] || [ "$branch" = main ]; then
+            branch="pr-$pr"
+          fi
+          if ! [ -s artifact/bmf.json ]; then
+            echo "::notice::Sem bmf.json no artefato bench-${{ matrix.kind }}: nada a enviar."
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "upload=true"
+            echo "pr=$pr"
+            echo "branch=$branch"
+            echo "sha=$HEAD_SHA"
+          } >> "$GITHUB_OUTPUT"
+      - uses: bencherdev/bencher@b2484bc6734c8e6da4fad141bd13527a11da3988 # v0.6.17
+        if: steps.inputs.outputs.upload == 'true'
+      - name: Enviar ao Bencher
+        if: steps.inputs.outputs.upload == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TESTBED: ${{ matrix.testbed }}
+          KIND: ${{ matrix.kind }}
+          PR_NUMBER: ${{ steps.inputs.outputs.pr }}
+          BRANCH: ${{ steps.inputs.outputs.branch }}
+          SHA: ${{ steps.inputs.outputs.sha }}
+        run: |
+          bencher run \
+            --project galley \
+            --testbed "$TESTBED" \
+            --branch "$BRANCH" \
+            --hash "$SHA" \
+            --start-point main \
+            --start-point-reset \
+            --adapter json \
+            --file artifact/bmf.json \
+            --github-actions "$GITHUB_TOKEN" \
+            --ci-number "$PR_NUMBER" \
+            --ci-id "bench-$KIND"

@@ -1,0 +1,219 @@
+# Gates de desempenho do PR (instruções e A/B), sem secrets.
+#
+# Os dois gates são repartidos em fatias paralelas (`--shard i/n`) para caber
+# em ~15 min de parede; os jobs finais `instructions` e `ab` juntam as fatias
+# e são os checks obrigatórios da `main` (`bench-pr / instructions` e
+# `bench-pr / ab`). O envio ao Bencher fica no `bench-pr-upload.yml`
+# (workflow_run), que nunca executa código do PR.
+name: bench-pr
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # Os jobs de benchmark usam Flutter/Dart fixos (Dart 3.13.4).
+  FLUTTER_VERSION: '3.47.5'
+  INSTRUCTIONS_SHARDS: '4'
+  AB_SHARDS: '2'
+  # Rodadas do A/B no PR: cabe no orçamento de ~15 min com 2 fatias.
+  AB_ROUNDS: '15'
+
+jobs:
+  instructions-shard:
+    name: instructions-shard (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Mantenha igual a INSTRUCTIONS_SHARDS (matrix não lê env).
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Head do PR (não o merge commit) e histórico completo para o
+          # merge-base com a base.
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Instalar o Valgrind
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends valgrind
+      - name: Dependências do benchmark
+        working-directory: benchmark
+        run: dart pub get
+      - name: Gate de instruções (fatia ${{ matrix.shard }})
+        working-directory: benchmark
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          base=$(git merge-base "$BASE_SHA" HEAD)
+          echo "Base (merge-base): $base"
+          mkdir -p "$RUNNER_TEMP/out"
+          dart run tool/bench.dart instructions \
+            --base "$base" --head HEAD --counter valgrind \
+            --shard "$SHARD/$INSTRUCTIONS_SHARDS" \
+            --out "$RUNNER_TEMP/out/bmf.json" \
+            --report "$RUNNER_TEMP/out/report.md"
+      - name: Resumo
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/out/report.md" ]; then
+            cat "$RUNNER_TEMP/out/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: bench-instructions-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
+          retention-days: 7
+
+  instructions:
+    needs: instructions-shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: bench-instructions-shard-*
+          path: shards
+        # Sem nenhuma fatia com artefato, o veredito abaixo ainda decide.
+        continue-on-error: true
+      - name: Juntar as fatias
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir -p out
+          shopt -s nullglob
+          bmfs=(shards/*/bmf.json)
+          if [ ${#bmfs[@]} -gt 0 ]; then
+            jq -s 'add' "${bmfs[@]}" > out/bmf.json
+          fi
+          for r in shards/*/report.md; do
+            cat "$r" >> out/report.md
+            printf '\n---\n\n' >> out/report.md
+          done
+          printf '%s\n' "$PR_NUMBER" > out/pr-number.txt
+          if [ -f out/report.md ]; then
+            cat out/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-instructions
+          path: out/
+          retention-days: 7
+      - name: Resultado das fatias
+        env:
+          RESULT: ${{ needs.instructions-shard.result }}
+        run: |
+          echo "Fatias: $RESULT"
+          [ "$RESULT" = success ]
+
+  ab-shard:
+    name: ab-shard (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Mantenha igual a AB_SHARDS (matrix não lê env).
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Dependências do benchmark
+        working-directory: benchmark
+        run: dart pub get
+      - name: A/B de tempo de parede (fatia ${{ matrix.shard }})
+        working-directory: benchmark
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          base=$(git merge-base "$BASE_SHA" HEAD)
+          echo "Base (merge-base): $base"
+          mkdir -p "$RUNNER_TEMP/out"
+          dart run tool/bench.dart ab \
+            --base "$base" --head HEAD --rounds "$AB_ROUNDS" \
+            --shard "$SHARD/$AB_SHARDS" \
+            --out "$RUNNER_TEMP/out/bmf.json" \
+            --report "$RUNNER_TEMP/out/report.md"
+      - name: Resumo
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/out/report.md" ]; then
+            cat "$RUNNER_TEMP/out/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: bench-ab-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
+          retention-days: 7
+
+  ab:
+    needs: ab-shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: bench-ab-shard-*
+          path: shards
+        # Sem nenhuma fatia com artefato, o veredito abaixo ainda decide.
+        continue-on-error: true
+      - name: Juntar as fatias
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir -p out
+          shopt -s nullglob
+          bmfs=(shards/*/bmf.json)
+          if [ ${#bmfs[@]} -gt 0 ]; then
+            jq -s 'add' "${bmfs[@]}" > out/bmf.json
+          fi
+          for r in shards/*/report.md; do
+            cat "$r" >> out/report.md
+            printf '\n---\n\n' >> out/report.md
+          done
+          printf '%s\n' "$PR_NUMBER" > out/pr-number.txt
+          if [ -f out/report.md ]; then
+            cat out/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-ab
+          path: out/
+          retention-days: 7
+      - name: Resultado das fatias
+        env:
+          RESULT: ${{ needs.ab-shard.result }}
+        run: |
+          echo "Fatias: $RESULT"
+          [ "$RESULT" = success ]
