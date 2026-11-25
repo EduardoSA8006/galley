@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -12,10 +13,12 @@ import '../../support/synthetic_epub.dart';
 
 // Limites congelados (ver a calibração no comentário de cada um).
 
-/// Abrir o livro pequeno do teste: medido em 2.318 bytes (o arquivo inteiro,
-/// em poucas leituras); margem de ~25% (2.318 × 1,25 = 2.897, arredondado
-/// para 2.900).
-const int _smallOpenLimit = 2900;
+/// Abrir o livro pequeno com um capítulo de 256 KiB incompressível (arquivo
+/// de 263.434 bytes): medido em 66.656 bytes (11 leituras; o fim do zip e as
+/// entradas de metadados, sem o capítulo); margem de ~25% (66.656 × 1,25 =
+/// 83.320, arredondado para 84.000). Fica abaixo de um terço do arquivo, então
+/// ler o livro inteiro ao abrir reprova.
+const int _smallOpenLimit = 84000;
 
 /// Abrir o sintético de 300 MiB: medido em 107.449 bytes (11 leituras); o
 /// limite de 256 KiB (262.144 bytes) é fixado pelo spec, não derivado da
@@ -23,12 +26,23 @@ const int _smallOpenLimit = 2900;
 const int _heavyOpenLimit = 262144;
 
 void main() {
-  test('abrir um livro pequeno lê no máximo $_smallOpenLimit bytes', () async {
-    final bytes = _smallBook();
+  test('abrir um livro pequeno lê no máximo $_smallOpenLimit bytes, bem menos '
+      'que o arquivo', () async {
+    // Capítulo grande e incompressível: o arquivo fica muito maior que o
+    // limite, então ler o livro inteiro ao abrir reprova este teste.
+    final random = Random(42);
+    final chapter = Uint8List.fromList(
+      List.generate(256 * 1024, (_) => random.nextInt(256)),
+    );
+    final bytes = _smallBook(chapter: chapter);
+    expect(bytes.length, greaterThan(3 * _smallOpenLimit));
     final source = CountingByteSource(MemoryByteSource(bytes));
     final book = await EpubBook.fromSource(source);
-    expect(source.bytesRead, lessThanOrEqualTo(_smallOpenLimit));
-    await book.close();
+    try {
+      expect(source.bytesRead, lessThanOrEqualTo(_smallOpenLimit));
+    } finally {
+      await book.close();
+    }
   });
 
   test(
