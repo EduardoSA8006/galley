@@ -163,6 +163,17 @@ void main() {
       expect(sink.diagnostics, isEmpty);
     });
 
+    test('@import com layer/supports é descartado com diagnóstico', () {
+      final s = build(
+        '@import url(a.css) layer(base); @import "b.css" layer; '
+        '@import "c.css" SUPPORTS(display: flex) screen; @import "d.css";',
+      );
+      expect(s.imports.map((i) => i.path), ['OEBPS/css/d.css']);
+      final d = withCode(DiagnosticCodes.cssUnsupportedAtRule);
+      expect(d, hasLength(3));
+      expect(d.first.severity, DiagnosticSeverity.info);
+    });
+
     test('@IMPORT em caixa alta', () {
       expect(build('@IMPORT "a.css";').imports, hasLength(1));
     });

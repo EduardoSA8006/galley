@@ -162,4 +162,15 @@ abstract final class DiagnosticCodes {
   /// `@font-face` sem família ou sem fonte utilizável; regra descartada
   /// (warning).
   static const String cssFontFaceInvalid = 'css.fontFaceInvalid';
+
+  /// `@import` que fecha um ciclo (a folha já está na cadeia de
+  /// importação); pulado (warning).
+  static const String cssImportCycle = 'css.importCycle';
+
+  /// `@import` além do limite de profundidade (8) ou de quantidade por folha
+  /// raiz (64); pulado (warning).
+  static const String cssImportLimit = 'css.importLimit';
+
+  /// Folha de estilo (ligada ou importada) ausente do livro (warning).
+  static const String cssMissingStyleSheet = 'css.missingStyleSheet';
 }

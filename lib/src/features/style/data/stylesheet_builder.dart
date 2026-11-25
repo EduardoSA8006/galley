@@ -273,6 +273,23 @@ final class _Builder {
       return;
     }
     final rest = p.sublist(end);
+    final head = rest
+        .where((t) => t.type != CssTokenType.whitespace)
+        .firstOrNull;
+    final headName = head == null ? '' : asciiLower(head.value);
+    if ((head?.type == CssTokenType.ident && headName == 'layer') ||
+        (head?.type == CssTokenType.function &&
+            (headName == 'layer' || headName == 'supports'))) {
+      // Camadas e `supports()` no `@import` não são suportados: a folha
+      // importada é descartada.
+      _report(
+        DiagnosticCodes.cssUnsupportedAtRule,
+        DiagnosticSeverity.info,
+        rule.offset,
+        '@import com $headName não suportado; ignorada',
+      );
+      return;
+    }
     final media = rest.any((t) => t.type != CssTokenType.whitespace)
         ? parseMediaQueryList(rest)
         : null;
