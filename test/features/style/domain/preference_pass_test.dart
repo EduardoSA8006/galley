@@ -293,6 +293,27 @@ void main() {
       expect(d.px('h1', PropertyId.marginBottom), 16);
       expect(d.px('li', PropertyId.marginBottom), 8);
     });
+
+    test('forçar: margens de html e body ficam as da editora', () {
+      const css = '$_css html{margin:3px 0 5px} body{margin:20px 10px 30px}';
+      for (final prefs in const [
+        ReaderPreferences(paragraphSpacing: Preference(.5, policy: _force)),
+        // Com o tema, `isBody` já era calculado.
+        ReaderPreferences(
+          paragraphSpacing: Preference(.5, policy: _force),
+          theme: Preference(_theme),
+        ),
+      ]) {
+        final d = _doc(prefs, css: css);
+        expect(d.px('html', PropertyId.marginTop), 3);
+        expect(d.px('html', PropertyId.marginBottom), 5);
+        expect(d.px('body', PropertyId.marginTop), 20);
+        expect(d.px('body', PropertyId.marginBottom), 30);
+        // Os blocos de dentro continuam forçados.
+        expect(d.px('p', PropertyId.marginTop, cls: 'a'), 0);
+        expect(d.px('p', PropertyId.marginBottom, cls: 'a'), 8);
+      }
+    });
   });
 
   group('recuo', () {

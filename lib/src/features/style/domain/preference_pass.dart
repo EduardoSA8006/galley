@@ -106,8 +106,10 @@ final class PreferencePass {
       _genericFamilies.isNotEmpty;
 
   /// Se o resultado depende de o elemento ser o `body` (o tema pinta o
-  /// fundo da raiz e do `body`).
-  bool get dependsOnBody => theme != null;
+  /// fundo da raiz e do `body`; o espaçamento entre parágrafos em "forçar"
+  /// poupa as margens da raiz e do `body`).
+  bool get dependsOnBody =>
+      theme != null || _paragraphSpacing?.policy == PreferencePolicy.force;
 
   /// Se o elemento de marcas [flags] fica com a família calculada da
   /// editora (monoespaçada em "ajustar", ou título com
@@ -225,7 +227,9 @@ final class PreferencePass {
     final spacing = _paragraphSpacing;
     if (spacing != null &&
         (spacing.policy == PreferencePolicy.force
-            ? isBlock
+            // A raiz e o `body` não são parágrafos: as margens deles são as
+            // bordas da página.
+            ? isBlock && !isRoot && !isBody
             : isRunRoot && flags & ElementFlags.listItem == 0)) {
       values[PropertyId.marginTop] = const CssLength();
       values[PropertyId.marginBottom] = CssLength(px: spacing.value * fs);
