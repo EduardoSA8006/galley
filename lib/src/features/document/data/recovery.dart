@@ -155,6 +155,10 @@ final class TolerantRepairPolicy extends RepairPolicy {
   /// Se um `<html>` tardio já foi juntado ao `html` virtual.
   bool _merged = false;
 
+  /// Posições na pilha dos `<svg>`/`<math>` abertos (pelo nome local, com
+  /// ou sem prefixo): dentro deles, `text/html` não muda a caixa.
+  final List<int> _foreign = [];
+
   @override
   bool get validating => false;
 
@@ -368,12 +372,17 @@ final class TolerantRepairPolicy extends RepairPolicy {
   }
 
   void _push(EventAdapter adapter, String key, {required bool virtual}) {
-    (_positions[key] ??= []).add(adapter.openDepth - 1);
+    final index = adapter.openDepth - 1;
+    if (_isForeign(key)) _foreign.add(index);
+    (_positions[key] ??= []).add(index);
     _openKeys.add(key);
     _virtual.add(virtual);
   }
 
   void _pop(EventAdapter adapter) {
+    if (_foreign.isNotEmpty && _foreign.last == _openKeys.length - 1) {
+      _foreign.removeLast();
+    }
     _positions[_openKeys.removeLast()]!.removeLast();
     _virtual.removeLast();
     adapter.closeElement();
@@ -385,9 +394,9 @@ final class TolerantRepairPolicy extends RepairPolicy {
   /// de `<svg>`/`<math>` nada muda; no próprio `<svg>`/`<math>`, só o nome
   /// do elemento.
   XmlStartElementEvent _lowercased(XmlStartElementEvent event) {
-    if (_innermost(const ['svg', 'math']) >= 0) return event;
+    if (_foreign.isNotEmpty) return event;
     final name = _lowerUnprefixed(event.name);
-    final foreignRoot = name == 'svg' || name == 'math';
+    final foreignRoot = _isForeign(_key(name));
     List<XmlEventAttribute>? attributes;
     if (!foreignRoot) {
       final original = event.attributes;
@@ -424,6 +433,14 @@ final class TolerantRepairPolicy extends RepairPolicy {
   }
 
   static String _localPart(String key) => key.substring(key.indexOf(':') + 1);
+
+  /// Se [key] é `svg` ou `math`, com ou sem prefixo. O namespace ainda não
+  /// está resolvido quando se decide a caixa (as declarações do próprio
+  /// elemento entram na abertura); o nome local basta para não mexer.
+  static bool _isForeign(String key) {
+    final local = _localPart(key);
+    return local == 'svg' || local == 'math';
+  }
 
   static bool _isBlank(String value) {
     for (var i = 0; i < value.length; i++) {
@@ -464,7 +481,8 @@ final class _Preparer {
       _bracketOpen = _Finder(text, '['),
       _bracketClose = _Finder(text, ']'),
       _doubleQuote = _Finder(text, '"'),
-      _singleQuote = _Finder(text, "'");
+      _singleQuote = _Finder(text, "'"),
+      _lessThan = _Finder(text, '<');
 
   final String text;
   final int length;
@@ -477,6 +495,7 @@ final class _Preparer {
   final _Finder _bracketClose;
   final _Finder _doubleQuote;
   final _Finder _singleQuote;
+  final _Finder _lessThan;
 
   StringBuffer? _out;
   int _copied = 0;
@@ -545,16 +564,54 @@ final class _Preparer {
     }
   }
 
-  /// Fim (`>`) do doctype cujo nome começa depois de [from]: o primeiro `>`,
-  /// ou, se um `[` vem antes dele, o primeiro `>` depois do `]` seguinte.
+  /// Fim (`>`) do doctype cujo nome começa depois de [from]; −1 se não
+  /// há.
+  ///
+  /// Antes do subconjunto interno, literais entre aspas são pulados, e um
+  /// `<` (fora ou dentro deles) desiste: os identificadores externos não
+  /// têm `<`, e assim cada tentativa fica antes do próximo `<`. Com `[`, o
+  /// fim é o primeiro `>` depois do `]` seguinte (aspas dentro do
+  /// subconjunto não são consideradas: um `]` dentro de um valor de
+  /// entidade é raro, e pular aspas ali poderia ficar quadrático).
   int _doctypeEnd(int from) {
-    final greater = _greaterThan.find(from);
-    final open = _bracketOpen.find(from);
-    if (open >= 0 && (greater < 0 || open < greater)) {
-      final close = _bracketClose.find(open + 1);
-      return close < 0 ? -1 : _greaterThan.find(close + 1);
+    var k = from;
+    while (true) {
+      final stop = _firstOf(k);
+      if (stop < 0) return -1;
+      switch (text.codeUnitAt(stop)) {
+        case 0x3E:
+          return stop;
+        case 0x5B:
+          final close = _bracketClose.find(stop + 1);
+          return close < 0 ? -1 : _greaterThan.find(close + 1);
+        case final quote && (0x22 || 0x27):
+          final close = (quote == 0x22 ? _doubleQuote : _singleQuote).find(
+            stop + 1,
+          );
+          final less = _lessThan.find(stop + 1);
+          if (close < 0 || (less >= 0 && less < close)) return -1;
+          k = close + 1;
+        default: // `<`
+          return -1;
+      }
     }
-    return greater;
+  }
+
+  /// Primeira posição a partir de [from] de `>`, `[`, aspa ou `<`; −1 se
+  /// nenhum.
+  int _firstOf(int from) {
+    var best = -1;
+    for (final finder in [
+      _greaterThan,
+      _bracketOpen,
+      _doubleQuote,
+      _singleQuote,
+      _lessThan,
+    ]) {
+      final at = finder.find(from);
+      if (at >= 0 && (best < 0 || at < best)) best = at;
+    }
+    return best;
   }
 
   /// Fim (`>`) da tag de abertura cujo nome começa em [j], como a

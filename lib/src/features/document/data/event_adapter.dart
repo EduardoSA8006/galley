@@ -203,6 +203,7 @@ final class EventAdapter {
   DocumentTree run(String text) {
     _source = text.contains('\r') ? normalizeLineEnds(text) : text;
     if (policy.validating) {
+      _source = escapeLooseAmpersands(_source);
       _runStrict();
     } else {
       _runTolerant();
@@ -246,7 +247,7 @@ final class EventAdapter {
   /// `package:xml` no meio do fluxo (que já pula o caractere problemático)
   /// vira [RepairPolicy.onMarkupError] antes de seguir.
   void _runTolerant() {
-    _source = policy.prepare(this, _source);
+    _source = escapeLooseAmpersands(policy.prepare(this, _source));
     final withLocation = policy.withLocation;
     final iterator = parseEvents(
       _source,
@@ -677,4 +678,98 @@ String normalizeLineEnds(String text) {
     }
   }
   return String.fromCharCodes(out, 0, n);
+}
+
+/// [text] com `&amp;` no lugar de todo `&` que não tem um `;` antes do
+/// próximo `&` (ou do fim), fora de seções CDATA e de comentários.
+///
+/// Por quê: o `package:xml` decodifica referências procurando, a partir de
+/// cada `&`, o próximo `;` do texto; numa sequência de `&` sem `;`, essas
+/// buscas se sobrepõem e o tempo fica quadrático. Um `&` assim nunca é
+/// decodificado (o trecho até o `;` conteria outro `&`, que não cabe em
+/// nome de entidade nem em número), então sai literal de qualquer forma: o
+/// resultado visível é o mesmo, agora em tempo linear. Os `&` mantidos
+/// têm o seu `;` antes do próximo `&`, e as buscas deixam de se sobrepor.
+///
+/// CDATA não decodifica entidades, então o seu conteúdo fica intacto;
+/// comentários também são pulados (são descartados, e assim um
+/// `<![CDATA[` dentro de um comentário não engana a passada). As quebras
+/// de linha não mudam.
+///
+/// O caso comum não aloca: uma primeira varredura só dos `&` decide se há
+/// algo a trocar, e só então as seções CDATA e os comentários são
+/// localizados.
+String escapeLooseAmpersands(String text) {
+  var i = text.indexOf('&');
+  while (i >= 0) {
+    final stop = _referenceStop(text, i);
+    if (stop >= text.length || text.codeUnitAt(stop) != 0x3B) break;
+    i = text.indexOf('&', stop);
+  }
+  if (i < 0) return text;
+  return _escapeLooseAmpersandsFrom(text, i);
+}
+
+/// Posição do primeiro `;` ou `&` depois de [i] (ou o fim do texto).
+int _referenceStop(String text, int i) {
+  final length = text.length;
+  var k = i + 1;
+  while (k < length) {
+    final c = text.codeUnitAt(k);
+    if (c == 0x3B || c == 0x26) return k;
+    k++;
+  }
+  return length;
+}
+
+/// Caminho lento de [escapeLooseAmpersands], a partir do primeiro `&` a
+/// trocar, [first].
+String _escapeLooseAmpersandsFrom(String text, int first) {
+  final length = text.length;
+  final out = StringBuffer();
+  var copied = 0;
+  // Início da próxima seção CDATA e do próximo comentário ainda não
+  // tratados; −1 se não há.
+  var cdata = text.indexOf('<![CDATA[');
+  var comment = text.indexOf('<!--');
+  // Fim (exclusivo) da seção protegida mais recente.
+  var protectedEnd = 0;
+  var i = first;
+  while (i >= 0) {
+    // Avança as seções protegidas até a que poderia conter `i`.
+    while (true) {
+      final start = cdata >= 0 && (comment < 0 || cdata < comment)
+          ? cdata
+          : comment;
+      if (start < 0 || start > i) break;
+      final isCdata = start == cdata;
+      final terminator = isCdata ? ']]>' : '-->';
+      final end = text.indexOf(terminator, start + (isCdata ? 9 : 4));
+      protectedEnd = end < 0 ? length : end + 3;
+      if (protectedEnd < length) {
+        if (cdata >= 0 && cdata < protectedEnd) {
+          cdata = text.indexOf('<![CDATA[', protectedEnd);
+        }
+        if (comment >= 0 && comment < protectedEnd) {
+          comment = text.indexOf('<!--', protectedEnd);
+        }
+      } else {
+        cdata = comment = -1;
+      }
+    }
+    if (i < protectedEnd) {
+      i = protectedEnd < length ? text.indexOf('&', protectedEnd) : -1;
+      continue;
+    }
+    final stop = _referenceStop(text, i);
+    if (stop >= length || text.codeUnitAt(stop) != 0x3B) {
+      out
+        ..write(text.substring(copied, i))
+        ..write('&amp;');
+      copied = i + 1;
+    }
+    i = stop < length ? text.indexOf('&', stop) : -1;
+  }
+  out.write(text.substring(copied));
+  return out.toString();
 }

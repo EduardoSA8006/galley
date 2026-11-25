@@ -436,4 +436,103 @@ void main() {
       expect(unclosed.severity, DiagnosticSeverity.warning);
     });
   });
+
+  group('& sem ;', () {
+    String textOfP(ParsedDocument doc) {
+      final tree = doc.tree;
+      final p = tree.elementsNamed(Namespaces.xhtml, 'p').first;
+      return tree.textOf(tree.firstChildOf(p));
+    }
+
+    for (final (label, unit) in [('&', '&'), ('&a', '&a'), ('&#12', '&#12')]) {
+      final body = unit * (100000 ~/ unit.length);
+      for (final (path, source, mediaType) in [
+        ('estrito', _doc('<p>$body</p>'), null),
+        ('malformado', _doc('<p>$body'), null),
+        ('text/html', '<p>$body</p>', 'text/html'),
+      ]) {
+        test('~100 KB de "$label" ($path): linear e literal', () {
+          final watch = Stopwatch()..start();
+          final doc = _parse(source, mediaType: mediaType);
+          watch.stop();
+          expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+          expect(doc.recovered, path != 'estrito');
+          expect(textOfP(doc), body);
+        });
+      }
+    }
+
+    test('entidades válidas continuam decodificadas', () {
+      final doc = _parse(
+        _doc('<p title="a &amp; b & c">&nbsp;&#233;&#xE9;&amp;&lt; x & y</p>'),
+      );
+      expect(doc.recovered, isFalse);
+      expect(textOfP(doc), ' éé&< x & y');
+      final p = doc.tree.elementsNamed(Namespaces.xhtml, 'p').single;
+      expect(doc.tree.attribute(p, Namespaces.none, 'title'), 'a & b & c');
+    });
+
+    test('& sem ; ao lado de entidades: mesmo texto de antes', () {
+      final doc = _parse(_doc('<p>a & b &amp; c &foo; d &#65 e &#65;</p>'));
+      expect(textOfP(doc), 'a & b & c &foo; d &#65 e A');
+    });
+
+    test('CDATA não é tocado', () {
+      final doc = _parse(_doc('<p>x & y</p><p><![CDATA[a & b &amp;]]></p>'));
+      final tree = doc.tree;
+      final ps = tree.elementsNamed(Namespaces.xhtml, 'p');
+      expect(tree.textOf(tree.firstChildOf(ps.first)), 'x & y');
+      expect(tree.textOf(tree.firstChildOf(ps.last)), 'a & b &amp;');
+    });
+
+    test('marcador de CDATA dentro de comentário não protege o resto', () {
+      final body = '&' * 100000;
+      final watch = Stopwatch()..start();
+      final doc = _parse(_doc('<!-- <![CDATA[ --><p>$body</p>'));
+      watch.stop();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+      expect(textOfP(doc), body);
+    });
+  });
+
+  group('correções da revisão (rodada 2)', () {
+    test('doctype com > entre aspas é descartado inteiro', () {
+      final doc = _parse(
+        '<!DOCTYPE x PUBLIC "a>b" \'c>d\' [<!ENTITY e "a>b">]><p>a<p>b',
+        mediaType: 'text/html',
+      );
+      expect(_dump(doc.tree), 'html*[body*[p["a"]p["b"]]]');
+      final dropped = doc.diagnostics.singleWhere(
+        (d) => d.code == DiagnosticCodes.droppedNodes,
+      );
+      expect(dropped.message, contains('1 doctype'));
+    });
+
+    for (final unit in ['<!DOCTYPE x "', '<!DOCTYPE x ["', '<!DOCTYPE "<']) {
+      test('~100 KB de "$unit": tempo linear', () {
+        final source = _doc('<p>${unit * (100000 ~/ unit.length)}</p>');
+        final watch = Stopwatch()..start();
+        _parse(source, mediaType: 'text/html');
+        _parse(source);
+        watch.stop();
+        expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+      });
+    }
+
+    test('text/html: svg com prefixo mantém a caixa dentro dele', () {
+      final doc = _parse(
+        '<html><body><s:svg xmlns:s="http://www.w3.org/2000/svg" '
+        'viewBox="0 0 1 1"><rect PathLength="1"/></s:svg>'
+        '<P>x</P></body></html>',
+        mediaType: 'text/html',
+      );
+      final tree = doc.tree;
+      final svgNs = tree.names.namespaceIdOf('http://www.w3.org/2000/svg')!;
+      final svg = tree.elementsNamed(svgNs, 'svg').single;
+      expect(tree.attribute(svg, Namespaces.none, 'viewBox'), '0 0 1 1');
+      final rect = tree.firstChildOf(svg);
+      expect(tree.attribute(rect, Namespaces.none, 'PathLength'), '1');
+      expect(tree.elementsNamed(Namespaces.xhtml, 'p'), hasLength(1));
+    });
+  });
 }
