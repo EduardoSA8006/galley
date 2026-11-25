@@ -147,4 +147,19 @@ abstract final class DiagnosticCodes {
   /// `:nth-child(… of S)`...) ou malformado; a regra inteira é descartada
   /// (info).
   static const String cssUnsupportedSelector = 'css.unsupportedSelector';
+
+  /// Propriedade fora do escopo do motor; declaração ignorada (info).
+  static const String cssUnsupportedProperty = 'css.unsupportedProperty';
+
+  /// Valor inválido para uma propriedade do escopo; declaração ignorada
+  /// (info).
+  static const String cssInvalidValue = 'css.invalidValue';
+
+  /// At-rule não suportada (`@keyframes`, `@layer`, `@page :first`...);
+  /// ignorada (info).
+  static const String cssUnsupportedAtRule = 'css.unsupportedAtRule';
+
+  /// `@font-face` sem família ou sem fonte utilizável; regra descartada
+  /// (warning).
+  static const String cssFontFaceInvalid = 'css.fontFaceInvalid';
 }
