@@ -77,7 +77,13 @@ bytes entre os dois APKs, gravada como `size-bytes` em
   `local` segue sem o corpus privado e avisa.
 - **Quando rodar `local`:** após mudanças que mexam em desempenho e antes de
   cada release. Com `--upload` (e `BENCHER_API_KEY` definido) o resultado vai
-  ao Bencher no testbed `local-dev`; sem a chave o upload é pulado com aviso.
+  ao Bencher no testbed `local-dev`, com o commit medido (`--hash`, o sha do
+  `HEAD`) e o branch atual (`--branch`, normalizado; checkout destacado vira
+  `main`); sem a chave o upload é pulado com aviso. Com mudanças não
+  commitadas (inclusive arquivos novos), o envio é **recusado** com aviso,
+  porque o resultado não corresponderia ao commit; o BMF e o relatório saem
+  assim mesmo. Commite antes, ou use `--allow-dirty` se souber o que está
+  enviando.
 - **Cache do corpus público:** `.corpus-cache/` (na raiz do repositório, fora
   do git) guarda os livros baixados, verificados por `sha256`. Enquanto os
   arquivos não forem baixados novamente do espelho da release `corpus-v1`
@@ -89,16 +95,28 @@ bytes entre os dois APKs, gravada como `size-bytes` em
 - **`bench-pr.yml`** (`pull_request`, sem secrets): o gate `instructions`
   (Valgrind) roda em 4 fatias paralelas e o `ab` (15 rodadas) em 2, com
   `--shard i/n` (os ids do catálogo, ordenados, repartidos em rodízio). A
-  base é o `merge-base` entre a base do PR e o head. Os jobs finais
-  **`instructions`** e **`ab`** juntam as fatias (BMF em artefato e
-  relatório no resumo do job) e reprovam se alguma fatia reprovou:
-  são eles os checks obrigatórios. O catálogo usa só livros escritos à mão e
-  sintéticos: não há rede nos gates.
+  base é o `merge-base` entre a base do PR e o head. O índice e o total de
+  cada fatia vêm de `strategy.job-index`/`strategy.job-total` (a lista da
+  `matrix` só define quantas são). Os jobs finais **`instructions`** e
+  **`ab`** juntam as fatias com `.github/scripts/bench-aggregate.sh` (BMF em
+  artefato e relatório no resumo do job), conferem que **todas** as fatias
+  produziram BMF e concordam no total (senão reprovam: parte do catálogo não
+  foi medida) e reprovam se alguma fatia reprovou: são eles os checks
+  obrigatórios. Regressão (código 1) ou checksum divergente (2) passam com
+  aviso se o PR tiver o rótulo `perf-regression-accepted` (ver
+  [Aceitar uma regressão intencional](#aceitar-uma-regressão-intencional));
+  falha de medição (69, 70) reprova sempre. O catálogo usa só livros escritos
+  à mão e sintéticos: não há rede nos gates. O "antes × depois" do PR está no
+  resumo desses jobs (relatório do harness, base × head no mesmo job).
 - **`bench-pr-upload.yml`** (`workflow_run` do `bench-pr`): baixa os
   artefatos, sem checkout nem execução de código do PR, identifica o PR pela
   API do GitHub (PR aberto cujo head é o commit medido; nada vem do
-  artefato além do BMF) e envia ao Bencher (`--branch pr-<número>`,
-  `--start-point main`, comentário no PR). Sem `BENCHER_API_KEY`, pula com aviso. O GitHub
+  artefato além do BMF), valida o BMF com `jq` antes de a chave entrar em
+  qualquer passo (ids no formato do catálogo, medidas conhecidas, números
+  finitos, no máximo 2000 benchmarks e 512 KiB; senão pula com aviso) e
+  envia ao Bencher (`--branch pr-<número>`, `--start-point main`, nos
+  testbeds `github-ubuntu-valgrind` e `github-ubuntu-ab`, comentário no PR).
+  Sem `BENCHER_API_KEY`, pula com aviso. O GitHub
   só dispara `workflow_run` a partir da cópia do arquivo na branch padrão: o
   envio começa a valer depois do merge.
 - **`bench-nightly.yml`** (diário às 06:00 UTC, a cada push na `main` e
@@ -106,8 +124,14 @@ bytes entre os dois APKs, gravada como `size-bytes` em
   10%, quando a tag existe; sem ela, mede só o head e avisa), `ab` longo (31
   rodadas, só o head), `compare` (só relatório; nunca reprova o noturno),
   `size`, `wide` (job independente, prazo de 150 min por causa da primeira
-  execução sem cache) e o envio de tudo ao Bencher (`--branch main`, testbed
-  `github-ubuntu-nightly`) em jobs sem checkout.
+  execução sem cache; roda **só na agenda e no disparo manual**, nunca a cada
+  push) e o envio de tudo ao Bencher (`--branch main`) em jobs sem checkout:
+  instruções em `github-ubuntu-valgrind` e A/B em `github-ubuntu-ab` (os
+  mesmos testbeds do PR, para o `--start-point main` do PR trazer este
+  histórico), `compare`, `size` e `wide` em `github-ubuntu-nightly`. Os
+  caches de corpus do `compare` e do `wide` usam `actions/cache/restore` e
+  `actions/cache/save` com `if: always()`: são salvos mesmo se o job falhar
+  (um `crashed` ou o prazo estourado), sempre que chegaram livros novos.
 
 Para medir uma fatia localmente:
 `dart run tool/bench.dart instructions --base origin/main --head HEAD --shard 2/4`.
@@ -120,17 +144,23 @@ harness (base e head medidos no mesmo job, com o mesmo toolchain).
 `bencherRun` (`lib/src/bencher.dart`) monta e executa:
 
 ```
-bencher run --project galley --testbed <testbed> --adapter json --file <bmf> [--branch <b>] [--start-point <p>]
+bencher run --project galley --testbed <testbed> --adapter json --file <bmf> [--branch <b>] [--start-point <p>] [--hash <sha>]
 ```
 
 A chave de API é lida de `BENCHER_API_KEY` pela própria CLI (não entra na
 linha de comando). Sem a chave, o envio é pulado com aviso e não falha. (Os
-antigos tokens, `BENCHER_API_TOKEN`/`--token`, estão obsoletos no Bencher e
-não podem mais ser criados.)
+antigos tokens de API do Bencher, passados com `--token`, estão obsoletos e
+não podem mais ser criados: use sempre `BENCHER_API_KEY`.)
 
-Testbeds: `github-ubuntu-valgrind` (instruções no PR), `github-ubuntu-ab`
-(A/B no PR), `github-ubuntu-nightly` (noturno: compare, size, instruções, A/B
-longo) e `local-dev` (máquina do mantenedor).
+Testbeds (o histórico do Bencher é indexado por branch × testbed, por isso
+PR e noturno usam o mesmo testbed por tipo de medida):
+
+| Testbed | Medidas | Quem envia |
+|---|---|---|
+| `github-ubuntu-valgrind` | instruções | PR (`pr-<número>`) e noturno (`main`) |
+| `github-ubuntu-ab` | A/B de tempo de parede | PR (`pr-<número>`) e noturno (`main`) |
+| `github-ubuntu-nightly` | `compare`, `size`, `wide` | só o noturno (`main`) |
+| `local-dev` | modo `local` | máquina do mantenedor (branch atual) |
 
 ### Passo a passo manual do mantenedor (uma vez)
 
@@ -146,12 +176,44 @@ Nada disto é feito pelo código; exige a sua conta.
 3. Criar os testbeds (o primeiro `bencher run` também os cria sozinho):
    `github-ubuntu-valgrind`, `github-ubuntu-ab`, `github-ubuntu-nightly` e
    `local-dev`.
-4. Marcar como **checks obrigatórios** da `main` (Settings > Branches ou
-   rulesets): **`bench-pr / instructions`** e **`bench-pr / ab`**.
+4. Criar o rótulo **`perf-regression-accepted`** no repositório (Issues >
+   Labels), com uma descrição como "Regressão de desempenho ou checksum de
+   benchmark aceitos de propósito".
+5. Marcar como **checks obrigatórios** da `main` (Settings > Branches ou
+   rulesets): **`bench-pr / instructions`** e **`bench-pr / ab`**. Antes,
+   abra um PR inócuo (ex.: um comentário em `lib/`) para exercitar no CI a
+   comparação base × head pela primeira vez e conferir o tempo de parede.
 
 O Bencher é **só histórico**: o noturno envia para `--branch main`, e os PRs
 para `--branch pr-<número> --start-point main`. Não há thresholds a configurar nele:
 todos os limites são verificados pelo próprio harness.
+
+### Aceitar uma regressão intencional
+
+Os gates são determinísticos: rodar de novo não muda o resultado. Quando a
+regressão ou a mudança de checksum é **de propósito**, há dois caminhos:
+
+- **A carga do benchmark mudou** (o benchmark passou a fazer outro trabalho:
+  livro de entrada diferente, outra API medida, correção de um benchmark
+  que media errado): dê a ele um **id novo** (ex.:
+  `container/deobfuscate-idpf-v2`) e remova o antigo. Ele aparece como
+  `added`/`removed`, não como regressão, e o histórico do Bencher não mistura
+  duas séries diferentes sob o mesmo nome. Esta é a regra; o rótulo abaixo
+  não a substitui.
+- **O código do Galley ficou mais caro de propósito** (ex.: a abertura passa
+  a fazer mais trabalho, como no SP3), ou o checksum mudou porque o
+  resultado mudou de propósito (ex.: um diagnóstico novo entra em
+  `book.diagnostics`): quem tem **acesso de escrita** aplica ao PR o rótulo
+  **`perf-regression-accepted`**. Aplicar ou tirar o rótulo roda o
+  `bench-pr` de novo; os agregadores `instructions` e `ab` leem o rótulo do
+  evento `pull_request` (metadado, nunca do código do PR), medem e relatam
+  tudo, e aprovam com um aviso e uma nota no resumo listando as regressões
+  e os checksums aceitos. Falhas de medição (69, 70) continuam reprovando.
+  Justifique no PR o que foi aceito e por quê.
+
+Uma regressão aceita no PR também conta na regressão gradual do noturno
+(10% desde `bench-baseline`): se ela for grande, mova a tag depois do merge
+(ver abaixo).
 
 ### Regressão gradual: a tag `bench-baseline`
 

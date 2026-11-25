@@ -1,7 +1,7 @@
 # Galley — Subprojeto 2: Benchmark e corpus
 
 - **Data:** 2026-11-24
-- **Status:** rascunho para aprovação
+- **Status:** aprovado; implementado na branch `sp2/benchmark` (PR #2)
 - **Documento pai:** `2026-11-24-galley-arquitetura-design.md` (§6 Benchmarks e CI, §8 item 2)
 - **Depende de:** SP1 (Fundação + Container), mergeado.
 
@@ -121,25 +121,26 @@ Todos os modos escrevem o **Bencher Metric Format** (JSON) e/ou um relatório le
 - **Referência da `main` medida no mesmo job.** Os gates de instruções e de A/B compilam e medem a `main` (merge-base) e o PR **no mesmo job, com o mesmo toolchain**. O gate não depende do histórico do Bencher; o próprio harness decide aprovar ou reprovar. Isso elimina falso positivo por mudança de versão do Dart, do Valgrind ou da imagem do runner. O custo em dobro é aceito: os benchmarks de instruções são curtos.
 - **Toolchain fixo nos jobs de benchmark.** Os jobs de benchmark usam uma versão fixa do Flutter (a mínima suportada, hoje 3.47.5), atualizada de forma deliberada num PR próprio. Os jobs de teste continuam com a matriz 3.47.5 + stable.
 - **Orçamento do workflow de PR:** no máximo ~15 min de parede. Se o conjunto de benchmarks ou as repetições do A/B passarem disso, divida em jobs paralelos ou reduza as repetições, preservando a significância estatística.
-- **Bencher só como histórico e comentário.** Os gates funcionam de forma autônoma pelo harness. O Bencher guarda o histórico e os gráficos, e comenta no PR. Os jobs de gate (`instructions` e `ab`) viram status obrigatórios da `main`. O SP2 está pronto quando os gates funcionam sem o Bencher **e** a integração com o Bencher está implementada. A validação de ponta a ponta com o Bencher real depende de o mantenedor criar o projeto e o token (passo manual documentado).
-- **Regressão gradual (verificada pelo harness, não pelo Bencher).** O marco é a **tag git `bench-baseline`**. Como `d4ef38a` (merge do SP1) não tem `benchmark/`, o marco inicial é o commit de merge do SP2 na `main`; o mantenedor cria a tag após o merge (`git tag -f bench-baseline <sha> && git push -f origin bench-baseline`) e a move a cada release ou ao aceitar de propósito uma regressão, conforme o `benchmark/README.md`. O job noturno roda `instructions --base bench-baseline --head HEAD --threshold 0.10` (mesmo job, mesmo toolchain, determinístico). O limite de 10% reprova **só o job noturno**, nunca o PR. Um threshold do Bencher só avalia runs do mesmo branch e faria o baseline derivar, por isso o Bencher é só histórico: o noturno envia para `--branch main` e os PRs para `--branch <pr> --start-point main`.
+- **Bencher só como histórico e comentário.** Os gates funcionam de forma autônoma pelo harness. O Bencher guarda o histórico e os gráficos, e comenta no PR. Os jobs de gate (`instructions` e `ab`) viram status obrigatórios da `main`. O SP2 está pronto quando os gates funcionam sem o Bencher **e** a integração com o Bencher está implementada. A validação de ponta a ponta com o Bencher real depende de o mantenedor criar o projeto e a chave `BENCHER_API_KEY` (passo manual documentado).
+- **Regressão gradual (verificada pelo harness, não pelo Bencher).** O marco é a **tag git `bench-baseline`**. Como `d4ef38a` (merge do SP1) não tem `benchmark/`, o marco inicial é o commit de merge do SP2 na `main`; o mantenedor cria a tag após o merge (`git tag -f bench-baseline <sha> && git push -f origin bench-baseline`) e a move a cada release ou ao aceitar de propósito uma regressão, conforme o `benchmark/README.md`. O job noturno roda `instructions --base bench-baseline --head HEAD --threshold 0.10` (mesmo job, mesmo toolchain, determinístico). O limite de 10% reprova **só o job noturno**, nunca o PR. Um threshold do Bencher só avalia runs do mesmo branch e faria o baseline derivar, por isso o Bencher é só histórico: o noturno envia para `--branch main` e os PRs para `--branch pr-<número> --start-point main`, nos mesmos testbeds por tipo de medida (`github-ubuntu-valgrind` para instruções e `github-ubuntu-ab` para A/B, no PR e no noturno; `compare`, `size` e `wide`, só do noturno, em `github-ubuntu-nightly`), para que o PR tenha a `main` como referência.
+- **Regressão ou checksum divergente intencional.** O rótulo de PR **`perf-regression-accepted`** (só quem tem acesso de escrita aplica) faz os jobs agregadores `instructions` e `ab` aprovarem com aviso: eles leem o rótulo do evento `pull_request` (via `env:`, nunca do código do PR), rodam e relatam tudo, e listam no resumo as regressões e os checksums aceitos. Falha de medição (69, 70) continua reprovando. Um benchmark cuja carga muda de propósito ganha **id novo** (ex.: `…-v2`), para não misturar séries no histórico.
 - **Corpus público espelhado.** Os livros externos do manifesto, todos de domínio público ou com licença que permite redistribuição, são espelhados como asset de uma release dedicada do próprio repositório (`corpus-v1`), com as licenças e os avisos exigidos. A URL original fica como alternativa. O harness verifica o `sha256` nos dois casos. Livros cuja licença não permita espelhamento ficam só com a URL original e fora dos gates de PR.
 - **Tamanho (2 MB).** Mede-se o APK **release, split por ABI, arm64** de um app mínimo, em duas variantes idênticas, uma com e outra sem a dependência `galley` e uma chamada a `EpubBook.fromBytes`. Conta a diferença de bytes. O job é noturno.
 - **Contadores com o livro sintético de 300 MB.** Ficam marcados com a tag `heavy` e rodam num único job (stable, Linux), não na matriz inteira. O arquivo é gerado em streaming num diretório temporário e apagado ao final. Os contadores com livros pequenos rodam na suíte normal.
 
 ### 7.5 CI
 
-- **Workflow de PR:** roda `instructions` e `ab` e envia ao Bencher.
-- **PRs de forks:** secrets não ficam disponíveis em PRs de forks. Use o padrão de dois workflows que o Bencher documenta (`pull_request` gera os resultados como artefato; `workflow_run` com o token envia e comenta). Nunca rode código do PR com acesso a secrets.
-- **Workflow noturno** (agenda) e em push na `main`: `instructions`, `compare`, `size` e uma bateria `ab` mais longa, para formar o histórico da `main` no Bencher.
-- **Cache:** cache do corpus baixado (chave = hash do manifesto) e do toolchain.
-- **Segredo:** `BENCHER_API_TOKEN` como secret do repositório. O mantenedor cria o projeto no Bencher (passo manual documentado).
+- **Workflow de PR** (`bench-pr.yml`): roda `instructions` e `ab` em fatias paralelas (índice e total de `strategy.job-index`/`strategy.job-total`); os jobs agregadores `instructions` e `ab` conferem que todas as fatias produziram BMF e são os checks obrigatórios da `main` (`bench-pr / instructions` e `bench-pr / ab`). O envio ao Bencher fica no `bench-pr-upload.yml` (`workflow_run`), em `--branch pr-<número> --start-point main`, depois de validar o BMF com `jq`.
+- **PRs de forks:** secrets não ficam disponíveis em PRs de forks. Use o padrão de dois workflows que o Bencher documenta (`pull_request` gera os resultados como artefato; `workflow_run` com a chave `BENCHER_API_KEY` envia e comenta). Nunca rode código do PR com acesso a secrets.
+- **Workflow noturno** (agenda) e em push na `main`: `instructions`, `compare`, `size` e uma bateria `ab` mais longa, para formar o histórico da `main` no Bencher (testbeds como no PR para instruções e A/B; `github-ubuntu-nightly` para o resto). O `wide` (corpus amplo) roda só na agenda e no disparo manual.
+- **Cache:** cache do corpus baixado (chave = hash do manifesto) e do toolchain. Os caches de corpus usam `actions/cache/restore` + `actions/cache/save` com `if: always()`, para salvar mesmo quando o job falha.
+- **Segredo:** `BENCHER_API_KEY` como secret do repositório (os antigos tokens do Bencher estão obsoletos). O mantenedor cria o projeto no Bencher (passo manual documentado).
 
 ### 7.6 Execução local
 
 - `dart run tool/bench.dart local` na máquina do mantenedor:
   - roda `perf`, tempo absoluto, memória, livros grandes e corpus privado;
-  - envia ao Bencher como ambiente `local-dev`, junto com o commit medido.
+  - envia ao Bencher como ambiente `local-dev`, junto com o commit medido (`--hash`) e o branch atual (`--branch`); com a árvore suja, o `--upload` é recusado com aviso, salvo com `--allow-dirty`.
 - Documentado no `benchmark/README.md`: quando rodar (depois de mudanças de desempenho e antes de releases) e como configurar o `perf` (`perf_event_paranoid`) e o `GALLEY_PRIVATE_CORPUS`.
 
 ## 8. Atualização do design pai

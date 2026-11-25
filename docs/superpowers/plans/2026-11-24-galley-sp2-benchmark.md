@@ -1,5 +1,7 @@
 # Galley SP2 — Benchmark e corpus — Plano de implementação
 
+> **Nota (histórico):** este plano registra o desenho original. Onde ele diverge do código, valem o spec atualizado e as decisões do ledger `progress.md`: o baseline da regressão gradual é a tag `bench-baseline` (no merge do SP2, não `d4ef38a`); a chave do Bencher é `BENCHER_API_KEY`; o branch do PR no Bencher é `pr-<número>`; instruções e A/B usam os mesmos testbeds no PR e no noturno; regressão intencional usa o rótulo `perf-regression-accepted`; e o RSS de pico vem de `VmHWM` (não de `ProcessInfo.maxRss`).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Infraestrutura de benchmark do Galley: corpus (público + privado), harness próprio em Dart com os modos `instructions`, `ab`, `local`, `compare` e `size`, gates autônomos por PR, contadores determinísticos, integração com o Bencher e workflows de CI.
