@@ -243,9 +243,24 @@ final class DocumentTree {
   /// ordem do atributo. A lista não é modificável.
   List<String> epubTypesOf(int element) {
     _checkKind(element, NodeKind.element);
-    final ids = _slice(_indices.typeStarts, _indices.typeTokens, element);
-    if (ids.isEmpty) return const [];
-    return List<String>.unmodifiable(ids.map(tokens.tokenOf));
+    final elements = _indices.typeElements;
+    var lo = 0;
+    var hi = elements.length - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      final e = elements[mid];
+      if (e == element) {
+        final starts = _indices.typeStarts;
+        final ids = _slice(starts, _indices.typeTokens, mid);
+        return List<String>.unmodifiable(ids.map(tokens.tokenOf));
+      }
+      if (e < element) {
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return const [];
   }
 
   static List<int> _slice(Int32List starts, Int32List values, int i) {
@@ -294,6 +309,7 @@ final class QueryIndices {
     required this.byId,
     required this.classStarts,
     required this.classTokens,
+    required this.typeElements,
     required this.typeStarts,
     required this.typeTokens,
     required this.classElementStarts,
@@ -314,7 +330,12 @@ final class QueryIndices {
   /// Valores de [classStarts].
   final Int32List classTokens;
 
-  /// Por nó: tokens de `epub:type`.
+  /// Elementos com `epub:type`, em ordem crescente (índice esparso: o
+  /// atributo é raro, então não há um item por nó).
+  final Int32List typeElements;
+
+  /// Por item de [typeElements]: início dos seus tokens em [typeTokens]
+  /// (`typeElements.length + 1` itens).
   final Int32List typeStarts;
 
   /// Valores de [typeStarts].
@@ -332,14 +353,17 @@ final class QueryIndices {
   /// Valores de [nameElementStarts].
   final Int32List nameElements;
 
-  /// Bytes dos arranjos (o mapa de ids, por ser pequeno, não conta).
+  /// Bytes dos arranjos mais uma estimativa do mapa de ids (cerca de 48
+  /// bytes por entrada; a `String` do valor já é contada nos atributos).
   int get retainedBytes =>
       classStarts.lengthInBytes +
       classTokens.lengthInBytes +
+      typeElements.lengthInBytes +
       typeStarts.lengthInBytes +
       typeTokens.lengthInBytes +
       classElementStarts.lengthInBytes +
       classElements.lengthInBytes +
       nameElementStarts.lengthInBytes +
-      nameElements.lengthInBytes;
+      nameElements.lengthInBytes +
+      byId.length * 48;
 }

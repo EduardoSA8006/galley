@@ -172,7 +172,8 @@ final class TreeBuilder {
 
     final byId = <String, int>{};
     final classStarts = Int32List(count + 1);
-    final typeStarts = Int32List(count + 1);
+    final typeElements = _Int32Array();
+    final typeStarts = _Int32Array();
     final classValues = _Int32Array();
     final typeValues = _Int32Array();
     final nameCounts = Int32List(names.length + 1);
@@ -180,7 +181,6 @@ final class TreeBuilder {
 
     for (var n = 0; n < count; n++) {
       classStarts[n] = classValues.length;
-      typeStarts[n] = typeValues.length;
       if (_flags[n] & DocumentTree.kindMask != NodeKind.element.index) {
         continue;
       }
@@ -198,15 +198,20 @@ final class TreeBuilder {
           if (value.isNotEmpty) byId.putIfAbsent(value, () => n);
         } else if (name == classAttr && !seenClass) {
           seenClass = true;
-          _tokenize(_attributeValues[i], classValues, classStarts[n]);
+          _tokenize(_attributeValues[i], classValues);
         } else if (name == typeAttr && !seenType) {
           seenType = true;
-          _tokenize(_attributeValues[i], typeValues, typeStarts[n]);
+          final before = typeValues.length;
+          _tokenize(_attributeValues[i], typeValues);
+          if (typeValues.length > before) {
+            typeElements.add(n);
+            typeStarts.add(before);
+          }
         }
       }
     }
     classStarts[count] = classValues.length;
-    typeStarts[count] = typeValues.length;
+    typeStarts.add(typeValues.length);
     final classTokens = classValues.trimmed();
 
     // Por nome: contagem, somas de prefixo e preenchimento (ordem estável).
@@ -238,7 +243,8 @@ final class TreeBuilder {
       byId: byId,
       classStarts: classStarts,
       classTokens: classTokens,
-      typeStarts: typeStarts,
+      typeElements: typeElements.trimmed(),
+      typeStarts: typeStarts.trimmed(),
       typeTokens: typeValues.trimmed(),
       classElementStarts: classElementStarts,
       classElements: classElements,
@@ -258,9 +264,15 @@ final class TreeBuilder {
     return starts;
   }
 
+  /// Carimbo por id de token: o número do atributo em que o token foi
+  /// visto por último. Dá a deduplicação em O(1) por token.
+  final List<int> _stamps = [];
+  int _stamp = 0;
+
   /// Separa [value] em tokens por espaço em branco ASCII, interna cada um e
-  /// acrescenta a [out] os que ainda não aparecem a partir de [from].
-  void _tokenize(String value, _Int32Array out, int from) {
+  /// acrescenta a [out] os que ainda não apareceram neste atributo.
+  void _tokenize(String value, _Int32Array out) {
+    final stamp = ++_stamp;
     final length = value.length;
     var i = 0;
     while (i < length) {
@@ -273,14 +285,10 @@ final class TreeBuilder {
       }
       if (i == start) break;
       final token = tokens.intern(value.substring(start, i));
-      var seen = false;
-      for (var k = from; k < out.length; k++) {
-        if (out[k] == token) {
-          seen = true;
-          break;
-        }
-      }
-      if (!seen) out.add(token);
+      if (token == _stamps.length) _stamps.add(0);
+      if (_stamps[token] == stamp) continue;
+      _stamps[token] = stamp;
+      out.add(token);
     }
   }
 

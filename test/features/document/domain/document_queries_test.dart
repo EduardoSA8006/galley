@@ -114,5 +114,114 @@ void main() {
       expect(tree.classesOf(1), isEmpty);
       expect(tree.elementsNamed(Namespaces.xhtml, 'body'), [1]);
     });
+
+    group('casos de borda', () {
+      /// `<body>` com um `<p>` com os atributos dados (nome, valor, ns).
+      DocumentTree one(List<(String, String, int)> attrs) {
+        final b = TreeBuilder();
+        final body = b.names.intern(Namespaces.xhtml, 'body');
+        final p = b.names.intern(Namespaces.xhtml, 'p');
+        b
+          ..startElement(body)
+          ..startElement(p);
+        for (final (name, value, ns) in attrs) {
+          b.attribute(b.names.intern(ns, name), value);
+        }
+        b
+          ..endElement()
+          ..endElement();
+        return b.build();
+      }
+
+      test('TAB, LF, CR e FF separam; NBSP não separa', () {
+        final tree = one([('class', 'a\tb\nc\rd\fe\u00A0f', Namespaces.none)]);
+        expect(tree.classesOf(2).map(tree.tokens.tokenOf), [
+          'a',
+          'b',
+          'c',
+          'd',
+          'e\u00A0f',
+        ]);
+      });
+
+      test('atributos repetidos no mesmo elemento: vale o primeiro', () {
+        final tree = one([
+          ('id', 'x', Namespaces.none),
+          ('id', 'y', Namespaces.none),
+          ('class', 'a', Namespaces.none),
+          ('class', 'b', Namespaces.none),
+          ('type', 'noteref', Namespaces.ops),
+          ('type', 'chapter', Namespaces.ops),
+        ]);
+        expect(tree.elementById('x'), 2);
+        expect(tree.elementById('y'), isNull);
+        expect(tree.classesOf(2).map(tree.tokens.tokenOf), ['a']);
+        expect(tree.epubTypesOf(2), ['noteref']);
+      });
+
+      test('type sem prefixo é ignorado por epubTypesOf', () {
+        final tree = one([('type', 'noteref', Namespaces.none)]);
+        expect(tree.epubTypesOf(2), isEmpty);
+      });
+
+      test('token de epub:type não aparece em elementsWithClass', () {
+        final tree = one([('type', 'noteref', Namespaces.ops)]);
+        expect(tree.elementsWithClass('noteref'), isEmpty);
+      });
+
+      test('epub:type esparso: só alguns elementos, busca binária', () {
+        final b = TreeBuilder();
+        final n = b.names;
+        final div = n.intern(Namespaces.xhtml, 'div');
+        final type = n.intern(Namespaces.ops, 'type');
+        b.startElement(div);
+        for (var i = 0; i < 20; i++) {
+          b.startElement(div);
+          if (i.isOdd) b.attribute(type, 't$i u');
+          b.endElement();
+        }
+        b.endElement();
+        final tree = b.build();
+        for (var i = 0; i < 20; i++) {
+          expect(tree.epubTypesOf(i + 2), i.isOdd ? ['t$i', 'u'] : isEmpty);
+        }
+        expect(tree.epubTypesOf(1), isEmpty);
+      });
+
+      test('aninhamento profundo: ordem do documento (pré-ordem)', () {
+        final b = TreeBuilder();
+        final div = b.names.intern(Namespaces.xhtml, 'div');
+        final cls = b.names.intern(Namespaces.none, 'class');
+        void open() => b
+          ..startElement(div)
+          ..attribute(cls, 'k');
+        open(); // 1
+        open(); // 2
+        open(); // 3
+        b.endElement();
+        open(); // 4
+        b
+          ..endElement()
+          ..endElement();
+        open(); // 5
+        b
+          ..endElement()
+          ..endElement();
+        final tree = b.build();
+        expect(tree.elementsWithClass('k'), [1, 2, 3, 4, 5]);
+        expect(tree.elementsNamed(Namespaces.xhtml, 'div'), [1, 2, 3, 4, 5]);
+      });
+
+      test('class com 100 mil tokens distintos monta em tempo linear', () {
+        const count = 100000;
+        final value = List.generate(count, (i) => 't$i t$i').join(' ');
+        final watch = Stopwatch()..start();
+        final tree = one([('class', value, Namespaces.none)]);
+        watch.stop();
+        expect(tree.classesOf(2), hasLength(count));
+        expect(tree.elementsWithClass('t99999'), [2]);
+        expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+      });
+    });
   });
 }
