@@ -123,6 +123,10 @@ jobs:
           if [ -f "$RUNNER_TEMP/out/report.md" ]; then
             cat "$RUNNER_TEMP/out/report.md" >> "$GITHUB_STEP_SUMMARY"
           fi
+          # O efeito de layout do código AOT depende da CPU (README, modo ab).
+          cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | xargs)
+          echo "CPU do runner: $cpu"
+          printf '\nCPU do runner: %s\n' "$cpu" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

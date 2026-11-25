@@ -78,6 +78,35 @@ PR e a regressão gradual do noturno não sentem (base e head, ou
 Bencher, a série de cada benchmark dá um degrau no commit da mudança, que
 não é regressão.
 
+### O modo `ab`: layout do código AOT
+
+O `ab` compila base e head com `dart compile exe` padrão e roda cada amostra
+com as flags padrão da VM. Um efeito que ele sente e o `instructions` não:
+o tempo de um laço quente pode mudar com o **endereço** do código no
+executável, sem nenhuma instrução a mais. Isso depende da CPU do runner, que
+varia entre jobs (o GitHub sorteia AMD EPYC 7763/Zen 3, 9V74/Zen 4 e
+9V45/Zen 5; a linha "CPU do runner" no resumo de cada fatia diz qual foi).
+
+Caso do SP3 (PR #6): o `crc32` recebia `List<int>` e fazia duas chamadas
+indiretas por byte (`length` e `[]` pela tabela de despacho). Experimento no
+CI com executáveis da `main` que só diferem por código morto noutra função
+(mesmas instruções executadas): `crc32-1mib` +5–8% e `inflate-1mib` +4–6% em
+Zen 3 e Zen 5, nada em Zen 4. O gate reprovava sem mudança no container.
+Com o laço sobre `Uint8List` (sem chamadas), os mesmos deslocamentos ficam em
+±1% nas três CPUs, e o laço é ~2× mais rápido.
+
+Não adotado: `--align_all_loops` (flag do `gen_snapshot`, via
+`--extra-gen-snapshot-options`). Alinha o cabeçalho dos laços a 32 bytes, mas
+os destinos das chamadas e o resto do layout continuam mudando: em Zen 5 o
+deslocamento ainda dava −8%, e a flag deixou o `crc32` 8% mais lento. Também
+mediria um programa que nenhum app compila.
+
+Se o `ab` reprovar um benchmark cujo código não mudou e cujas instruções
+(gate `instructions`) ficaram iguais, suspeite de layout: veja a CPU do
+runner, procure chamadas indiretas ou despacho dinâmico no laço quente e
+prefira corrigir o laço (tipo exato, sem chamada por elemento). O limite de
+5% e o método não mudam; uma regressão real de tempo continua reprovando.
+
 ### O modo `wide`
 
 Baixa (uma vez; cache em `.corpus-cache/pg-wide/`, pausa de 2 s entre
