@@ -70,6 +70,8 @@ final class MatchedDocument {
     required this.pseudoSets,
     required this.fontFaces,
     required this.pageMargins,
+    required this.pageWidth,
+    required this.pageHeight,
     required this._mediaQueries,
     required this._mediaResults,
   });
@@ -101,6 +103,14 @@ final class MatchedDocument {
   /// Margens do `@page`: por lado, a do último `@page` com condições
   /// verdadeiras que a declara; `null` se nenhum declara margem.
   final PageMargins? pageMargins;
+
+  /// Largura da página do ambiente do casamento, em px: base de `vw` onde o
+  /// valor calculado precisa ser absoluto (`font-size`).
+  final double pageWidth;
+
+  /// Altura da página do ambiente do casamento, em px: base de `vh` onde o
+  /// valor calculado precisa ser absoluto (`font-size`).
+  final double pageHeight;
 
   final List<MediaQueryList> _mediaQueries;
   final List<bool> _mediaResults;

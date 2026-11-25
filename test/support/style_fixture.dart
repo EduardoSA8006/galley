@@ -20,8 +20,12 @@ const StyleEnvironment testEnvironment = StyleEnvironment(
 );
 
 /// Casa o documento com [body] dentro de `<body>` e a folha [css] num
-/// `<style>`, **sem** folha padrão (`StyleSheet.empty`).
-MatchedDocument matchCss(String body, {String css = ''}) {
+/// `<style>`, **sem** folha padrão (`StyleSheet.empty`), no [environment].
+MatchedDocument matchCss(
+  String body, {
+  String css = '',
+  StyleEnvironment environment = testEnvironment,
+}) {
   final xml =
       '<html xmlns="http://www.w3.org/1999/xhtml"><head>'
       '<style>$css</style></head><body>$body</body></html>';
@@ -33,7 +37,7 @@ MatchedDocument matchCss(String body, {String css = ''}) {
   return matchDocument(
     context,
     document,
-    testEnvironment,
+    environment,
     userAgentSheet: StyleSheet.empty,
   );
 }

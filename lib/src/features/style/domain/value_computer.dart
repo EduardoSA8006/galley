@@ -51,10 +51,23 @@ CssFontFamilies translateBookFamilies(
 /// mapa das famílias do livro.
 final class ValueComputer {
   /// Cria o calculador; [internalFamilies] vem de [bookFamilyNames].
-  ValueComputer({Map<String, String> internalFamilies = const {}})
-    : _families = internalFamilies;
+  ///
+  /// [pageWidth] e [pageHeight] (px) são as bases de `vw`/`vh` em
+  /// `font-size`, que precisa ser absoluto; nas demais propriedades `vw` e
+  /// `vh` ficam simbólicos.
+  ValueComputer({
+    Map<String, String> internalFamilies = const {},
+    this.pageWidth = 0,
+    this.pageHeight = 0,
+  }) : _families = internalFamilies;
 
   final Map<String, String> _families;
+
+  /// Largura da página (base de `vw` em `font-size`).
+  final double pageWidth;
+
+  /// Altura da página (base de `vh` em `font-size`).
+  final double pageHeight;
 
   /// Tamanho de fonte calculado da raiz, base de `rem` (antes da raiz,
   /// [kInitialFontSize]). Quem percorre o documento atualiza depois de
@@ -88,9 +101,13 @@ final class ValueComputer {
       set.valueOf(PropertyId.fontSize),
       parentSize,
       isRoot ? kInitialFontSize : rootFontSize,
+      pageWidth,
+      pageHeight,
     );
     out[PropertyId.fontSize] = CssLength(px: fontSize);
-    final rem = isRoot ? kInitialFontSize : rootFontSize;
+    // Na raiz, `rem` das demais propriedades é o próprio tamanho calculado
+    // (o `rem` do `font-size` da raiz é que mede sobre 16 px).
+    final rem = isRoot ? fontSize : rootFontSize;
 
     for (var p = 0; p < kPropertyCount; p++) {
       if (p == PropertyId.fontSize) continue;
@@ -323,9 +340,14 @@ double? _absoluteSize(int id) => switch (id) {
 /// `font-size` calculado em px, limitado a [0, [kMaxFontSize]].
 ///
 /// `em`, `ex` (0,5 em) e `%` são sobre o tamanho do pai; `rem`, sobre o da
-/// raiz. Termos `vw`/`vh` não têm base no estilo (não há página aqui) e são
-/// ignorados.
-double _fontSize(CssValue? specified, double parent, double root) {
+/// raiz; `vw`/`vh` sobre a largura/altura da página ([width], [height]).
+double _fontSize(
+  CssValue? specified,
+  double parent,
+  double root,
+  double width,
+  double height,
+) {
   double size;
   switch (specified) {
     case null:
@@ -343,6 +365,8 @@ double _fontSize(CssValue? specified, double parent, double root) {
           specified.em * parent +
           specified.ex * 0.5 * parent +
           specified.rem * root +
+          specified.vw / 100 * width +
+          specified.vh / 100 * height +
           specified.percent / 100 * parent;
     default:
       size = parent;

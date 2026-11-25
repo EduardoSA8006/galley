@@ -28,6 +28,8 @@ StyledDocument restyle(MatchedDocument matched, ReaderPreferences preferences) {
   final nodeCount = tree.nodeCount;
   final computer = ValueComputer(
     internalFamilies: bookFamilyNames(matched.fontFaces),
+    pageWidth: matched.pageWidth,
+    pageHeight: matched.pageHeight,
   );
   final interner = StyleInterner();
   final styles = interner.styles;

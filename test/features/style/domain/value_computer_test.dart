@@ -4,6 +4,7 @@ import 'package:galley/src/features/style/domain/css_value.dart';
 import 'package:galley/src/features/style/domain/properties.dart';
 import 'package:galley/src/features/style/domain/reader_preferences.dart';
 import 'package:galley/src/features/style/domain/restyle.dart';
+import 'package:galley/src/features/style/domain/style_environment.dart';
 import 'package:galley/src/features/style/domain/stylesheet.dart';
 import 'package:galley/src/features/style/domain/value_computer.dart';
 
@@ -54,6 +55,33 @@ void main() {
         name: 'p',
       );
       expect(fontSizeOf(s), 10);
+    });
+
+    test('vw/vh sobre a página do casamento', () {
+      final m = matchCss(
+        '<p class="a"/><p class="b"/><p class="c"/>',
+        css:
+            '.a{font-size:5vw} .b{font-size:10vh} '
+            '.c{font-size:calc(5vw + 1em)}',
+        environment: const StyleEnvironment(pageWidth: 600, pageHeight: 800),
+      );
+      expect(m.pageWidth, 600);
+      expect(m.pageHeight, 800);
+      final s = restyle(m, ReaderPreferences.none);
+      final ps = elementsNamed(m.tree, 'p');
+      expect(fontSizeOf(styleOfElement(s, ps[0])), 30);
+      expect(fontSizeOf(styleOfElement(s, ps[1])), 80);
+      expect(fontSizeOf(styleOfElement(s, ps[2])), 46);
+    });
+
+    test('rem nas demais propriedades da raiz é o tamanho da raiz', () {
+      final s = styled(
+        '',
+        css: 'html{font-size:10px; padding-left:2rem}',
+        name: 'html',
+      );
+      expect(fontSizeOf(s), 10);
+      expect(s[PropertyId.paddingLeft], const CssLength(px: 20));
     });
 
     test('rem na raiz é sobre 16 px', () {

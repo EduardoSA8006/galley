@@ -88,6 +88,8 @@ MatchedDocument cascadeDocument({
     pseudoSets: Int32List.fromList(pseudoSets),
     fontFaces: List.unmodifiable(fontFaces),
     pageMargins: pageMargins,
+    pageWidth: media.environment.pageWidth,
+    pageHeight: media.environment.pageHeight,
     mediaQueries: List.unmodifiable(media.queries),
     mediaResults: List.unmodifiable(media.results),
   );
