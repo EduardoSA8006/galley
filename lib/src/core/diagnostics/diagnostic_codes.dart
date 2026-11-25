@@ -142,4 +142,9 @@ abstract final class DiagnosticCodes {
   /// Ponto de recuperação de erro na sintaxe CSS (declaração inválida, bloco
   /// sem fechamento, aninhamento excessivo); o trecho é descartado (warning).
   static const String cssParseError = 'css.parseError';
+
+  /// Seletor fora do suportado (pseudo desconhecido, `:has`, `:is`,
+  /// `:nth-child(… of S)`...) ou malformado; a regra inteira é descartada
+  /// (info).
+  static const String cssUnsupportedSelector = 'css.unsupportedSelector';
 }

@@ -37,6 +37,15 @@ void main() {
       expect((t.number, t.unit), (-1.5, 'em'));
     });
 
+    test('sinal explícito do número', () {
+      expect(one('+5').hasSign, isTrue);
+      expect(one('-5').hasSign, isTrue);
+      expect(one('5').hasSign, isFalse);
+      expect(one('+2n').hasSign, isTrue);
+      expect(one('2n').hasSign, isFalse);
+      expect(one('-1%').hasSign, isTrue);
+    });
+
     test('strings e escapes', () {
       expect(one(r'"a\62 c"').value, 'abc');
       expect(one("'a\\\nb'").value, 'ab');

@@ -91,6 +91,7 @@ final class CssToken {
     this.isInteger = false,
     this.unit = '',
     this.isIdHash = false,
+    this.hasSign = false,
   });
 
   /// Tipo do token.
@@ -108,6 +109,10 @@ final class CssToken {
 
   /// Unidade de uma dimension (caixa original preservada).
   final String unit;
+
+  /// Se o número (number, percentage e dimension) foi escrito com sinal
+  /// explícito (`+5`, `-2n`); a microssintaxe An+B distingue `+5` de `5`.
+  final bool hasSign;
 
   /// Se um hash tem sintaxe de identificador (`#id` sim, `#1a` não).
   final bool isIdHash;
@@ -512,7 +517,8 @@ final class _Tokenizer {
   void _numeric(int start) {
     final numStart = p;
     var isInt = true;
-    if (at(p) == 0x2B || at(p) == 0x2D) p++;
+    final signed = at(p) == 0x2B || at(p) == 0x2D;
+    if (signed) p++;
     while (_isDigit(at(p))) {
       p++;
     }
@@ -545,6 +551,7 @@ final class _Tokenizer {
           number: v,
           isInteger: isInt,
           unit: unit,
+          hasSign: signed,
         ),
       );
     } else if (at(p) == 0x25) {
@@ -556,11 +563,19 @@ final class _Tokenizer {
           p,
           number: v,
           isInteger: isInt,
+          hasSign: signed,
         ),
       );
     } else {
       out.add(
-        CssToken(CssTokenType.number, start, p, number: v, isInteger: isInt),
+        CssToken(
+          CssTokenType.number,
+          start,
+          p,
+          number: v,
+          isInteger: isInt,
+          hasSign: signed,
+        ),
       );
     }
   }
