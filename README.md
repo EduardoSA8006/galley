@@ -29,7 +29,7 @@ O Galley abre e renderiza livros EPUB 2 e 3 com um motor próprio de estilo e la
 | 7. Recursos de leitura (seleção, CFI, busca, TTS) | planejado |
 | 8. Casos difíceis (layout fixo, texto vertical) | planejado |
 
-A arquitetura e as decisões estão em [`docs/superpowers/specs/`](docs/superpowers/specs/).
+A arquitetura e as decisões estão em [`docs/superpowers/specs/`](docs/superpowers/specs/); o que ficou de fora de propósito está em [`docs/PENDENCIAS.md`](docs/PENDENCIAS.md).
 
 ## Uso (API atual)
 
