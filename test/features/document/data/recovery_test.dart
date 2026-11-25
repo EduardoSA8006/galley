@@ -395,6 +395,38 @@ void main() {
       },
     );
 
+    test('<html> tardio com 80k xmlns:pN: tempo linear', () {
+      // Antes: cada declaração recontava as anteriores, O(k²) (40k
+      // declarações levavam 4,9 s).
+      final declarations = StringBuffer();
+      for (var i = 0; i < 80000; i++) {
+        declarations.write(' xmlns:p$i="urn:$i"');
+      }
+      final source =
+          '<p>a<html xmlns="$_xhtml"$declarations><body>'
+          '<p79999:q/><p0:q/></body></html>';
+      expect(source.length, greaterThan(1024 * 1024));
+      final watch = Stopwatch()..start();
+      final doc = _parse(source);
+      watch.stop();
+      expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+      for (final uri in ['urn:0', 'urn:79999']) {
+        final ns = doc.tree.names.namespaceIdOf(uri);
+        expect(doc.tree.elementsNamed(ns!, 'q'), hasLength(1), reason: uri);
+      }
+    });
+
+    test('<html> tardio: prefixo dele fica abaixo do redeclarado dentro', () {
+      final doc = _parse(
+        '<p>a<x xmlns:e="urn:in"><html xmlns:e="urn:root" xmlns:e="urn:2">'
+        '<e:q/></html></x><e:r/>',
+      );
+      final tree = doc.tree;
+      final inner = tree.names.namespaceIdOf('urn:in');
+      expect(inner, isNotNull);
+      expect(tree.elementsNamed(inner!, 'q'), hasLength(1));
+    });
+
     test('<script> dentro de valor de atributo não abre texto bruto', () {
       final doc = _parse(_doc('<p title="<script>">a</p><p>b < c</p>'));
       final tree = doc.tree;

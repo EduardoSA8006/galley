@@ -413,26 +413,36 @@ final class EventAdapter {
   void mergeIntoRoot(XmlStartElementEvent event) {
     final attributes = event.attributes;
     final insertAt = _frames.length > 1 ? _frames[1] : _prefixes.length;
+    // Declarações do <html> tardio, agrupadas por prefixo (na ordem).
     final prefixes = <String>[];
+    final merged = <String, List<int>>{};
     for (final attribute in attributes) {
       final name = attribute.name;
       if (!_isDeclaration(name) || name.length <= 6) continue;
       if (attribute.value.isEmpty) continue;
       final prefix = name.substring(6);
-      final namespace = builder.names.internNamespace(attribute.value);
-      // Na pilha do prefixo, entra logo acima das declarações da própria
-      // raiz e abaixo das dos elementos internos.
-      var below = 0;
-      for (var i = 0; i < insertAt; i++) {
-        if (_prefixes[i] == prefix) below++;
-      }
-      for (final p in prefixes) {
-        if (p == prefix) below++;
-      }
-      (_prefixScopes[prefix] ??= []).insert(below, namespace);
       prefixes.add(prefix);
+      (merged[prefix] ??= []).add(
+        builder.names.internNamespace(attribute.value),
+      );
     }
     if (prefixes.isNotEmpty) {
+      // Na pilha de cada prefixo, entram juntas logo acima das declarações
+      // da própria raiz e abaixo das dos elementos internos: uma contagem
+      // e um insertAll por prefixo, linear no total.
+      final rootCounts = <String, int>{};
+      for (var i = 0; i < insertAt; i++) {
+        final prefix = _prefixes[i];
+        if (merged.containsKey(prefix)) {
+          rootCounts[prefix] = (rootCounts[prefix] ?? 0) + 1;
+        }
+      }
+      for (final MapEntry(key: prefix, value: namespaces) in merged.entries) {
+        (_prefixScopes[prefix] ??= []).insertAll(
+          rootCounts[prefix] ?? 0,
+          namespaces,
+        );
+      }
       _prefixes.insertAll(insertAt, prefixes);
       for (var k = 1; k < _frames.length; k++) {
         _frames[k] += prefixes.length;
