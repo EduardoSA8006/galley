@@ -38,8 +38,9 @@ int lastFullMatchAttempts = 0;
 /// [MatchedDocument.isValidFor]. `style=` é lido uma vez por texto distinto,
 /// relativo ao documento.
 ///
-/// Os diagnósticos do documento (`<style>`, `style=`) vão para [sink]
-/// limitados por código ([LimitedDiagnosticSink]), com o resumo no fim. A
+/// Os diagnósticos de `style=` vão para [sink] limitados por código no
+/// documento ([LimitedDiagnosticSink]), com o resumo no fim; os das folhas
+/// (inclusive `<style>`) já saem limitados por livro pelo [context]. A
 /// folha padrão é [defaultStyleSheet], ou [userAgentSheet] nos testes.
 MatchedDocument matchDocument(
   BookStyleContext context,
@@ -48,14 +49,18 @@ MatchedDocument matchDocument(
   DiagnosticSink? sink,
   @visibleForTesting StyleSheet? userAgentSheet,
 }) {
-  final limited = LimitedDiagnosticSink(sink ?? const NullDiagnosticSink());
+  final target = sink ?? const NullDiagnosticSink();
   final path = document.path;
   final tree = document.tree;
+  // As folhas (inclusive `<style>`) já são limitadas por livro no contexto;
+  // um segundo limite aqui descartaria o aviso do livro e somaria errado.
   final entries = context.sheetsFor(
     document.head,
     documentPath: path,
-    sink: limited,
+    sink: target,
   );
+  // Limite por documento só para `style=`.
+  final limited = LimitedDiagnosticSink(target);
 
   final media = MediaChecks(environment);
   final rules = <IndexedRule>[];

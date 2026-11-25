@@ -282,6 +282,41 @@ void main() {
     });
   });
 
+  test(
+    '<style> com mais de 20 erros: só o limite do livro, sem total falso',
+    () {
+      final sink = CollectingDiagnosticSink();
+      final decls = [for (var i = 0; i < 30; i++) 'zoom$i:1'].join(';');
+      run('<p>x</p>', head: '<style>p{$decls}</style>', sink: sink);
+      final unsupported = sink.diagnostics
+          .where((d) => d.code == DiagnosticCodes.cssUnsupportedProperty)
+          .toList();
+      // 20 repassados + o aviso único do limite do livro.
+      expect(unsupported, hasLength(21));
+      expect(unsupported.last.message, contains('limite de 20'));
+      expect(unsupported.where((d) => d.message.contains('total')), isEmpty);
+    },
+  );
+
+  test('style= continua limitado por documento junto com <style>', () {
+    final sink = CollectingDiagnosticSink();
+    run(
+      [for (var i = 0; i < 30; i++) '<p style="zoomx$i:1">x</p>'].join(),
+      head: '<style>p{zoomy:1}</style>',
+      sink: sink,
+    );
+    final inline = sink.diagnostics
+        .where(
+          (d) =>
+              d.code == DiagnosticCodes.cssUnsupportedProperty &&
+              d.location == 'OEBPS/ch.xhtml',
+        )
+        .toList();
+    // 20 de style= + o resumo do flush; o de <style> tem local com linha.
+    expect(inline, hasLength(21));
+    expect(inline.last.message, contains('total 30'));
+  });
+
   group('filtro de ancestrais', () {
     test('2.000 <p> e 1.000 regras .kN p: poucas tentativas completas', () {
       final rules = StringBuffer();
