@@ -4,12 +4,14 @@ import 'package:xml/xml.dart';
 
 import '../../../core/diagnostics/diagnostic.dart';
 import '../../../core/diagnostics/diagnostic_codes.dart';
+import '../../../core/diagnostics/diagnostic_sink.dart';
 import '../../container/data/text/decode_text.dart';
 import '../domain/document_head.dart';
 import '../domain/names.dart';
 import '../domain/parsed_document.dart';
 import '../domain/tree_builder.dart';
 import 'event_adapter.dart';
+import 'head_extractor.dart';
 
 /// Lê os [bytes] de um documento XHTML/SVG e monta a árvore.
 ///
@@ -30,9 +32,14 @@ ParsedDocument parseDocumentBytes(
     final text = decodeText(bytes);
     final adapter = EventAdapter(path: path);
     final tree = adapter.run(text);
+    final head = extractHead(
+      tree,
+      documentPath: path,
+      sink: _ListSink(adapter.diagnostics),
+    );
     return ParsedDocument(
       tree: tree,
-      head: DocumentHead.empty,
+      head: head,
       diagnostics: adapter.diagnostics,
       recovered: false,
     );
@@ -67,4 +74,14 @@ ParsedDocument _unparseable(String path, String reason) {
     ],
     recovered: true,
   );
+}
+
+/// Sink que acrescenta numa lista existente.
+final class _ListSink implements DiagnosticSink {
+  _ListSink(this._list);
+
+  final List<Diagnostic> _list;
+
+  @override
+  void report(Diagnostic diagnostic) => _list.add(diagnostic);
 }

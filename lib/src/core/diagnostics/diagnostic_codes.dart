@@ -125,4 +125,8 @@ abstract final class DiagnosticCodes {
 
   /// `<link>` ou `<style>` fora do `<head>`, coletado mesmo assim (info).
   static const String headInBody = 'document.headInBody';
+
+  /// `<link rel="stylesheet">` com href externo ou que escapa do zip;
+  /// ignorado (info).
+  static const String externalStyleSheet = 'document.externalStyleSheet';
 }

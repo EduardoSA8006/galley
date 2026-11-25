@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:galley/src/core/diagnostics/diagnostic.dart';
 import 'package:galley/src/core/diagnostics/diagnostic_codes.dart';
 import 'package:galley/src/features/document/data/parse_document.dart';
-import 'package:galley/src/features/document/domain/document_head.dart';
 import 'package:galley/src/features/document/domain/document_tree.dart';
 import 'package:galley/src/features/document/domain/names.dart';
 import 'package:galley/src/features/document/domain/parsed_document.dart';
@@ -399,9 +398,9 @@ void main() {
   });
 
   group('ParsedDocument', () {
-    test('head vazio, diagnósticos não modificáveis', () {
+    test('head sem dados, diagnósticos não modificáveis', () {
       final doc = _parse(_doc('<p/>'));
-      expect(doc.head, same(DocumentHead.empty));
+      expect(doc.head.styleSheets, isEmpty);
       expect(
         () => doc.diagnostics.add(
           const Diagnostic(
