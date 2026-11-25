@@ -128,7 +128,7 @@ void main() {
 
   test('documento irrecuperável mantém DocumentHead.empty', () {
     final doc = parseDocumentBytes(
-      Uint8List.fromList(utf8.encode('\u0000<<<')),
+      Uint8List.fromList(utf8.encode('<!-- sem conteúdo -->')),
       path: 'a.xhtml',
     );
     expect(doc.head, same(DocumentHead.empty));

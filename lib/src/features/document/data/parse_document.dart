@@ -12,17 +12,24 @@ import '../domain/parsed_document.dart';
 import '../domain/tree_builder.dart';
 import 'event_adapter.dart';
 import 'head_extractor.dart';
+import 'recovery.dart';
 
-/// Lê os [bytes] de um documento XHTML/SVG e monta a árvore.
+/// Lê os [bytes] de um documento XHTML/HTML/SVG e monta a árvore.
 ///
 /// Função pura e segura para isolate: devolve a árvore e os diagnósticos
 /// como dados e nunca lança (qualquer falha vira o documento
 /// irrecuperável). [path] é o caminho do documento no EPUB, usado
-/// como local dos diagnósticos. [mediaType] é o do item do manifest; por
-/// enquanto todo documento passa pelo caminho estrito.
+/// como local dos diagnósticos. [mediaType] é o do item do manifest.
 ///
-/// Um documento que não é XML bem formado vira uma árvore com `<html>` e
-/// `<body>` virtuais e vazios, com o diagnóstico `document.unparseable`.
+/// O documento passa primeiro pelo caminho estrito. Se ele não é XML bem
+/// formado, é lido de novo pelo modo tolerante ([TolerantRepairPolicy]),
+/// com `document.recovered` (warning, na linha do erro original). Um
+/// `text/html` vai direto para o modo tolerante, sem esse diagnóstico. Em
+/// ambos os casos, [ParsedDocument.recovered] é `true`.
+///
+/// Um documento sem conteúdo (vazio, só espaços ou sem elemento nem texto)
+/// vira uma árvore com `<html>` e `<body>` virtuais e vazios, com o
+/// diagnóstico `document.unparseable`.
 ParsedDocument parseDocumentBytes(
   Uint8List bytes, {
   required String path,
@@ -30,19 +37,16 @@ ParsedDocument parseDocumentBytes(
 }) {
   try {
     final text = decodeText(bytes);
-    final adapter = EventAdapter(path: path);
-    final tree = adapter.run(text);
-    final head = extractHead(
-      tree,
-      documentPath: path,
-      sink: _ListSink(adapter.diagnostics),
-    );
-    return ParsedDocument(
-      tree: tree,
-      head: head,
-      diagnostics: adapter.diagnostics,
-      recovered: false,
-    );
+    XmlException? failure;
+    if (mediaType != 'text/html') {
+      try {
+        return _assemble(EventAdapter(path: path), text, path, null);
+      } on XmlException catch (e) {
+        failure = e;
+      }
+    }
+    final adapter = EventAdapter(path: path, policy: TolerantRepairPolicy());
+    return _assemble(adapter, text, path, failure);
   } on XmlException catch (e) {
     return _unparseable(path, e.message);
   } on Object catch (e) {
@@ -51,6 +55,49 @@ ParsedDocument parseDocumentBytes(
     return _unparseable(path, 'erro inesperado (${e.runtimeType})');
   }
 }
+
+/// Monta a árvore de [text] com [adapter] e extrai o `<head>`. [failure],
+/// se houver, é o erro do caminho estrito que levou ao modo tolerante.
+ParsedDocument _assemble(
+  EventAdapter adapter,
+  String text,
+  String path,
+  XmlException? failure,
+) {
+  final tree = adapter.run(text);
+  final diagnostics = <Diagnostic>[];
+  if (failure != null) {
+    final line = _lineOf(failure) ?? adapter.firstReportLine;
+    diagnostics.add(
+      Diagnostic(
+        severity: DiagnosticSeverity.warning,
+        code: DiagnosticCodes.recovered,
+        message:
+            'documento malformado (${failure.message}); '
+            'lido pelo modo tolerante',
+        location: line == null ? path : '$path:$line',
+      ),
+    );
+  }
+  diagnostics.addAll(adapter.diagnostics);
+  final head = extractHead(
+    tree,
+    documentPath: path,
+    sink: _ListSink(diagnostics),
+  );
+  return ParsedDocument(
+    tree: tree,
+    head: head,
+    diagnostics: diagnostics,
+    recovered: !adapter.policy.validating,
+  );
+}
+
+/// Linha do erro do `package:xml`, se ele trouxer a posição.
+int? _lineOf(XmlException e) => switch (e) {
+  XmlFormatException(buffer: _?, position: _?, :final line) => line,
+  _ => null,
+};
 
 /// Documento irrecuperável: `<html><body/></html>` virtuais.
 ParsedDocument _unparseable(String path, String reason) {

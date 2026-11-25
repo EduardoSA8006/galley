@@ -413,14 +413,12 @@ void main() {
       );
     });
 
-    test('XML malformado: html/body virtuais e document.unparseable', () {
+    test('sem conteúdo: html/body virtuais e document.unparseable', () {
+      // Os demais malformados passam pelo modo tolerante (recovery_test).
       for (final source in [
-        '<html><body><p>a</body></html>',
-        '<html><body>',
         '',
-        'texto solto',
-        '<html/>texto depois',
-        '<a/><b/>',
+        ' \n\t ',
+        '<?xml version="1.0"?><!-- nada -->',
       ]) {
         final doc = _parse(source);
         final tree = doc.tree;

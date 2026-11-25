@@ -31,8 +31,36 @@ abstract base class RepairPolicy {
   /// Fechamento [name] sem elemento aberto ou diferente do aberto.
   void endTagMismatch(EventAdapter adapter, String name);
 
-  /// Fim da entrada sem elemento raiz ou com elementos abertos.
+  /// Fim da entrada sem elemento raiz ou com elementos abertos (no modo
+  /// não validante, chamado sempre no fim).
   void endOfInput(EventAdapter adapter);
+
+  /// Se os eventos trazem a posição na entrada, para os diagnósticos
+  /// levarem a linha (`caminho:linha`).
+  bool get withLocation => false;
+
+  /// Namespace padrão dos elementos sem prefixo fora de qualquer
+  /// declaração `xmlns`.
+  int get defaultNamespace => Namespaces.none;
+
+  /// Prepara o texto (já com fins de linha normalizados) antes da leitura
+  /// no modo não validante.
+  String prepare(String text) => text;
+
+  /// Texto ou CDATA no modo não validante.
+  void onText(EventAdapter adapter, String value) => adapter._text(value);
+
+  /// Abertura de elemento no modo não validante.
+  void onStart(EventAdapter adapter, XmlStartElementEvent event) =>
+      adapter._start(event);
+
+  /// Fechamento [name] no modo não validante.
+  void onEnd(EventAdapter adapter, String name) => adapter._endTag(name);
+
+  /// O `package:xml` não reconheceu marcação na posição [offset] da
+  /// entrada preparada ([EventAdapter.source]) e pulou esse caractere.
+  void onMarkupError(EventAdapter adapter, int offset) =>
+      throw XmlParserException('marcação inválida', position: offset);
 }
 
 /// Política do caminho estrito: qualquer defeito estrutural lança
@@ -88,10 +116,20 @@ final class StrictRepairPolicy extends RepairPolicy {
 ///   contados (`document.droppedNodes`), e o texto em volta deles é
 ///   fundido pelo montador. Espaço em branco fora da raiz é ignorado.
 ///
+/// Com uma [policy] não validante (o modo tolerante), os eventos de texto,
+/// abertura e fechamento vão todos para a política, que monta a árvore com
+/// as primitivas públicas ([openElement], [openVirtual], [closeElement],
+/// [appendText], [report]); o caminho estrito não passa por ela.
+///
 /// Cada instância lê um único documento.
 final class EventAdapter {
   /// Cria o adaptador de um documento em [path] (local dos diagnósticos).
-  EventAdapter({required this.path, this.policy = const StrictRepairPolicy()});
+  EventAdapter({required this.path, this.policy = const StrictRepairPolicy()})
+    : _rootNamespace = policy.defaultNamespace;
+
+  /// Quantas ocorrências de cada código entram em [diagnostics]; as demais
+  /// viram um único diagnóstico de resumo no fim, com o total.
+  static const int reportLimit = 20;
 
   /// Entidades HTML5 completas, nos dois caminhos. Instância `const` única:
   /// o `package:xml` guarda o parser compilado por mapeamento.
@@ -112,6 +150,26 @@ final class EventAdapter {
   /// Se o elemento raiz já foi aberto.
   bool get rootSeen => _rootSeen;
   bool _rootSeen = false;
+
+  final int _rootNamespace;
+
+  /// Texto efetivamente lido (normalizado e, no modo não validante,
+  /// preparado pela [policy]).
+  String get source => _source;
+  String _source = '';
+
+  /// Linha do primeiro diagnóstico com localização, se houver.
+  int? get firstReportLine => _firstReportLine;
+  int? _firstReportLine;
+
+  // Início do evento em curso na entrada (−1 sem localização) e a
+  // contagem incremental de linhas até ele.
+  int _eventStart = -1;
+  int _lineScan = 0;
+  int _line = 1;
+
+  final Map<String, int> _reportCounts = {};
+  final Map<String, DiagnosticSeverity> _reportSeverities = {};
 
   // Pilha de declarações de prefixo: (prefixo, namespace), em paralelo.
   final List<String> _prefixes = [];
@@ -143,11 +201,23 @@ final class EventAdapter {
   /// Defeitos estruturais vão para a [policy]; com a política estrita, a
   /// [XmlException] do `package:xml` ou da política propaga.
   DocumentTree run(String text) {
+    _source = text.contains('\r') ? normalizeLineEnds(text) : text;
+    if (policy.validating) {
+      _runStrict();
+    } else {
+      _runTolerant();
+    }
+    _reportDropped();
+    _reportOverflow();
+    return builder.build();
+  }
+
+  void _runStrict() {
     final events = parseEvents(
-      text.contains('\r') ? normalizeLineEnds(text) : text,
+      _source,
       entityMapping: entities,
-      validateNesting: policy.validating,
-      validateDocument: policy.validating,
+      validateNesting: true,
+      validateDocument: true,
     );
     for (final event in events) {
       switch (event) {
@@ -170,29 +240,78 @@ final class EventAdapter {
       }
     }
     if (!_rootSeen || _openNames.isNotEmpty) policy.endOfInput(this);
-    _reportDropped();
-    return builder.build();
   }
 
-  void _text(String value) {
-    if (_openNames.isNotEmpty) {
-      builder.text(_sanitize(value, attribute: false));
-    } else if (!_isBlank(value)) {
-      policy.textOutsideRoot(this, value);
-    }
-  }
-
-  void _start(XmlStartElementEvent event) {
-    if (_openNames.isEmpty) {
-      if (_rootSeen) {
-        policy.extraRoot(this, event);
-        return;
+  /// Leitura não validante: todo evento passa pela [policy], e um erro do
+  /// `package:xml` no meio do fluxo (que já pula o caractere problemático)
+  /// vira [RepairPolicy.onMarkupError] antes de seguir.
+  void _runTolerant() {
+    _source = policy.prepare(_source);
+    final withLocation = policy.withLocation;
+    final iterator = parseEvents(
+      _source,
+      entityMapping: entities,
+      withLocation: withLocation,
+    ).iterator;
+    // Fim do último evento: é onde o `package:xml` tenta de novo, e o
+    // caractere que ele pula num erro.
+    var cursor = 0;
+    while (true) {
+      final XmlEvent event;
+      try {
+        if (!iterator.moveNext()) break;
+        event = iterator.current;
+      } on XmlException {
+        if (withLocation) _eventStart = cursor;
+        policy.onMarkupError(this, cursor);
+        cursor++;
+        continue;
       }
-      _rootSeen = true;
+      if (withLocation) {
+        _eventStart = event.start!;
+        cursor = event.stop!;
+      }
+      switch (event) {
+        case XmlTextEvent():
+          policy.onText(this, event.value);
+        case XmlStartElementEvent():
+          policy.onStart(this, event);
+        case XmlEndElementEvent():
+          policy.onEnd(this, event.name);
+        case XmlCDATAEvent():
+          policy.onText(this, event.value);
+        case XmlCommentEvent():
+          _comments++;
+        case XmlProcessingEvent():
+          _instructions++;
+        case XmlDoctypeEvent():
+          _doctypes++;
+        case XmlDeclarationEvent():
+          break;
+      }
     }
+    if (withLocation) _eventStart = _source.length;
+    policy.endOfInput(this);
+  }
+
+  /// Quantidade de elementos abertos.
+  int get openDepth => _openNames.length;
+
+  /// Nome bruto (como escrito) do elemento aberto na posição [index] da
+  /// pilha (0 é a raiz).
+  String openNameAt(int index) => _openNames[index];
+
+  /// Acrescenta [value] como texto no elemento aberto.
+  void appendText(String value) =>
+      builder.text(_sanitize(value, attribute: false));
+
+  /// Abre o elemento de [event] (namespaces, atributos), sem as checagens
+  /// de raiz; um elemento `<x/>` é fechado na hora.
+  void openElement(XmlStartElementEvent event) {
+    _rootSeen = true;
     final attributes = event.attributes;
     _frames.add(_prefixes.length);
-    var defaultNamespace = _defaults.isEmpty ? Namespaces.none : _defaults.last;
+    var defaultNamespace = _defaults.isEmpty ? _rootNamespace : _defaults.last;
     var declarations = 0;
     for (var i = 0; i < attributes.length; i++) {
       final attribute = attributes[i];
@@ -206,13 +325,10 @@ final class EventAdapter {
             : builder.names.internNamespace(value);
       } else if (name.length == 6 || value.isEmpty) {
         // `xmlns:="…"` e `xmlns:p=""` são ilegais (Namespaces in XML).
-        diagnostics.add(
-          Diagnostic(
-            severity: DiagnosticSeverity.info,
-            code: DiagnosticCodes.invalidNamespaceDeclaration,
-            message: 'declaração "$name="$value"" ilegal; ignorada',
-            location: path,
-          ),
+        report(
+          DiagnosticCodes.invalidNamespaceDeclaration,
+          DiagnosticSeverity.info,
+          'declaração "$name="$value"" ilegal; ignorada',
         );
       } else {
         _prefixes.add(name.substring(6));
@@ -227,6 +343,88 @@ final class EventAdapter {
       _attributes(event.name, attributes);
     }
     if (event.isSelfClosing) _close();
+  }
+
+  /// Abre um elemento XHTML [localName] virtual (criado pela recuperação).
+  void openVirtual(String localName) {
+    _rootSeen = true;
+    _frames.add(_prefixes.length);
+    _defaults.add(_defaults.isEmpty ? _rootNamespace : _defaults.last);
+    _openNames.add(localName);
+    builder.startElement(
+      builder.names.intern(Namespaces.xhtml, localName),
+      virtual: true,
+    );
+  }
+
+  /// Fecha o elemento aberto mais interno.
+  void closeElement() => _close();
+
+  /// Registra um diagnóstico no local do evento em curso (`caminho:linha`
+  /// quando há localização). Cada código entra no máximo [reportLimit]
+  /// vezes; o excedente vira um resumo no fim.
+  void report(String code, DiagnosticSeverity severity, String message) {
+    final count = (_reportCounts[code] ?? 0) + 1;
+    _reportCounts[code] = count;
+    if (count > reportLimit) return;
+    _reportSeverities[code] = severity;
+    var location = path;
+    if (_eventStart >= 0) {
+      final line = _lineAt(_eventStart);
+      _firstReportLine ??= line;
+      location = '$path:$line';
+    }
+    diagnostics.add(
+      Diagnostic(
+        severity: severity,
+        code: code,
+        message: message,
+        location: location,
+      ),
+    );
+  }
+
+  /// Linha (a partir de 1) de [offset] em [source]. As consultas chegam em
+  /// ordem crescente, então a contagem avança sem voltar.
+  int _lineAt(int offset) {
+    final end = offset < _source.length ? offset : _source.length;
+    for (var i = _lineScan; i < end; i++) {
+      if (_source.codeUnitAt(i) == 0x0A) _line++;
+    }
+    if (end > _lineScan) _lineScan = end;
+    return _line;
+  }
+
+  void _reportOverflow() {
+    for (final MapEntry(key: code, value: count) in _reportCounts.entries) {
+      if (count <= reportLimit) continue;
+      diagnostics.add(
+        Diagnostic(
+          severity: _reportSeverities[code]!,
+          code: code,
+          message:
+              'mais ${count - reportLimit} ocorrência(s) de $code omitida(s) '
+              '(total $count)',
+          location: path,
+        ),
+      );
+    }
+  }
+
+  void _text(String value) {
+    if (_openNames.isNotEmpty) {
+      builder.text(_sanitize(value, attribute: false));
+    } else if (!_isBlank(value)) {
+      policy.textOutsideRoot(this, value);
+    }
+  }
+
+  void _start(XmlStartElementEvent event) {
+    if (_openNames.isEmpty && _rootSeen) {
+      policy.extraRoot(this, event);
+      return;
+    }
+    openElement(event);
   }
 
   void _attributes(String element, List<XmlEventAttribute> attributes) {
@@ -245,15 +443,10 @@ final class EventAdapter {
       builder.attribute(id, _sanitize(attribute.value, attribute: true));
     }
     if (duplicates > 0) {
-      diagnostics.add(
-        Diagnostic(
-          severity: DiagnosticSeverity.info,
-          code: DiagnosticCodes.duplicateAttribute,
-          message:
-              '$duplicates atributo(s) repetido(s) em <$element>; '
-              'vale o primeiro',
-          location: path,
-        ),
+      report(
+        DiagnosticCodes.duplicateAttribute,
+        DiagnosticSeverity.info,
+        '$duplicates atributo(s) repetido(s) em <$element>; vale o primeiro',
       );
     }
   }
@@ -334,13 +527,10 @@ final class EventAdapter {
     return _undeclaredNamespace;
   }
 
-  void _reportUndeclared(String message) => diagnostics.add(
-    Diagnostic(
-      severity: DiagnosticSeverity.info,
-      code: DiagnosticCodes.undeclaredPrefix,
-      message: message,
-      location: path,
-    ),
+  void _reportUndeclared(String message) => report(
+    DiagnosticCodes.undeclaredPrefix,
+    DiagnosticSeverity.info,
+    message,
   );
 
   void _reportDropped() {

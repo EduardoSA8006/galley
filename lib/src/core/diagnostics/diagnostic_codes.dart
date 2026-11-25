@@ -117,6 +117,10 @@ abstract final class DiagnosticCodes {
   /// Elemento sem fechamento, fechado implicitamente (warning).
   static const String unclosedElement = 'document.unclosedElement';
 
+  /// Caractere que não inicia marcação válida (por exemplo um `<` solto no
+  /// texto), mantido como texto pelo modo tolerante (warning).
+  static const String markupAsText = 'document.markupAsText';
+
   /// Atributo repetido no mesmo elemento; vale o primeiro (info).
   static const String duplicateAttribute = 'document.duplicateAttribute';
 
