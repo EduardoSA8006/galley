@@ -6,6 +6,7 @@ import '../../../core/diagnostics/diagnostic.dart';
 import '../../../core/diagnostics/diagnostic_codes.dart';
 import '../../../core/diagnostics/diagnostic_sink.dart';
 import '../../container/data/text/decode_text.dart';
+import '../../container/domain/epub_book.dart';
 import '../domain/document_head.dart';
 import '../domain/names.dart';
 import '../domain/parsed_document.dart';
@@ -13,6 +14,42 @@ import '../domain/tree_builder.dart';
 import 'event_adapter.dart';
 import 'head_extractor.dart';
 import 'recovery.dart';
+
+/// Lê o documento em [path] do [book] e monta a árvore.
+///
+/// O media-type vem do manifest (sem item, `application/xhtml+xml`). Os
+/// diagnósticos do documento também são repassados a [sink]. Um media-type
+/// fora de `application/xhtml+xml`, `text/html` e `image/svg+xml` lança
+/// [ArgumentError] (erro de programação do chamador); um [path] ausente do
+/// livro propaga a `ResourceNotFoundException` de [EpubBook.resource].
+/// Fora isso, ver [parseDocumentBytes] (nunca lança por conteúdo).
+Future<ParsedDocument> parseDocument(
+  EpubBook book,
+  String path, {
+  DiagnosticSink? sink,
+}) async {
+  final mediaType =
+      book.manifestItemByPath(path)?.mediaType ?? 'application/xhtml+xml';
+  if (!_supportedMediaTypes.contains(mediaType)) {
+    throw ArgumentError.value(
+      mediaType,
+      'mediaType',
+      'o documento "$path" não é XHTML, HTML nem SVG',
+    );
+  }
+  final bytes = await book.resource(path);
+  final document = parseDocumentBytes(bytes, path: path, mediaType: mediaType);
+  if (sink != null) {
+    document.diagnostics.forEach(sink.report);
+  }
+  return document;
+}
+
+const Set<String> _supportedMediaTypes = {
+  'application/xhtml+xml',
+  'text/html',
+  'image/svg+xml',
+};
 
 /// Lê os [bytes] de um documento XHTML/HTML/SVG e monta a árvore.
 ///

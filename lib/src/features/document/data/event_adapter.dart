@@ -43,6 +43,10 @@ abstract base class RepairPolicy {
   /// declaração `xmlns`.
   int get defaultNamespace => Namespaces.none;
 
+  /// Namespace padrão de um elemento raiz [rawName] sem declaração
+  /// `xmlns`; por padrão, [defaultNamespace].
+  int rootNamespaceFor(String rawName) => defaultNamespace;
+
   /// Prepara o texto (já com fins de linha normalizados) antes da leitura
   /// no modo não validante.
   String prepare(EventAdapter adapter, String text) => text;
@@ -311,7 +315,9 @@ final class EventAdapter {
     _rootSeen = true;
     final attributes = event.attributes;
     _frames.add(_prefixes.length);
-    var defaultNamespace = _defaults.isEmpty ? _rootNamespace : _defaults.last;
+    var defaultNamespace = _defaults.isEmpty
+        ? policy.rootNamespaceFor(event.name)
+        : _defaults.last;
     var declarations = 0;
     for (var i = 0; i < attributes.length; i++) {
       final attribute = attributes[i];

@@ -31,7 +31,8 @@ import 'event_adapter.dart';
 ///   os fechamentos implícitos válidos em HTML (fim de tag opcional) saem
 ///   com severidade info em vez de warning.
 /// - Conteúdo fora de `<html>`/`<body>` vai para `html`/`body` virtuais;
-///   uma raiz `svg` não é envolvida. Os fechamentos da raiz e do `<body>`
+///   uma raiz `svg` não é envolvida e, sem `xmlns`, fica no
+///   namespace SVG. Os fechamentos da raiz e do `<body>`
 ///   não fecham nada (o que vier depois continua no `<body>`); tudo fecha
 ///   no fim do documento, e o que não teve fechamento gera
 ///   `document.unclosedElement` (nós virtuais não contam).
@@ -167,6 +168,11 @@ final class TolerantRepairPolicy extends RepairPolicy {
 
   @override
   int get defaultNamespace => Namespaces.xhtml;
+
+  /// Uma raiz `svg` sem prefixo nem `xmlns` fica no namespace SVG.
+  @override
+  int rootNamespaceFor(String rawName) =>
+      _key(rawName) == 'svg' ? Namespaces.svg : defaultNamespace;
 
   @override
   String prepare(EventAdapter adapter, String text) =>
