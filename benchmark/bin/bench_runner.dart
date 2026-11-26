@@ -93,11 +93,14 @@ Future<void> main(List<String> args) async {
         'é obrigatório',
       );
     }
-    final adapterFlags = [
-      'adapter',
-      'doc-adapter',
-      'css-adapter',
-    ].where((o) => parsed.option(o) != null).length;
+    // Sem closure capturando `parsed`: no Dart 3.14.0 o AOT quebra
+    // (linearscan.cc: unreachable code, passo AllocateRegisters) quando um
+    // final atribuído neste try, cujo catch termina em `await _exit(...)`,
+    // é capturado por closure e também lido depois do try.
+    var adapterFlags = 0;
+    for (final o in ['adapter', 'doc-adapter', 'css-adapter']) {
+      if (parsed.option(o) != null) adapterFlags++;
+    }
     if (adapterFlags > 1) {
       throw const FormatException(
         '--adapter, --doc-adapter e --css-adapter não podem ser usados juntos',
