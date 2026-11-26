@@ -25,6 +25,11 @@ retomar. Ao resolver um item, apague-o deste arquivo no mesmo commit.
   (o teste-canário em `example/integration_test` avisa), reescrever a etapa de
   layout para rodar em isolate (hoje: plano B, layout fatiado no raiz).
 
+- **Contorno do crash do compilador AOT** (`benchmark/bin/bench_runner.dart`, laço `for` no lugar de
+  `where(...).length`): o Dart 3.14.0 (Flutter 3.50.1) quebra no `linearscan.cc` com closure capturando
+  variável atribuída num `try` cujo `catch` aguarda um `Future<Never>` (dart-lang/sdk#64917, corrigido
+  no 3.14.1). Remover quando o Flutter estável trouxer Dart ≥ 3.14.1.
+
 ## Benchmark
 
 - **Expandir o benchmark a cada subprojeto** (pendência permanente): estilo,
