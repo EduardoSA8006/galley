@@ -1,0 +1,123 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:galley/src/features/document/data/parse_document.dart';
+import 'package:galley/src/features/document/domain/document_tree.dart';
+import 'package:galley/src/features/style/data/book_style_context.dart';
+import 'package:galley/src/features/style/data/style_document.dart';
+import 'package:galley/src/features/style/domain/computed_style.dart';
+import 'package:galley/src/features/style/domain/matched_document.dart';
+import 'package:galley/src/features/style/domain/reader_preferences.dart';
+import 'package:galley/src/features/style/domain/restyle.dart';
+import 'package:galley/src/features/style/domain/style_environment.dart';
+import 'package:galley/src/features/style/domain/styled_document.dart';
+import 'package:galley/src/features/style/domain/stylesheet.dart';
+
+/// Ambiente padrão dos testes de estilo.
+const StyleEnvironment testEnvironment = StyleEnvironment(
+  pageWidth: 500,
+  pageHeight: 800,
+);
+
+/// Casa o documento com [body] dentro de `<body>` e a folha [css] num
+/// `<style>`, no [environment]; **sem** folha padrão (`StyleSheet.empty`),
+/// a menos que [defaultSheet] peça a real.
+MatchedDocument matchCss(
+  String body, {
+  String css = '',
+  StyleEnvironment environment = testEnvironment,
+  bool defaultSheet = false,
+}) => matchSource(
+  '<html xmlns="http://www.w3.org/1999/xhtml"><head>'
+  '<style>$css</style></head><body>$body</body></html>',
+  environment: environment,
+  defaultSheet: defaultSheet,
+);
+
+/// Casa o documento [source] inteiro (com o [mediaType] dado); **sem**
+/// folha padrão, a menos que [defaultSheet] peça a real.
+MatchedDocument matchSource(
+  String source, {
+  String mediaType = 'application/xhtml+xml',
+  StyleEnvironment environment = testEnvironment,
+  bool defaultSheet = false,
+}) {
+  final document = parseDocumentBytes(
+    Uint8List.fromList(utf8.encode(source)),
+    path: 'OEBPS/ch.xhtml',
+    mediaType: mediaType,
+  );
+  final context = BookStyleContext(resolve: (_) => null, bookKey: 'livro');
+  return checkedMatch(
+    matchDocument(
+      context,
+      document,
+      environment,
+      userAgentSheet: defaultSheet ? null : StyleSheet.empty,
+    ),
+  );
+}
+
+/// Falha o teste se o casamento [m] caiu no catch-all (erro interno):
+/// sem isso, um bug viraria "só a folha padrão" em silêncio e os testes que
+/// afirmam que algo não muda passariam sem testar nada. Opt-out explícito
+/// com [allowInternalError] (só para os testes que provocam o erro).
+MatchedDocument checkedMatch(
+  MatchedDocument m, {
+  bool allowInternalError = false,
+}) {
+  final error = m.internalError;
+  if (error != null && !allowInternalError) {
+    throw StateError(
+      'erro interno no casamento de ${m.path}: $error '
+      '(o catch-all de matchDocument escondeu a exceção)',
+    );
+  }
+  return m;
+}
+
+/// Falha o teste se o estilo [s] tem erro interno (do casamento ou do
+/// `restyle`); ver [checkedMatch].
+StyledDocument checkedStyle(
+  StyledDocument s, {
+  bool allowInternalError = false,
+}) {
+  final error = s.internalError;
+  if (error != null && !allowInternalError) {
+    throw StateError(
+      'erro interno no estilo: $error '
+      '(o catch-all de matchDocument/restyle escondeu a exceção)',
+    );
+  }
+  return s;
+}
+
+/// `restyle` que falha o teste em erro interno ([checkedStyle]).
+StyledDocument restyleChecked(
+  MatchedDocument matched,
+  ReaderPreferences preferences, {
+  bool allowInternalError = false,
+}) => checkedStyle(
+  restyle(matched, preferences),
+  allowInternalError: allowInternalError,
+);
+
+/// [matchCss] seguido de `restyle` sem preferências.
+StyledDocument styleCss(
+  String body, {
+  String css = '',
+  bool defaultSheet = false,
+}) => restyleChecked(
+  matchCss(body, css: css, defaultSheet: defaultSheet),
+  ReaderPreferences.none,
+);
+
+/// Elementos de nome [name], em ordem de documento.
+List<int> elementsNamed(DocumentTree tree, String name) => [
+  for (var n = 0; n < tree.nodeCount; n++)
+    if (tree.kindOf(n) == NodeKind.element && tree.localNameOf(n) == name) n,
+];
+
+/// Estilo calculado do [element].
+ComputedStyle styleOfElement(StyledDocument s, int element) =>
+    s.styles[s.elementStyles[element]];

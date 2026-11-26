@@ -19,9 +19,9 @@ quando fazem sentido, um relatório em Markdown com `--report`.
 | `instructions` | CI (Valgrind) e local (`--counter perf`) | instruções por benchmark curto, base × head no mesmo job | **gate do PR**: reprova com regressão > 0,5% (`--threshold`); o noturno usa 0.10 contra a tag `bench-baseline` |
 | `ab` | CI | tempo de parede base × head, rodadas intercaladas, IC 95% bootstrap da razão das medianas | **gate do PR**: reprova se o IC fica inteiro acima de +5% |
 | `local` | máquina do mantenedor | tempo absoluto, RSS de pico, `perf` nativo, livros de 50 e 300 MiB, corpus público e privado | registro manual (`local-dev`); rode depois de mudanças de desempenho e antes de releases |
-| `compare` | CI noturno e local | Galley × `epubx` × `epub_plus` × `epub_pro`; e o parse de documento do Galley × DOM do `package:xml` (par à parte, `--doc-adapter`) | relatório; não bloqueia antes da 1.0 |
+| `compare` | CI noturno e local | Galley × `epubx` × `epub_plus` × `epub_pro`; o parse de documento do Galley × DOM do `package:xml` (par à parte, `--doc-adapter`); e a leitura de CSS do Galley × `package:csslib` (par à parte, `--css-adapter`) | relatório; não bloqueia antes da 1.0 |
 | `size` | CI noturno e local | bytes que o Galley acrescenta ao APK release arm64 | teto de **2 MiB** (2.097.152 bytes); acima disso sai com 1 |
-| `wide` | CI noturno e local | robustez: abre e lê todos os recursos de 300 livros do Project Gutenberg (`corpus/pg-wide.json`), parseia todos os documentos do spine e conta por classe | sai com 1 **só** se houver `crashed` (exceção que não é `GalleyException`: bug do Galley) |
+| `wide` | CI noturno e local | robustez: abre e lê todos os recursos de 300 livros do Project Gutenberg (`corpus/pg-wide.json`), parseia e estiliza todos os documentos do spine e conta por classe | sai com 1 **só** se houver `crashed` (exceção que não é `GalleyException`: bug do Galley) |
 | `docdiff` | CI noturno e local | diferencial: em cada documento do spine do corpus público, a árvore do Galley × o DOM do `package:xml` | sai com 1 se houver **divergência** ou **erro interno** (bug do Galley); 70 se nenhum documento foi comparado |
 
 Exemplos:
@@ -95,6 +95,42 @@ Zen 3 e Zen 5, nada em Zen 4. O gate reprovava sem mudança no container.
 Com o laço sobre `Uint8List` (sem chamadas), os mesmos deslocamentos ficam em
 ±1% nas três CPUs, e o laço é ~2× mais rápido.
 
+Caso do SP4 (PR #7): `container/zip-central-dir-2000` reprovou com +8,0%
+[+7,2, +8,5] num EPYC 7763 num commit só de documentação (o executável
+cresceu com o código de estilo; o container não mudou) e passou num Xeon
+8573C com o mesmo código. A leitura do diretório central fazia ~10 chamadas
+indiretas por entrada: `sublistView` do nome (`buffer`, `offsetInBytes`,
+`asUint8List`…), `replaceAll` e `split('/')` com `==` por segmento em
+`_isUnsafe`, `hashCode` num `Set` de vistos e de novo no mapa por nome,
+refeito no construtor sobre `entries.reversed`. Agora o nome é decodificado
+direto do buffer do diretório (`Utf8Decoder.convert(cd, start, end)`), um só
+laço sobre os bytes (`_scanName`) detecta `\`, não ASCII e caminho inseguro,
+e o índice por nome é montado uma vez no laço; por entrada só sobra o
+`hashCode` do mapa. No CI: −41,9% de instruções e −39% de tempo (Xeon
+8573C). Experimento no CI com o mesmo código do container e o layout da
+`main` contra o do PR: antes da correção (6 jobs) +8,1–8,4% em 7763, +6,5% em
+9V74, +3,7–4,7% em Xeon; depois (16 jobs), −0,5–+0,1% em 7763, −0,2–+0,1% em
+9V74, +0,3–2,1% em Xeon (8573C, 8370, 6973P, 6975P).
+
+Uma primeira versão checava o caminho inseguro com `codeUnitAt` sobre a
+`String` decodificada. Sem chamadas indiretas, mas o perfil (`perf` com
+`cpu-clock`, que funciona na VM do runner) de executáveis com o mesmo código
+do container e layout diferente mostrou esse laço 67% mais lento em Intel
+Xeon 6973P e 22–39% em Zen 4/Zen 5, e o benchmark ficava +4% nos Xeon. O
+laço sobre `Uint8List` (os bytes `/`, `\`, `.` e `:` são os mesmos em UTF-8
+e CP437) varia ≤ 6% no mesmo perfil. Isto é, além de chamadas indiretas, um
+laço sobre uma `String` (unidade de 1 ou 2 bytes) também pode ser sensível.
+
+Armadilha da mesma correção, pega pelo gate `instructions`: devolver as
+entradas e o índice num record (`({List<ZipEntry> entries, Map<…> byName})`)
+pelo `Future` de uma função `async` custava ~20 mil instruções por abertura.
+O `Future` confere o tipo do valor, e o teste de subtipo de um record com
+campos genéricos não entra no cache do AOT: vai ao runtime
+(`Instance::RuntimeTypeIsSubtypeOf`) a cada chamada. Os `open-*` (7 entradas
+por livro) ficaram +0,5–1,0% em instruções; com uma classe no lugar do
+record, −0,5–1,1%. Num caminho quente, não devolva record com tipos genéricos
+por `Future`.
+
 Não adotado: `--align_all_loops` (flag do `gen_snapshot`, via
 `--extra-gen-snapshot-options`). Alinha o cabeçalho dos laços a 32 bytes, mas
 os destinos das chamadas e o resto do layout continuam mudando: em Zen 5 o
@@ -111,17 +147,20 @@ prefira corrigir o laço (tipo exato, sem chamada por elemento). O limite de
 
 Baixa (uma vez; cache em `.corpus-cache/pg-wide/`, pausa de 2 s entre
 requisições ao espelho oficial) e abre os 300 livros de `corpus/pg-wide.json`,
-lendo cada recurso do manifest uma vez e parseando com `parseDocumentBytes`
-os bytes já lidos de cada documento do spine. Cada livro cai em uma classe:
+lendo cada recurso do manifest uma vez (os bytes ficam num mapa que serve de
+resolvedor de recursos do estilo) e, depois, parseando com
+`parseDocumentBytes` e estilizando com `styleDocument` (página 600 × 800, sem
+preferências) os bytes já lidos de cada documento do spine, com um
+`BookStyleContext` por livro. Cada livro cai em uma classe:
 `ok`, `diagnostics-error`, `failed` (`GalleyException`), `crashed` (qualquer
 outra exceção, ou um documento com `internalError`, a exceção inesperada que
-o leitor de documentos capturou: bug), `drift` (o PG regerou o arquivo;
+o leitor de documentos ou o de estilo capturou: bug), `drift` (o PG regerou o arquivo;
 `sha256` mudou) ou `unavailable` (404, rede, prazo). O BMF traz
 `wide/<classe>` com `count`, e o resumo lista os números dos ebooks de cada
 classe que importa (para `crashed`, com o início da stack e, num
 `internalError`, o tipo da exceção e o caminho do documento). Os documentos
 que caíram no modo tolerante não reprovam: são contados (`wide/documents` e
-`wide/documents-tolerant` no BMF; no resumo, os livros que os têm). Só
+`wide/documents-tolerant` e `wide/documents-styled` no BMF; no resumo, os livros que os têm). Só
 `crashed` reprova. Como e por que os 300 livros foram escolhidos:
 `corpus/README.md`. Um `Retry-After` longo (acima de 2 min) faz o `wide`
 parar de pedir ao espelho: os livros que ainda não estão no cache viram
@@ -385,7 +424,31 @@ que criar. Ao concluir um subprojeto, esta lista deve ser cumprida:
       (`retainedBytes` ÷ bytes do XHTML ≤ K). Diferencial noturno, que
       reprova: `docdiff` (árvore × DOM do `package:xml` no corpus
       público); o `wide` parseia todos os documentos do spine.
-- [ ] **SP4, estilo:** cascata e seletores.
+- [x] **SP4, estilo:** cascata e seletores. Catálogo: `style/parse-sheet-256kib`
+      (`buildStyleSheet` sobre uma folha sintética de 256 KiB),
+      `style/full-large-1mib` (`matchDocument` + `restyle` do XHTML sintético
+      de 1 MiB com a folha de editora de ~40 KiB, contexto aquecido no `setUp`,
+      como num capítulo N), `style/restyle-large-1mib` (só o `restyle` sobre o
+      casamento guardado, com Literata, tamanho 1,2 e tema escuro),
+      `style/match-descendant-heavy` (2.000 regras descendentes no mesmo XHTML)
+      e `style/spine-hm-<livro>` (`styleDocument` em todo o spine de cada livro
+      `hm/*` bem formado). Ciclos de ~30–40 ms nativos, salvo `restyle-large-1mib` (~4 ms, um único `restyle`), `full-large-1mib`
+      (~59 ms) e `match-descendant-heavy` (~75 ms), cujo trabalho prescrito
+      (1 MiB, 2.000 regras) não cabe em 50 ms. **Meta da spec como registro
+      permanente:** o `restyle` custa no máximo 1/5 do estilo completo do mesmo
+      capítulo; `test/suites_style_test.dart` (tag `slow`, `-t slow`) conta as
+      instruções das duas suítes (casamento + um `restyle` contra um `restyle`)
+      e exige razão ≥ 5. Comparação informativa,
+      sem gate, no `compare`: `buildStyleSheet` × `parse` do `package:csslib`
+      (versão fixada em `pubspec.yaml`, só aqui, nunca no pacote `galley`) em
+      `hm/publisher-css`, nos livros do corpus público e em
+      `synthetic/css-256kib`, com `wall-time-ns` e `peak-rss-bytes` em
+      `compare/galley-css/parse/<livro>` e `compare/csslib/parse/<livro>`.
+      Teto de memória no pacote `galley`:
+      `test/features/style/memory_counter_test.dart`. Razão `full`/`restyle`
+      medida (registro permanente, acima). O `wide` estiliza todos os
+      documentos do spine (`wide/documents-styled`); erro interno de estilo
+      reprova (`crashed`).
 - [ ] **SP5, layout:** paginação, repaginação ao mudar a fonte, medição
       fatiada.
 - [ ] **SP6, render e API:** FPS/jank, memória real em dispositivo,

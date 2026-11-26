@@ -23,9 +23,9 @@ const int _maxComment = 65535;
 
 /// Leitor preguiçoso de zip: lê só o diretório central na abertura.
 final class ZipArchive {
-  ZipArchive._(this._source, this.limits, this._sink, List<ZipEntry> entries)
-    : entries = List.unmodifiable(entries),
-      _byName = {for (final e in entries.reversed) e.name: e};
+  ZipArchive._(this._source, this.limits, this._sink, _Directory directory)
+    : entries = List.unmodifiable(directory.entries),
+      _byName = directory.byName;
 
   /// Abre o zip em [source], lendo o diretório central.
   ///
@@ -38,8 +38,8 @@ final class ZipArchive {
     ZipLimits limits = const ZipLimits(),
     DiagnosticSink sink = const NullDiagnosticSink(),
   }) async {
-    final entries = await _readDirectory(source, limits, sink);
-    return ZipArchive._(source, limits, sink, entries);
+    final directory = await _readDirectory(source, limits, sink);
+    return ZipArchive._(source, limits, sink, directory);
   }
 
   final ByteSource _source;
@@ -222,7 +222,22 @@ final class _BoundedSink implements Sink<List<int>> {
 CorruptArchiveException _corrupt(String detail) =>
     CorruptArchiveException('Zip inconsistente: $detail.');
 
-Future<List<ZipEntry>> _readDirectory(
+/// Entradas na ordem do diretório central e o índice por nome, montados na
+/// mesma passada.
+///
+/// Classe, não record: o `Future` de [_readDirectory] confere o tipo do
+/// valor, e um record com campos genéricos (`List<ZipEntry>`, `Map<…>`) não
+/// cabe no cache de testes de subtipo do AOT. Cada abertura ia ao runtime
+/// (`Instance::RuntimeTypeIsSubtypeOf`): ~20 mil instruções por abertura, o
+/// dobro do leitor inteiro de um EPUB pequeno.
+final class _Directory {
+  _Directory(this.entries, this.byName);
+
+  final List<ZipEntry> entries;
+  final Map<String, ZipEntry> byName;
+}
+
+Future<_Directory> _readDirectory(
   ByteSource source,
   ZipLimits limits,
   DiagnosticSink sink,
@@ -287,19 +302,32 @@ Future<List<ZipEntry>> _readDirectory(
   return _parseEntries(cd, count, sink, total);
 }
 
-List<ZipEntry> _parseEntries(
+/// Lê as [count] entradas do diretório central [cd].
+///
+/// Laço quente da abertura (uma volta por entrada; 2000 entradas no benchmark
+/// `container/zip-central-dir-2000`). Sem chamadas pela tabela de despacho
+/// por entrada além do inevitável (`hashCode` no índice): o nome sai direto
+/// de [cd] (sem `sublistView`), um laço sobre os bytes ([_scanName]) detecta
+/// `\`, não ASCII e caminho inseguro (sem `split`) e o índice por nome é
+/// montado aqui, uma vez, no lugar de um
+/// `Set` de vistos mais um mapa refeito no construtor. A versão anterior
+/// fazia ~10 chamadas indiretas por entrada e, como o `crc32` no SP3, era
+/// sensível ao layout do executável AOT: +8% em AMD EPYC 7763 só porque o
+/// executável cresceu (benchmark/README.md, modo `ab`).
+_Directory _parseEntries(
   Uint8List cd,
   int count,
   DiagnosticSink sink,
   int sourceLength,
 ) {
   final view = ByteData.sublistView(cd);
+  final cdLength = cd.length;
   final entries = <ZipEntry>[];
-  final seen = <String>{};
+  final byName = <String, ZipEntry>{};
   var pos = 0;
 
   for (var n = 0; n < count; n++) {
-    if (pos + 46 > cd.length || view.getUint32(pos, Endian.little) != _cdSig) {
+    if (pos + 46 > cdLength || view.getUint32(pos, Endian.little) != _cdSig) {
       throw _corrupt('entrada $n do diretório central inválida');
     }
     final flags = view.getUint16(pos + 8, Endian.little);
@@ -315,39 +343,20 @@ List<ZipEntry> _parseEntries(
     final nameStart = pos + 46;
     final extraStart = nameStart + nameLen;
     final next = extraStart + extraLen + commentLen;
-    if (next > cd.length) throw _corrupt('entrada $n ultrapassa o diretório');
+    if (next > cdLength) throw _corrupt('entrada $n ultrapassa o diretório');
 
-    // Extra ZIP64 (0x0001): só traz os campos que estavam saturados, nesta
-    // ordem: tamanho descomprimido, comprimido, offset.
     if (uncompressed == 0xFFFFFFFF ||
         compressed == 0xFFFFFFFF ||
         offset == 0xFFFFFFFF) {
-      var e = extraStart;
-      final extraEnd = extraStart + extraLen;
-      var found = false;
-      while (e + 4 <= extraEnd) {
-        final id = view.getUint16(e, Endian.little);
-        final size = view.getUint16(e + 2, Endian.little);
-        final body = e + 4;
-        if (body + size > extraEnd) break;
-        if (id == 0x0001) {
-          var p = body;
-          int take() {
-            if (p + 8 > body + size) throw _corrupt('extra ZIP64 truncado');
-            final v = view.getUint64(p, Endian.little);
-            p += 8;
-            return v;
-          }
-
-          if (uncompressed == 0xFFFFFFFF) uncompressed = take();
-          if (compressed == 0xFFFFFFFF) compressed = take();
-          if (offset == 0xFFFFFFFF) offset = take();
-          found = true;
-          break;
-        }
-        e = body + size;
-      }
-      if (!found) throw _corrupt('extra ZIP64 ausente na entrada $n');
+      (uncompressed, compressed, offset) = _zip64Extra(
+        view,
+        extraStart,
+        extraStart + extraLen,
+        n,
+        uncompressed,
+        compressed,
+        offset,
+      );
     }
 
     if (compressed < 0 || uncompressed < 0 || offset < 0) {
@@ -357,11 +366,11 @@ List<ZipEntry> _parseEntries(
       throw _corrupt('offset do cabeçalho local fora da fonte na entrada $n');
     }
 
-    final rawName = Uint8List.sublistView(cd, nameStart, extraStart);
     pos = next;
 
-    final name = _decodeName(rawName, flags, sink);
-    if (_isUnsafe(name)) {
+    final scan = _scanName(cd, nameStart, extraStart);
+    final name = _decodeName(cd, nameStart, extraStart, scan, flags, sink);
+    if (scan & _nameUnsafe != 0) {
       sink.report(
         Diagnostic(
           severity: DiagnosticSeverity.warning,
@@ -372,7 +381,17 @@ List<ZipEntry> _parseEntries(
       );
       continue;
     }
-    if (!seen.add(name)) {
+    final entry = ZipEntry(
+      name: name,
+      method: method,
+      compressedSize: compressed,
+      uncompressedSize: uncompressed,
+      crc32: crc,
+      localHeaderOffset: offset,
+      isEncrypted: flags & 0x1 != 0,
+    );
+    // Com nome repetido, `??=` devolve a entrada já indexada.
+    if (!identical(byName[name] ??= entry, entry)) {
       sink.report(
         Diagnostic(
           severity: DiagnosticSeverity.warning,
@@ -383,30 +402,119 @@ List<ZipEntry> _parseEntries(
       );
       continue;
     }
-    entries.add(
-      ZipEntry(
-        name: name,
-        method: method,
-        compressedSize: compressed,
-        uncompressedSize: uncompressed,
-        crc32: crc,
-        localHeaderOffset: offset,
-        isEncrypted: flags & 0x1 != 0,
-      ),
-    );
+    entries.add(entry);
   }
-  return entries;
+  return _Directory(entries, byName);
 }
 
-String _decodeName(Uint8List raw, int flags, DiagnosticSink sink) {
+/// Lê o extra ZIP64 (0x0001) em `[start, end)`: só traz os campos que
+/// estavam saturados, nesta ordem: tamanho descomprimido, comprimido, offset.
+///
+/// Fora do laço de [_parseEntries] para que o fecho `take` não aloque um
+/// contexto a cada entrada.
+(int, int, int) _zip64Extra(
+  ByteData view,
+  int start,
+  int end,
+  int n,
+  int uncompressed,
+  int compressed,
+  int offset,
+) {
+  var e = start;
+  while (e + 4 <= end) {
+    final id = view.getUint16(e, Endian.little);
+    final size = view.getUint16(e + 2, Endian.little);
+    final body = e + 4;
+    if (body + size > end) break;
+    if (id == 0x0001) {
+      var p = body;
+      int take() {
+        if (p + 8 > body + size) throw _corrupt('extra ZIP64 truncado');
+        final v = view.getUint64(p, Endian.little);
+        p += 8;
+        return v;
+      }
+
+      if (uncompressed == 0xFFFFFFFF) uncompressed = take();
+      if (compressed == 0xFFFFFFFF) compressed = take();
+      if (offset == 0xFFFFFFFF) offset = take();
+      return (uncompressed, compressed, offset);
+    }
+    e = body + size;
+  }
+  throw _corrupt('extra ZIP64 ausente na entrada $n');
+}
+
+const Utf8Decoder _utf8Strict = Utf8Decoder();
+const Utf8Decoder _utf8Lenient = Utf8Decoder(allowMalformed: true);
+
+/// Bits de [_scanName].
+const int _nameNonAscii = 1;
+const int _nameBackslash = 2;
+const int _nameUnsafe = 4;
+
+/// Uma passada sobre os bytes do nome em `cd[start, end)`: diz se há byte
+/// não ASCII, se há `\` e se o caminho é inseguro (absoluto, com letra de
+/// unidade ou com um segmento `..`, com `/` ou `\` como separador).
+///
+/// Nos bytes, não na `String`: `/`, `\`, `.` e `:` são os mesmos bytes em
+/// UTF-8 e em CP437 e nunca aparecem dentro de uma sequência multibyte do
+/// UTF-8 (nem são engolidos pela troca de UTF-8 malformado por U+FFFD), então
+/// o resultado é o mesmo que olhar o nome decodificado. Um laço sobre
+/// `Uint8List` é estável entre CPUs; o laço anterior, com `codeUnitAt` na
+/// `String` (que pode ser de 1 ou 2 bytes por unidade), ficava até 67% mais
+/// lento em Intel Xeon 6973P só porque o executável mudou.
+int _scanName(Uint8List cd, int start, int end) {
+  var result = 0;
+  var segment = 0;
+  var dots = 0;
+  for (var i = start; i < end; i++) {
+    final b = cd[i];
+    if (b == 0x2F || b == 0x5C) {
+      if (b == 0x5C) result |= _nameBackslash;
+      if (segment == 2 && dots == 2) result |= _nameUnsafe;
+      segment = 0;
+      dots = 0;
+    } else {
+      if (b >= 0x80) {
+        result |= _nameNonAscii;
+      } else if (b == 0x2E) {
+        dots++;
+      }
+      segment++;
+    }
+  }
+  if (segment == 2 && dots == 2) result |= _nameUnsafe;
+  if (end > start) {
+    final first = cd[start];
+    if (first == 0x2F || first == 0x5C) result |= _nameUnsafe;
+    if (end - start >= 2 && cd[start + 1] == 0x3A) {
+      final c = first | 0x20;
+      if (c >= 0x61 && c <= 0x7A) result |= _nameUnsafe;
+    }
+  }
+  return result;
+}
+
+/// Nome em `cd[start, end)`, com `\` trocada por `/`; [scan] vem de
+/// [_scanName].
+String _decodeName(
+  Uint8List cd,
+  int start,
+  int end,
+  int scan,
+  int flags,
+  DiagnosticSink sink,
+) {
   String decoded;
-  if (flags & 0x800 != 0) {
-    decoded = utf8.decode(raw, allowMalformed: true);
+  if (scan & _nameNonAscii == 0 || flags & 0x800 != 0) {
+    decoded = _utf8Lenient.convert(cd, start, end);
   } else {
     try {
-      decoded = utf8.decode(raw);
+      decoded = _utf8Strict.convert(cd, start, end);
     } on FormatException {
-      decoded = decodeCp437(raw);
+      decoded = decodeCp437(Uint8List.sublistView(cd, start, end));
       sink.report(
         Diagnostic(
           severity: DiagnosticSeverity.info,
@@ -417,14 +525,5 @@ String _decodeName(Uint8List raw, int flags, DiagnosticSink sink) {
       );
     }
   }
-  return decoded.replaceAll(r'\', '/');
-}
-
-bool _isUnsafe(String name) {
-  if (name.startsWith('/')) return true;
-  if (name.length >= 2 && name.codeUnitAt(1) == 0x3A) {
-    final c = name.codeUnitAt(0) | 0x20;
-    if (c >= 0x61 && c <= 0x7A) return true;
-  }
-  return name.split('/').contains('..');
+  return scan & _nameBackslash != 0 ? decoded.replaceAll(r'\', '/') : decoded;
 }

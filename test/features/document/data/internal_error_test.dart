@@ -19,7 +19,9 @@ void main() {
       '<p>aberto</div>',
       '',
     ]) {
-      expect(_parse(source).internalError, isNull, reason: source);
+      final doc = _parse(source);
+      expect(doc.internalError, isNull, reason: source);
+      expect(doc.path, 'OEBPS/ch1.xhtml', reason: source);
     }
   });
 
@@ -33,6 +35,7 @@ void main() {
         () => throw StateError('bug no montador'),
       );
       expect(doc.internalError, 'StateError');
+      expect(doc.path, 'OEBPS/ch1.xhtml');
       expect(doc.recovered, isTrue);
       final error = doc.diagnostics.single;
       expect(error.code, DiagnosticCodes.unparseable);

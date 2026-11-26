@@ -144,6 +144,7 @@ ParsedDocument _assemble(
     sink: _ListSink(diagnostics),
   );
   return ParsedDocument(
+    path: path,
     tree: tree,
     head: head,
     diagnostics: diagnostics,
@@ -171,6 +172,7 @@ ParsedDocument _unparseable(
     ..endElement()
     ..endElement();
   return ParsedDocument(
+    path: path,
     tree: builder.build(),
     head: DocumentHead.empty,
     diagnostics: [

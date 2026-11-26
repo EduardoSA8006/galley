@@ -44,7 +44,10 @@ const List<String> _prose = <String>[
 
 /// Gera um XHTML determinístico de pelo menos [targetBytes] bytes, com
 /// tabelas, *ruby*, MathML, `style=`, `class`, `id` e `epub:type`.
-Uint8List buildLargeXhtml(int targetBytes) {
+///
+/// [head] é inserido no fim do `<head>` (ex.: um `<link>` para uma folha);
+/// o padrão, vazio, mantém o documento dos benchmarks de documento.
+Uint8List buildLargeXhtml(int targetBytes, {String head = ''}) {
   final b = StringBuffer()
     ..write(
       '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html>\n'
@@ -52,7 +55,7 @@ Uint8List buildLargeXhtml(int targetBytes) {
       'xmlns:epub="http://www.idpf.org/2007/ops" '
       'xmlns:m="http://www.w3.org/1998/Math/MathML" lang="pt-BR">'
       '<head><title>Documento sintético</title>'
-      '<style>p.texto{margin:0}</style></head><body>',
+      '<style>p.texto{margin:0}</style>$head</head><body>',
     );
   var i = 0;
   while (b.length < targetBytes) {
@@ -139,10 +142,11 @@ Uint8List buildMalformedXhtml(int targetBytes) {
 int _checksum(ParsedDocument d) =>
     d.tree.nodeCount * 31 + d.tree.retainedBytes + d.diagnostics.length;
 
-/// Benchmark de documento: [_prepare] monta a entrada (fora da medição) e
-/// devolve o trabalho que `run` repete.
-final class _DocBench implements Bench {
-  _DocBench(this.id, this._prepare);
+/// Benchmark cujo `prepare` monta a entrada (fora da medição) e devolve o
+/// trabalho que `run` repete; usado também pelas suítes de estilo.
+final class PreparedBench implements Bench {
+  /// Cria o benchmark de [id].
+  PreparedBench(this.id, this._prepare);
 
   @override
   final String id;
@@ -160,8 +164,9 @@ final class _DocBench implements Bench {
   Future<void> tearDown() async => _work = null;
 }
 
-/// Livros `hm/*` bem formados (os `malformed-*` ficam de fora).
-const List<String> _books = <String>[
+/// Livros `hm/*` bem formados (os `malformed-*` ficam de fora); também
+/// medidos pelas suítes de estilo.
+const List<String> kHandmadeSpineBooks = <String>[
   'typography',
   'publisher-css',
   'tables',
@@ -210,17 +215,17 @@ Future<List<(Uint8List, String)>> _spineDocuments(String name) async {
 /// tolerante, transferência entre isolates e parse do spine dos livros
 /// `hm/*`.
 List<Bench> documentBenches() => <Bench>[
-  _DocBench('document/build-large-1mib', () async {
+  PreparedBench('document/build-large-1mib', () async {
     final bytes = buildLargeXhtml(kLargeXhtmlBytes);
     return () =>
         _checksum(parseDocumentBytes(bytes, path: 'OEBPS/grande.xhtml'));
   }),
-  _DocBench('document/build-dense-256kib', () async {
+  PreparedBench('document/build-dense-256kib', () async {
     final bytes = buildDenseXhtml(kDenseXhtmlBytes);
     return () =>
         _checksum(parseDocumentBytes(bytes, path: 'OEBPS/denso.xhtml'));
   }),
-  _DocBench('document/query-id-class', () async {
+  PreparedBench('document/query-id-class', () async {
     final document = parseDocumentBytes(
       buildLargeXhtml(kLargeXhtmlBytes),
       path: 'OEBPS/grande.xhtml',
@@ -236,7 +241,7 @@ List<Bench> documentBenches() => <Bench>[
       return sum;
     };
   }),
-  _DocBench('document/build-tolerant', () async {
+  PreparedBench('document/build-tolerant', () async {
     final bytes = buildMalformedXhtml(_tolerantBytes);
     return () {
       final d = parseDocumentBytes(bytes, path: 'OEBPS/ruim.xhtml');
@@ -246,7 +251,7 @@ List<Bench> documentBenches() => <Bench>[
   }),
   // Mede parse + spawn + transferência (não só o envio); a diferença para
   // `document/build-large-1mib` estima o custo da transferência.
-  _DocBench('document/transfer-large', () async {
+  PreparedBench('document/transfer-large', () async {
     final bytes = buildLargeXhtml(kLargeXhtmlBytes);
     return () async {
       final document = await Isolate.run(
@@ -255,8 +260,8 @@ List<Bench> documentBenches() => <Bench>[
       return _checksum(document);
     };
   }),
-  for (final name in _books)
-    _DocBench('document/parse-spine-hm-$name', () async {
+  for (final name in kHandmadeSpineBooks)
+    PreparedBench('document/parse-spine-hm-$name', () async {
       final documents = await _spineDocuments(name);
       final repeats = _spineRepeats[name]!;
       return () {

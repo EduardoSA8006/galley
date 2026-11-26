@@ -2,9 +2,16 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:galley/galley.dart';
 import 'package:galley/src/features/document/data/parse_document.dart';
+import 'package:galley/src/features/document/domain/parsed_document.dart';
+import 'package:galley/src/features/style/data/book_style_context.dart';
+import 'package:galley/src/features/style/data/style_document.dart';
+import 'package:galley/src/features/style/domain/reader_preferences.dart';
+import 'package:galley/src/features/style/domain/style_environment.dart';
+import 'package:galley/src/features/style/domain/styled_document.dart';
 
 import '../bmf.dart' as bmf;
 import '../corpus/fetcher.dart';
@@ -14,7 +21,7 @@ import 'docdiff.dart' show DocumentBytesParser, documentMediaTypes;
 
 /// Classe de resultado de um livro do corpus amplo.
 enum WideClass {
-  /// Abriu, leu todos os recursos, parseou os documentos do spine e não
+  /// Abriu, leu todos os recursos, parseou e estilizou os documentos do spine e não
   /// houve diagnóstico `error` no livro.
   ok('ok'),
 
@@ -50,6 +57,7 @@ final class WideResult {
     this.detail = '',
     this.documents = 0,
     this.tolerantDocuments = 0,
+    this.styledDocuments = 0,
   ]);
 
   /// O livro.
@@ -66,6 +74,9 @@ final class WideResult {
 
   /// Desses, quantos caíram no modo tolerante (não reprova).
   final int tolerantDocuments;
+
+  /// Documentos do spine estilizados sem erro interno.
+  final int styledDocuments;
 }
 
 /// O que o [WideReader] leu de um livro.
@@ -75,6 +86,7 @@ final class WideRead {
     required this.hasError,
     this.documents = 0,
     this.tolerantDocuments = 0,
+    this.styledDocuments = 0,
   });
 
   /// Se o livro teve diagnóstico `error`.
@@ -85,40 +97,86 @@ final class WideRead {
 
   /// Desses, quantos caíram no modo tolerante.
   final int tolerantDocuments;
+
+  /// Documentos do spine estilizados.
+  final int styledDocuments;
 }
 
 /// Abre [file], lê todos os recursos do manifest e parseia os documentos do
 /// spine. Pode lançar qualquer coisa; [runWide] classifica.
 typedef WideReader = Future<WideRead> Function(File file);
 
-/// Leitor padrão: `EpubBook.open`, leitura de todos os recursos do manifest
-/// (cada um uma vez) e [parse] (por padrão `parseDocumentBytes`) dos bytes
-/// já lidos de cada documento do spine (itens que não são documento ficam
-/// de fora).
+/// Estiliza um documento do spine no contexto de estilo do livro.
+typedef DocumentStyler = StyledDocument Function(
+  BookStyleContext context,
+  ParsedDocument document,
+);
+
+/// Estilizador padrão: `styleDocument` em uma página de 600 × 800 e sem
+/// preferências do leitor.
+StyledDocument defaultDocumentStyler(
+  BookStyleContext context,
+  ParsedDocument document,
+) => styleDocument(
+  context,
+  document,
+  const StyleEnvironment(pageWidth: 600, pageHeight: 800),
+  ReaderPreferences.none,
+);
+
+/// Leitor padrão: `EpubBook.open`, leitura de **todos** os recursos do
+/// manifest (cada um uma vez, guardados num mapa que serve de resolvedor de
+/// recursos do estilo, para as folhas já estarem disponíveis), depois
+/// [parse] (por padrão `parseDocumentBytes`) e [style] (por padrão
+/// [defaultDocumentStyler], com um `BookStyleContext` por livro) de cada
+/// documento do spine (itens que não são documento ficam de fora).
 ///
-/// Um documento com `internalError` (exceção inesperada capturada pelo
-/// leitor: bug do Galley) lança [WideInternalError], que [runWide] classifica
-/// como `crashed`.
+/// Um documento com `internalError` no parse ou no estilo (exceção inesperada
+/// capturada pelo leitor: bug do Galley) lança [WideInternalError], que
+/// [runWide] classifica como `crashed`.
 Future<WideRead> readWholeBook(
   File file, {
   DocumentBytesParser parse = parseDocumentBytes,
+  DocumentStyler style = defaultDocumentStyler,
 }) async {
   final book = await EpubBook.open(file.path);
   try {
-    final spineDocuments = {
+    // `itemref` repetido no spine é o mesmo documento: lido e estilizado
+    // uma vez só (deduplicado por caminho, na ordem do spine).
+    final seen = <String>{};
+    final spineDocuments = <ManifestItem>[
       for (final s in book.spine.items)
-        if (documentMediaTypes.contains(s.item.mediaType)) s.item.path,
-    };
+        if (documentMediaTypes.contains(s.item.mediaType) &&
+            seen.add(s.item.path))
+          s.item,
+    ];
+    final resources = <String, Uint8List>{};
+    for (final item in book.manifest.values) {
+      resources[item.path] = await book.resource(item.path);
+    }
+    final context = BookStyleContext(
+      resolve: (path) => resources[path],
+      bookKey: file.path,
+    );
     var documents = 0;
     var tolerant = 0;
-    for (final item in book.manifest.values) {
-      final bytes = await book.resource(item.path);
-      if (!spineDocuments.contains(item.path)) continue;
-      final parsed = parse(bytes, path: item.path, mediaType: item.mediaType);
+    var styled = 0;
+    for (final item in spineDocuments) {
+      final parsed = parse(
+        resources[item.path]!,
+        path: item.path,
+        mediaType: item.mediaType,
+      );
       final internal = parsed.internalError;
       if (internal != null) throw WideInternalError(item.path, internal);
       documents++;
       if (parsed.recovered) tolerant++;
+      final result = style(context, parsed);
+      final styleInternal = result.internalError;
+      if (styleInternal != null) {
+        throw WideInternalError(item.path, styleInternal);
+      }
+      styled++;
     }
     return WideRead(
       hasError: book.diagnostics.any(
@@ -126,6 +184,7 @@ Future<WideRead> readWholeBook(
       ),
       documents: documents,
       tolerantDocuments: tolerant,
+      styledDocuments: styled,
     );
   } finally {
     await book.close();
@@ -169,11 +228,14 @@ final class WideReport {
   int get tolerantDocuments =>
       results.fold(0, (s, r) => s + r.tolerantDocuments);
 
+  /// Documentos do spine estilizados, somando todos os livros.
+  int get styledDocuments => results.fold(0, (s, r) => s + r.styledDocuments);
+
   /// 1 só se houve `crashed`; as demais classes não reprovam.
   int get exitCode => counts[WideClass.crashed]! > 0 ? 1 : 0;
 
-  /// BMF com `wide/<classe>`, `wide/documents` e `wide/documents-tolerant`
-  /// → `count`.
+  /// BMF com `wide/<classe>`, `wide/documents`, `wide/documents-tolerant` e
+  /// `wide/documents-styled` → `count`.
   Map<String, Object> toBmf() => bmf.toBmf({
     for (final e in counts.entries)
       'wide/${e.key.slug}': [
@@ -188,6 +250,12 @@ final class WideReport {
         value: tolerantDocuments.toDouble(),
       ),
     ],
+    'wide/documents-styled': [
+      bmf.Measure(
+        slug: bmf.MeasureSlug.count,
+        value: styledDocuments.toDouble(),
+      ),
+    ],
   });
 
   /// Resumo em texto: contagem por classe e os livros de cada classe que
@@ -200,7 +268,7 @@ final class WideReport {
     }
     b.writeln(
       'documentos do spine: $documents '
-      '(modo tolerante: $tolerantDocuments)',
+      '(modo tolerante: $tolerantDocuments; estilizados: $styledDocuments)',
     );
     final tolerantBooks = [
       for (final r in results)
@@ -240,21 +308,25 @@ final class WideReport {
 ///
 /// [fetcher] e [reader] são injetáveis (padrões: [CorpusFetcher] com pausa de
 /// [pgPause] e [readWholeBook]); [documentParser] troca o parse de
-/// documentos do leitor padrão. Progresso em [log] (padrão: stderr).
+/// documentos e [documentStyler] o estilo do leitor padrão. Progresso em [log] (padrão: stderr).
 Future<WideReport> runWide(
   List<PgWideEntry> entries, {
   required Directory cacheDir,
   CorpusFetcher? fetcher,
   WideReader? reader,
   DocumentBytesParser? documentParser,
+  DocumentStyler? documentStyler,
   StringSink? log,
 }) async {
   final out = log ?? stderr;
   final f = fetcher ?? CorpusFetcher(cacheDir: cacheDir, pause: pgPause);
   final read =
       reader ??
-      (File file) =>
-          readWholeBook(file, parse: documentParser ?? parseDocumentBytes);
+      (File file) => readWholeBook(
+        file,
+        parse: documentParser ?? parseDocumentBytes,
+        style: documentStyler ?? defaultDocumentStyler,
+      );
   final results = <WideResult>[];
   try {
     var suspended = false; // o servidor pediu Retry-After: sem mais rede
@@ -336,6 +408,7 @@ Future<({WideResult result, Duration? retryAfter})> _classify(
         '',
         r.documents,
         r.tolerantDocuments,
+        r.styledDocuments,
       ),
       retryAfter: null,
     );

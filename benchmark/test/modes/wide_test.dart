@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:galley/src/features/document/data/parse_document.dart';
 import 'package:galley/src/features/document/domain/parsed_document.dart';
+import 'package:galley/src/features/style/domain/styled_document.dart';
 import 'package:galley_benchmark/src/corpus/fetcher.dart';
 import 'package:galley_benchmark/src/corpus/handmade.dart';
 import 'package:galley_benchmark/src/corpus/manifest.dart';
@@ -42,6 +43,7 @@ void main() {
     List<PgWideEntry> entries, {
     WideReader? reader,
     DocumentBytesParser? documentParser,
+    DocumentStyler? documentStyler,
   }) async {
     final fetcher = CorpusFetcher(cacheDir: cacheDir);
     addTearDown(fetcher.close);
@@ -51,6 +53,7 @@ void main() {
       fetcher: fetcher,
       reader: reader,
       documentParser: documentParser,
+      documentStyler: documentStyler,
       log: StringBuffer(),
     );
   }
@@ -148,6 +151,7 @@ void main() {
       documentParser: (bytes, {required path, mediaType = ''}) {
         final real = parseDocumentBytes(bytes, path: path);
         return ParsedDocument(
+          path: real.path,
           tree: real.tree,
           head: real.head,
           diagnostics: real.diagnostics,
@@ -164,6 +168,63 @@ void main() {
     expect(report.exitCode, 1);
   });
 
+  test('estilizador que lança StateError: crashed, exit 1', () async {
+    routes[12] = good;
+    final report = await run(
+      [entry(12)],
+      documentStyler: (context, document) => throw StateError('bug no estilo'),
+    );
+
+    final r = report.results.single;
+    expect(r.cls, WideClass.crashed);
+    expect(r.detail, contains('StateError'));
+    expect(r.detail, contains('bug no estilo'));
+    expect(report.exitCode, 1);
+  });
+
+  test('estilo com internalError: crashed com o tipo e o caminho', () async {
+    routes[13] = good;
+    final report = await run(
+      [entry(13)],
+      documentStyler: (context, document) {
+        final real = defaultDocumentStyler(context, document);
+        return StyledDocument(
+          styles: real.styles,
+          elementStyles: real.elementStyles,
+          pseudoElements: Int32List(0),
+          pseudoKinds: Uint8List(0),
+          pseudoStyles: Int32List(0),
+          generatedTexts: const [],
+          fontFaces: real.fontFaces,
+          pageMargins: real.pageMargins,
+          internalError: 'RangeError',
+        );
+      },
+    );
+
+    final r = report.results.single;
+    expect(r.cls, WideClass.crashed);
+    expect(r.detail, contains('RangeError'));
+    expect(r.detail, contains('.xhtml'));
+    expect(report.exitCode, 1);
+  });
+
+  test('hm/publisher-css: todos os documentos estilizados', () async {
+    final books = await buildHandmadeCorpus();
+    routes[14] = books['hm/publisher-css']!;
+    final report = await run([entry(14)]);
+
+    final r = report.results.single;
+    expect(r.cls, WideClass.ok);
+    expect(r.documents, greaterThan(0));
+    expect(r.styledDocuments, r.documents);
+    expect(report.styledDocuments, r.documents);
+    expect(report.summary(), contains('estilizados'));
+    expect((report.toBmf()['wide/documents-styled']! as Map)['count'], {
+      'value': r.styledDocuments.toDouble(),
+    });
+  });
+
   test('livro bom: parseia todos os documentos do spine', () async {
     routes[9] = good;
     final report = await run([entry(9)]);
@@ -174,6 +235,33 @@ void main() {
     expect(r.tolerantDocuments, 0);
     expect(report.summary(), contains('documentos do spine'));
   });
+
+  test(
+    'itemref repetido no spine: documento lido e estilizado uma vez',
+    () async {
+      routes[15] = buildMiniEpub(
+        [
+          '<html xmlns="$_xhtmlNs"><body><p>a</p></body></html>',
+          '<html xmlns="$_xhtmlNs"><body><p>b</p></body></html>',
+        ],
+        spine: [0, 1, 0, 1, 0],
+      );
+      final styledPaths = <String>[];
+      final report = await run(
+        [entry(15)],
+        documentStyler: (context, document) {
+          styledPaths.add(document.path);
+          return defaultDocumentStyler(context, document);
+        },
+      );
+
+      final r = report.results.single;
+      expect(r.cls, WideClass.ok);
+      expect(styledPaths, ['c0.xhtml', 'c1.xhtml']);
+      expect(r.documents, 2);
+      expect(r.styledDocuments, 2);
+    },
+  );
 
   test('documento no modo tolerante: contado, não reprova', () async {
     routes[10] = buildMiniEpub([

@@ -138,4 +138,44 @@ abstract final class DiagnosticCodes {
   /// `<link rel="stylesheet">` com href externo ou que escapa do zip;
   /// ignorado (info).
   static const String externalStyleSheet = 'document.externalStyleSheet';
+
+  /// Ponto de recuperação de erro na sintaxe CSS (declaração inválida, bloco
+  /// sem fechamento, aninhamento excessivo); o trecho é descartado (warning).
+  static const String cssParseError = 'css.parseError';
+
+  /// Seletor fora do suportado (pseudo desconhecido, `:has`, `:is`,
+  /// `:nth-child(… of S)`...) ou malformado; a regra inteira é descartada
+  /// (info).
+  static const String cssUnsupportedSelector = 'css.unsupportedSelector';
+
+  /// Propriedade fora do escopo do motor; declaração ignorada (info).
+  static const String cssUnsupportedProperty = 'css.unsupportedProperty';
+
+  /// Valor inválido para uma propriedade do escopo; declaração ignorada
+  /// (info).
+  static const String cssInvalidValue = 'css.invalidValue';
+
+  /// At-rule não suportada (`@keyframes`, `@layer`, `@page :first`...);
+  /// ignorada (info).
+  static const String cssUnsupportedAtRule = 'css.unsupportedAtRule';
+
+  /// `@font-face` sem família ou sem fonte utilizável; regra descartada
+  /// (warning).
+  static const String cssFontFaceInvalid = 'css.fontFaceInvalid';
+
+  /// `@import` que fecha um ciclo (a folha já está na cadeia de
+  /// importação); pulado (warning).
+  static const String cssImportCycle = 'css.importCycle';
+
+  /// `@import` além do limite de profundidade (8) ou de quantidade por folha
+  /// raiz (64); pulado (warning).
+  static const String cssImportLimit = 'css.importLimit';
+
+  /// Folha de estilo (ligada ou importada) ausente do livro (warning).
+  static const String cssMissingStyleSheet = 'css.missingStyleSheet';
+
+  /// Defeito interno (exceção inesperada) no casamento ou no `restyle`; o
+  /// documento cai para os estilos da folha padrão (error). Sinal de bug do
+  /// Galley.
+  static const String cssInternalError = 'css.internalError';
 }

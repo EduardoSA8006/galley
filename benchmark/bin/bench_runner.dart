@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:galley_benchmark/src/bench.dart';
 import 'package:galley_benchmark/src/catalog.dart';
+import 'package:galley_benchmark/src/competitors/css_adapter.dart';
 import 'package:galley_benchmark/src/competitors/document_adapter.dart';
 import 'package:galley_benchmark/src/competitors/epub_plus_adapter.dart';
 import 'package:galley_benchmark/src/competitors/epub_pro_adapter.dart';
@@ -25,6 +26,11 @@ import 'package:galley_benchmark/src/runner.dart';
 /// caminho de um `.epub` (documentos do spine) ou de um `.xhtml`, mede só o
 /// parse dos documentos (ver `runDocumentMeasure`); é a comparação
 /// informativa do parse do Galley contra o DOM do `package:xml`.
+///
+/// Com `--css-adapter` (`galley-css` ou `csslib`), `--measure parse` e o
+/// caminho de um `.epub` (todas as folhas `text/css` do manifest) ou de um
+/// `.css`, mede só a leitura das folhas (ver `runCssMeasure`); é a
+/// comparação informativa do Galley contra o `package:csslib`.
 ///
 /// Imprime a linha `checksum=<int>`; com `--timing`, imprime antes a linha
 /// `ns=<int>` (tempo de relógio das iterações 2 a n, sem `setUp`). Com `--list`, imprime os
@@ -51,6 +57,11 @@ Future<void> main(List<String> args) async {
       help: 'Parser de documento a medir (com --measure parse).',
     )
     ..addOption(
+      'css-adapter',
+      allowed: ['galley-css', 'csslib'],
+      help: 'Leitor de CSS a medir (com --measure parse).',
+    )
+    ..addOption(
       'measure',
       allowed: [...measureKinds, 'parse'],
       help: 'Medida do adaptador.',
@@ -75,19 +86,29 @@ Future<void> main(List<String> args) async {
         parsed.option('bench') == null &&
         parsed.option('measure-open') == null &&
         parsed.option('adapter') == null &&
-        parsed.option('doc-adapter') == null) {
+        parsed.option('doc-adapter') == null &&
+        parsed.option('css-adapter') == null) {
       throw const FormatException(
-        '--bench, --measure-open, --adapter ou --doc-adapter é obrigatório',
+        '--bench, --measure-open, --adapter, --doc-adapter ou --css-adapter '
+        'é obrigatório',
       );
     }
-    if (parsed.option('adapter') != null &&
-        parsed.option('doc-adapter') != null) {
+    // Sem closure capturando `parsed`: no Dart 3.14.0 o AOT quebra
+    // (linearscan.cc: unreachable code, passo AllocateRegisters) quando um
+    // final atribuído neste try, cujo catch termina em `await _exit(...)`,
+    // é capturado por closure e também lido depois do try.
+    var adapterFlags = 0;
+    for (final o in ['adapter', 'doc-adapter', 'css-adapter']) {
+      if (parsed.option(o) != null) adapterFlags++;
+    }
+    if (adapterFlags > 1) {
       throw const FormatException(
-        '--adapter e --doc-adapter não podem ser usados juntos',
+        '--adapter, --doc-adapter e --css-adapter não podem ser usados juntos',
       );
     }
     if ((parsed.option('adapter') != null ||
-            parsed.option('doc-adapter') != null) &&
+            parsed.option('doc-adapter') != null ||
+            parsed.option('css-adapter') != null) &&
         (parsed.option('measure') == null || parsed.rest.length != 1)) {
       throw const FormatException(
         '--adapter exige --measure e o caminho do livro',
@@ -102,6 +123,18 @@ Future<void> main(List<String> args) async {
       stdout.writeln(bench.id);
     }
     await _exit(0);
+  }
+  final cssAdapterName = parsed.option('css-adapter');
+  if (cssAdapterName != null) {
+    await _exit(
+      await runCssMeasure(
+        cssAdapterName == 'csslib' ? CsslibParser() : GalleyCssParser(),
+        parsed.option('measure')!,
+        parsed.rest.single,
+        out: stdout,
+        err: stderr,
+      ),
+    );
   }
   final docAdapterName = parsed.option('doc-adapter');
   if (docAdapterName != null) {

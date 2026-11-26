@@ -81,6 +81,108 @@ void main() {
     );
   });
 
+  test('segmento ".." em qualquer posição é inseguro; ".." dentro de um '
+      'nome não é', () async {
+    const unsafe = [
+      '..',
+      'a/..',
+      'a/../b',
+      '../a',
+      r'..\a',
+      r'a\..\b',
+      'C:x',
+      r'c:\x',
+      '/a',
+      r'\a',
+      'ç/..',
+      '../ç',
+      r'ç\..\x',
+    ];
+    const safe = [
+      'a..b',
+      '...',
+      'a/...',
+      '..a',
+      'a..',
+      'a/..b/c',
+      'a/b../c',
+      '.',
+      './a',
+      'a/./b',
+      '',
+      '1:x',
+      'ab:x',
+      'é..',
+      '..é/x',
+      'é:x',
+    ];
+    final sink = CollectingDiagnosticSink();
+    final b = ZipBuilder();
+    for (final name in [...unsafe, ...safe]) {
+      b.addFile(name, [1]);
+    }
+    final zip = await _open(b.build(), sink: sink);
+    expect(zip.entries.map((e) => e.name), safe);
+    expect(
+      sink.diagnostics.where((d) => d.code == DiagnosticCodes.zipUnsafePath),
+      hasLength(unsafe.length),
+    );
+  });
+
+  test('segmento ".." em nome CP437 e em UTF-8 malformado', () async {
+    final sink = CollectingDiagnosticSink();
+    final b = ZipBuilder()
+      // CP437 'é/..' e 'é\..\x'.
+      ..addRawName([0x82, 0x2F, 0x2E, 0x2E], [1])
+      ..addRawName([0x82, 0x5C, 0x2E, 0x2E, 0x5C, 0x78], [1])
+      // UTF-8 malformado com a flag: '�/../x'.
+      ..addRawName([0xFF, 0x2F, 0x2E, 0x2E, 0x2F, 0x78], [1], utf8Flag: true)
+      // Seguros: '�..' e 'é..'.
+      ..addRawName([0xFF, 0x2E, 0x2E], [1], utf8Flag: true)
+      ..addRawName([0x82, 0x2E, 0x2E], [1]);
+    final zip = await _open(b.build(), sink: sink);
+    expect(zip.entries.map((e) => e.name), ['�..', 'é..']);
+    expect(
+      sink.diagnostics.where((d) => d.code == DiagnosticCodes.zipUnsafePath),
+      hasLength(3),
+    );
+  });
+
+  test('nomes não ASCII e barra invertida em UTF-8 e CP437', () async {
+    final sink = CollectingDiagnosticSink();
+    final b = ZipBuilder()
+      ..addFile(r'capítulo\ção.xhtml', [1])
+      ..addFile(r'日本\語.xhtml', [1], utf8Flag: false)
+      // CP437: 0x82 = é, 0x5C = \.
+      ..addRawName([0x82, 0x5C, 0x61], [1])
+      // UTF-8 malformado com a flag: substituído, sem CP437.
+      ..addRawName([0x61, 0xFF, 0x5C, 0x62], [1], utf8Flag: true);
+    final zip = await _open(b.build(), sink: sink);
+    expect(zip.entries.map((e) => e.name), [
+      'capítulo/ção.xhtml',
+      '日本/語.xhtml',
+      'é/a',
+      'a\uFFFD/b',
+    ]);
+    expect(sink.diagnostics.map((d) => d.code), [
+      DiagnosticCodes.zipNameNotUtf8,
+    ]);
+  });
+
+  test('nome de 1 byte e muitas entradas, todas indexadas', () async {
+    final b = ZipBuilder();
+    for (var i = 0; i < 300; i++) {
+      b.addFile('OEBPS/t/c$i.xhtml', [i & 0xFF]);
+    }
+    b.addFile('z', [1]);
+    final zip = await _open(b.build());
+    expect(zip.entries, hasLength(301));
+    for (final e in zip.entries) {
+      expect(identical(zip.entry(e.name), e), isTrue);
+    }
+    expect(zip.entry('z')!.uncompressedSize, 1);
+  });
+
   test('duplicata mantém a primeira', () async {
     final sink = CollectingDiagnosticSink();
     final b = ZipBuilder()

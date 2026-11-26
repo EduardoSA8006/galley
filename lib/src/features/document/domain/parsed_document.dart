@@ -8,12 +8,18 @@ final class ParsedDocument {
   /// Cria o resultado; [diagnostics] é copiada para uma lista não
   /// modificável.
   ParsedDocument({
+    required this.path,
     required this.tree,
     required this.head,
     required List<Diagnostic> diagnostics,
     required this.recovered,
     this.internalError,
   }) : diagnostics = List.unmodifiable(diagnostics);
+
+  /// Caminho do documento no EPUB (o `path` da leitura): base das folhas
+  /// do `<head>`, de `url()` em `<style>`/`style=` e local dos
+  /// diagnósticos.
+  final String path;
 
   /// A árvore do documento.
   final DocumentTree tree;
