@@ -95,6 +95,42 @@ Zen 3 e Zen 5, nada em Zen 4. O gate reprovava sem mudança no container.
 Com o laço sobre `Uint8List` (sem chamadas), os mesmos deslocamentos ficam em
 ±1% nas três CPUs, e o laço é ~2× mais rápido.
 
+Caso do SP4 (PR #7): `container/zip-central-dir-2000` reprovou com +8,0%
+[+7,2, +8,5] num EPYC 7763 num commit só de documentação (o executável
+cresceu com o código de estilo; o container não mudou) e passou num Xeon
+8573C com o mesmo código. A leitura do diretório central fazia ~10 chamadas
+indiretas por entrada: `sublistView` do nome (`buffer`, `offsetInBytes`,
+`asUint8List`…), `replaceAll` e `split('/')` com `==` por segmento em
+`_isUnsafe`, `hashCode` num `Set` de vistos e de novo no mapa por nome,
+refeito no construtor sobre `entries.reversed`. Agora o nome é decodificado
+direto do buffer do diretório (`Utf8Decoder.convert(cd, start, end)`), um só
+laço sobre os bytes (`_scanName`) detecta `\`, não ASCII e caminho inseguro,
+e o índice por nome é montado uma vez no laço; por entrada só sobra o
+`hashCode` do mapa. No CI: −41,9% de instruções e −39% de tempo (Xeon
+8573C). Experimento no CI com o mesmo código do container e o layout da
+`main` contra o do PR: antes da correção (6 jobs) +8,1–8,4% em 7763, +6,5% em
+9V74, +3,7–4,7% em Xeon; depois (16 jobs), −0,5–+0,1% em 7763, −0,2–+0,1% em
+9V74, +0,3–2,1% em Xeon (8573C, 8370, 6973P, 6975P).
+
+Uma primeira versão checava o caminho inseguro com `codeUnitAt` sobre a
+`String` decodificada. Sem chamadas indiretas, mas o perfil (`perf` com
+`cpu-clock`, que funciona na VM do runner) de executáveis com o mesmo código
+do container e layout diferente mostrou esse laço 67% mais lento em Intel
+Xeon 6973P e 22–39% em Zen 4/Zen 5, e o benchmark ficava +4% nos Xeon. O
+laço sobre `Uint8List` (os bytes `/`, `\`, `.` e `:` são os mesmos em UTF-8
+e CP437) varia ≤ 6% no mesmo perfil. Isto é, além de chamadas indiretas, um
+laço sobre uma `String` (unidade de 1 ou 2 bytes) também pode ser sensível.
+
+Armadilha da mesma correção, pega pelo gate `instructions`: devolver as
+entradas e o índice num record (`({List<ZipEntry> entries, Map<…> byName})`)
+pelo `Future` de uma função `async` custava ~20 mil instruções por abertura.
+O `Future` confere o tipo do valor, e o teste de subtipo de um record com
+campos genéricos não entra no cache do AOT: vai ao runtime
+(`Instance::RuntimeTypeIsSubtypeOf`) a cada chamada. Os `open-*` (7 entradas
+por livro) ficaram +0,5–1,0% em instruções; com uma classe no lugar do
+record, −0,5–1,1%. Num caminho quente, não devolva record com tipos genéricos
+por `Future`.
+
 Não adotado: `--align_all_loops` (flag do `gen_snapshot`, via
 `--extra-gen-snapshot-options`). Alinha o cabeçalho dos laços a 32 bytes, mas
 os destinos das chamadas e o resto do layout continuam mudando: em Zen 5 o
